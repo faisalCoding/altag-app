@@ -1,16 +1,16 @@
 <?php
 
-use App\Models\User;
+use App\Models\Manager;
 
-test('guests are redirected to the login page', function () {
+test('guests are redirected to the home page', function () {
     $response = $this->get(route('dashboard'));
-    $response->assertRedirect(route('login'));
+    $response->assertRedirect(route('home'));
 });
 
-test('authenticated users can visit the dashboard', function () {
-    $user = User::factory()->create();
-    $this->actingAs($user);
+test('authenticated users are redirected to their specific dashboard', function () {
+    $user = Manager::factory()->create();
+    $this->actingAs($user, 'manager');
 
     $response = $this->get(route('dashboard'));
-    $response->assertOk();
+    $response->assertRedirect(route('manager.dashboard'));
 });

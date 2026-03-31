@@ -1,4 +1,5 @@
 @import 'tailwindcss';
+@import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;800&display=swap');
 @import '../../vendor/livewire/flux/dist/flux.css';
 
 @source '../views';
@@ -8,9 +9,19 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
-@theme {
-    --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+@import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;800&display=swap');
 
+@theme {
+    --font-sans: 'DIN Next Arabic', 'Tajawal', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+
+    /* Brand Colors (ui.json) */
+    --color-maroon: #7a2727;
+    --color-burgundy: #521f1e;
+    --color-red-secondary: #9d2e33;
+    --color-accent-dark: #3f1a19;
+    --color-neutral-grey: #6e6e6e;
+
+    /* Original Zing Colors */
     --color-zinc-50: #fafafa;
     --color-zinc-100: #f5f5f5;
     --color-zinc-200: #e5e5e5;
@@ -23,16 +34,17 @@
     --color-zinc-900: #171717;
     --color-zinc-950: #0a0a0a;
 
-    --color-accent: var(--color-neutral-800);
-    --color-accent-content: var(--color-neutral-800);
+    /* Flux Overrides */
+    --color-accent: var(--color-maroon);
+    --color-accent-content: var(--color-white);
     --color-accent-foreground: var(--color-white);
 }
 
 @layer theme {
     .dark {
-        --color-accent: var(--color-white);
+        --color-accent: var(--color-red-secondary);
         --color-accent-content: var(--color-white);
-        --color-accent-foreground: var(--color-neutral-800);
+        --color-accent-foreground: var(--color-maroon);
     }
 }
 

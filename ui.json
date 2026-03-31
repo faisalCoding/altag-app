@@ -1,0 +1,58 @@
+{
+    "brand_identity": {
+        "official_name": "مجمع التاج القرآني بجامع الزبيدي",
+        "location": {
+            "city": "جدة",
+            "district": "حي الواحة",
+            "landmark": "خلف المساحة الجيولوجية"
+        },
+        "contact": {
+            "phone": "0508822794"
+        },
+        "affiliation": "جمعية خيركم لتحفيظ القرآن بجدة"
+    },
+    "visual_elements": {
+        "logo_assets": {
+            "main_logo_description": "شعار خطي (مخطوطة) بكلمة 'التاج' داخل إطار يمثل محراب أو قبة يعلوها هلال",
+            "variations": [
+                "الملون الأساسي",
+                "الأبيض والأسود",
+                "الختم الرسمي الأزرق"
+            ]
+        },
+        "color_palette": {
+            "primary_maroon": "#7a2727",
+            "dark_burgundy": "#521f1e",
+            "secondary_red": "#9d2e33",
+            "accent_dark": "#3f1a19",
+            "neutral_grey": "#6e6e6e"
+        },
+        "typography": {
+            "primary_font_family": "DIN Next Arabic",
+            "weights_available": [
+                "Light",
+                "Regular",
+                "Medium"
+            ],
+            "usage": "يستخدم في العناوين والنصوص المتنية للموقع"
+        }
+    },
+    "design_components": {
+        "official_stationery": {
+            "header_elements": [
+                "المملكة العربية السعودية",
+                "جمعية خيركم",
+                "اسم المجمع"
+            ],
+            "footer_elements": [
+                "العنوان الوطني",
+                "رقم التواصل"
+            ]
+        },
+        "ui_ux_suggestions": {
+            "direction": "RTL (Right-to-Left)",
+            "theme_style": "Islamic Modern / Professional",
+            "iconography_style": "Line-based or Calligraphic elements"
+        }
+    }
+}
