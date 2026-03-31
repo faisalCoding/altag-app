@@ -1,6 +1,6 @@
 <div class="flex flex-col gap-6" dir="rtl">
     <div class="flex flex-col items-center gap-2 text-center">
-        <h1 class="text-2xl font-bold text-maroon dark:text-red-secondary">إنشاء حساب جديد</h1>
+        <h1 class="text-2xl font-bold text-white dark:text-white">إنشاء حساب جديد</h1>
         <p class="text-sm text-neutral-grey dark:text-zinc-400">سجل ك{{ $roleName }} في مجمع التاج</p>
     </div>
 
@@ -24,14 +24,19 @@
         <flux:input name="password_confirmation" :label="__('تأكيد كلمة المرور')" wire:model="password_confirmation"
             type="password" required autocomplete="new-password" :placeholder="__('تأكيد كلمة المرور')" viewable />
 
-        <flux:button type="submit" variant="primary" class="w-full h-11 text-lg font-bold bg-maroon hover:bg-burgundy dark:bg-red-secondary dark:hover:bg-maroon transition-colors" data-test="register-user-button">
+        <flux:button type="submit" variant="primary"
+            class="w-full h-11 text-lg font-bold bg-white hover:bg-burgundy dark:bg-white dark:hover:bg-maroon transition-colors"
+            data-test="register-user-button">
             {{ __('إنشاء الحساب') }}
         </flux:button>
     </form>
 
-    <div class="text-sm text-center text-zinc-600 dark:text-zinc-400 pt-4 border-t border-zinc-100 dark:border-zinc-800">
+    <div
+        class="text-sm text-center text-zinc-600 dark:text-zinc-400 pt-4 border-t border-zinc-100 dark:border-zinc-800">
         <span>{{ __('لديك حساب بالفعل؟') }}</span>
-        <flux:link :href="route($role . '.login')" wire:navigate class="font-bold text-maroon dark:text-red-secondary">
+        <flux:link :href="route($role.
+            '.login')" wire:navigate
+            class="font-bold text-white dark:text-white">
             {{ __('تسجيل الدخول') }}
         </flux:link>
     </div>
