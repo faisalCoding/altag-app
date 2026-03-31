@@ -3,15 +3,36 @@
 namespace App\Models;
 
 use App\Models\Concerns\HasProfile;
+use Database\Factories\StudentFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Fortify\TwoFactorAuthenticatable;
 
 class Student extends Authenticatable
 {
-    /** @use HasFactory<\Database\Factories\StudentFactory> */
+    /** @use HasFactory<StudentFactory> */
     use HasFactory, HasProfile, Notifiable, TwoFactorAuthenticatable;
+
+    /** @return BelongsTo<Circle, $this> */
+    public function circle(): BelongsTo
+    {
+        return $this->belongsTo(Circle::class);
+    }
+
+    /** @return BelongsTo<Guardian, $this> */
+    public function guardian(): BelongsTo
+    {
+        return $this->belongsTo(Guardian::class, 'guardian_id');
+    }
+
+    /** @return HasMany<Attendance, $this> */
+    public function attendances(): HasMany
+    {
+        return $this->hasMany(Attendance::class);
+    }
 
     /**
      * The attributes that are mass assignable.
@@ -22,6 +43,10 @@ class Student extends Authenticatable
         'name',
         'email',
         'password',
+        'is_approved',
+        'approved_by',
+        'circle_id',
+        'guardian_id',
     ];
 
     /**

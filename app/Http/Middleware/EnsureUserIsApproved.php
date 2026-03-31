@@ -15,9 +15,18 @@ class EnsureUserIsApproved
      */
     public function handle(Request $request, Closure $next): Response
     {
-        $user = $request->user();
+        // Try to get the user from any of our specific guards
+        $user = $request->user('manager')
+             ?? $request->user('supervisor')
+             ?? $request->user('teacher')
+             ?? $request->user('student')
+             ?? $request->user('guardian');
 
-        if (! $user || ! $user->is_approved) {
+        if (! $user) {
+            return $next($request);
+        }
+
+        if (! $user->is_approved) {
             return redirect()->route('pending-approval');
         }
 

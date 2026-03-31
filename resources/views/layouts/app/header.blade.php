@@ -3,8 +3,8 @@
     <head>
         @include('partials.head')
     </head>
-    <body class="min-h-screen bg-zinc-50 dark:bg-accent-dark text-black dark:text-white">
-        <flux:header container class="border-b border-zinc-200 bg-white dark:border-zinc-700 dark:bg-accent-dark">
+    <body class="min-h-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 antialiased">
+        <flux:header container class="border-b border-zinc-100 bg-white dark:border-zinc-800 dark:bg-zinc-900">
             <flux:sidebar.toggle class="lg:hidden ml-2" icon="bars-2" inset="right" />
 
             <x-app-logo href="{{ route('dashboard') }}" wire:navigate />
@@ -45,7 +45,7 @@
         </flux:header>
 
         <!-- Mobile Menu -->
-        <flux:sidebar collapsible="mobile" sticky class="lg:hidden border-e border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900">
+        <flux:sidebar collapsible="mobile" sticky class="lg:hidden border-e border-zinc-100 bg-white dark:border-zinc-800 dark:bg-zinc-900">
             <flux:sidebar.header>
                 <x-app-logo :sidebar="true" href="{{ route('dashboard') }}" wire:navigate />
                 <flux:sidebar.collapse class="in-data-flux-sidebar-on-desktop:not-in-data-flux-sidebar-collapsed-desktop:-mr-2" />
@@ -57,6 +57,26 @@
                         {{ __('Dashboard')  }}
                     </flux:sidebar.item>
                 </flux:sidebar.group>
+
+                @if(auth()->guard('manager')->check())
+                    <flux:sidebar.group heading="الإدارة" class="grid">
+                        <flux:sidebar.item icon="rectangle-stack" :href="route('manager.stages')" :current="request()->routeIs('manager.stages')" wire:navigate>
+                            المراحل التعليمية
+                        </flux:sidebar.item>
+                        <flux:sidebar.item icon="circle-stack" :href="route('manager.circles')" :current="request()->routeIs('manager.circles')" wire:navigate>
+                            الحلقات
+                        </flux:sidebar.item>
+                        <flux:sidebar.item icon="users" :href="route('manager.teachers')" :current="request()->routeIs('manager.teachers')" wire:navigate>
+                            المعلمون
+                        </flux:sidebar.item>
+                        <flux:sidebar.item icon="academic-cap" :href="route('manager.students')" :current="request()->routeIs('manager.students')" wire:navigate>
+                            الطلاب
+                        </flux:sidebar.item>
+                        <flux:sidebar.item icon="user-group" :href="route('manager.guardians')" :current="request()->routeIs('manager.guardians')" wire:navigate>
+                            الأوصياء
+                        </flux:sidebar.item>
+                    </flux:sidebar.group>
+                @endif
             </flux:sidebar.nav>
 
             <flux:spacer />

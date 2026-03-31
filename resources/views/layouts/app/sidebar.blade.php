@@ -3,19 +3,40 @@
     <head>
         @include('partials.head')
     </head>
-    <body class="min-h-screen bg-zinc-50 dark:bg-accent-dark">
-        <flux:sidebar sticky collapsible="mobile" class="border-e border-zinc-200 bg-white dark:border-zinc-700 dark:bg-accent-dark">
+    <body class="min-h-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 antialiased">
+        <flux:sidebar sticky collapsible="mobile" class="border-e border-zinc-100 bg-white dark:border-zinc-800 dark:bg-zinc-900">
             <flux:sidebar.header>
                 <x-app-logo :sidebar="true" href="{{ route('dashboard') }}" wire:navigate />
                 <flux:sidebar.collapse class="lg:hidden" />
             </flux:sidebar.header>
 
             <flux:sidebar.nav>
-                <flux:sidebar.group :heading="__('Platform')" class="grid">
-                    <flux:sidebar.item icon="home" :href="route('dashboard')" :current="request()->routeIs('dashboard')" wire:navigate>
-                        {{ __('Dashboard') }}
-                    </flux:sidebar.item>
-                </flux:sidebar.group>
+                @php
+                    $role = null;
+                    $guards = [
+                        'manager' => 'manager',
+                        'supervisor' => 'supervisor',
+                        'teacher' => 'teacher',
+                        'student' => 'student',
+                        'guardian' => 'guardian',
+                    ];
+                    foreach($guards as $roleKey => $guardName) {
+                        if (auth()->guard($guardName)->check()) {
+                            $role = $roleKey;
+                            break;
+                        }
+                    }
+                @endphp
+
+                @if($role && view()->exists("{$role}.sidebar-nav"))
+                    @include("{$role}.sidebar-nav")
+                @else
+                    <flux:sidebar.group :heading="__('Platform')" class="grid">
+                        <flux:sidebar.item icon="home" :href="route('dashboard')" :current="request()->routeIs('dashboard')" wire:navigate>
+                            {{ __('Dashboard') }}
+                        </flux:sidebar.item>
+                    </flux:sidebar.group>
+                @endif
             </flux:sidebar.nav>
 
             <flux:spacer />

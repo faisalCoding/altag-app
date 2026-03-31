@@ -1,25 +1,18 @@
 <?php
 
-namespace App\Livewire\Auth;
+namespace App\Livewire\Auth\Manager;
 
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
 use Livewire\Component;
 
-class RoleLogin extends Component
+class Login extends Component
 {
-    public string $role = 'student';
-    public string $roleName = '';
-    
     public string $email = '';
-    public string $password = '';
-    public bool $remember = false;
 
-    public function mount(string $role, string $roleName)
-    {
-        $this->role = $role;
-        $this->roleName = $roleName;
-    }
+    public string $password = '';
+
+    public bool $remember = false;
 
     public function login()
     {
@@ -28,16 +21,13 @@ class RoleLogin extends Component
             'password' => ['required', 'string'],
         ]);
 
-        $guard = $this->role === 'parent' ? 'guardian' : $this->role;
-
-        if (Auth::guard($guard)->attempt([
+        if (Auth::guard('manager')->attempt([
             'email' => $this->email,
             'password' => $this->password,
         ], $this->remember)) {
-            
             session()->regenerate();
-            
-            return redirect()->intended(route($this->role . '.dashboard'));
+
+            return redirect()->intended(route('manager.dashboard'));
         }
 
         throw ValidationException::withMessages([
@@ -47,7 +37,7 @@ class RoleLogin extends Component
 
     public function render()
     {
-        return view('livewire.auth.role-login')
-            ->layout('layouts.auth', ['title' => 'تسجيل الدخول - ' . $this->roleName]);
+        return view('livewire.auth.manager.login')
+            ->layout('layouts.auth', ['title' => 'تسجيل الدخول - مدير']);
     }
 }

@@ -4,14 +4,20 @@ namespace App\Models;
 
 use App\Models\Concerns\HasProfile;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Fortify\TwoFactorAuthenticatable;
 
 class Supervisor extends Authenticatable
 {
-    /** @use HasFactory<\Database\Factories\SupervisorFactory> */
     use HasFactory, HasProfile, Notifiable, TwoFactorAuthenticatable;
+
+    /** @return BelongsToMany<Stage, $this> */
+    public function stages(): BelongsToMany
+    {
+        return $this->belongsToMany(Stage::class, 'stage_supervisor', 'supervisor_id', 'stage_id');
+    }
 
     /**
      * The attributes that are mass assignable.
@@ -22,6 +28,8 @@ class Supervisor extends Authenticatable
         'name',
         'email',
         'password',
+        'is_approved',
+        'approved_by',
     ];
 
     /**

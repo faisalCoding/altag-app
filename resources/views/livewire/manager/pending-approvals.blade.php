@@ -1,13 +1,13 @@
 <div dir="rtl" class="space-y-6">
     <div class="flex items-center gap-3 mb-2">
-        <div class="p-2 rounded-lg bg-maroon/5 text-maroon dark:bg-red-secondary/10 dark:text-red-secondary">
+        <div class="p-2 rounded-lg bg-zinc-50 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
             <flux:icon icon="user-plus" />
         </div>
-        <flux:heading size="xl" class="font-bold">الموافقة على المستخدمين</flux:heading>
+        <flux:heading size="xl" class="font-bold text-zinc-900 dark:text-white">الموافقة على المستخدمين</flux:heading>
     </div>
 
     {{-- Tabs --}}
-    <div class="flex gap-1 bg-zinc-100 dark:bg-zinc-800 p-1 rounded-xl w-fit">
+    <div class="flex gap-1 bg-zinc-50 dark:bg-zinc-800 p-1 rounded-xl w-fit border border-zinc-100 dark:border-zinc-700">
         @php
             $tabs = [
                 'supervisor' => ['label' => 'المشرفون', 'color' => 'blue'],

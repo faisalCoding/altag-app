@@ -3,15 +3,23 @@
 namespace App\Models;
 
 use App\Models\Concerns\HasProfile;
+use Database\Factories\GuardianFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Fortify\TwoFactorAuthenticatable;
 
 class Guardian extends Authenticatable
 {
-    /** @use HasFactory<\Database\Factories\GuardianFactory> */
+    /** @use HasFactory<GuardianFactory> */
     use HasFactory, HasProfile, Notifiable, TwoFactorAuthenticatable;
+
+    /** @return HasMany<Student, $this> */
+    public function students(): HasMany
+    {
+        return $this->hasMany(Student::class);
+    }
 
     /**
      * The attributes that are mass assignable.
@@ -22,6 +30,8 @@ class Guardian extends Authenticatable
         'name',
         'email',
         'password',
+        'is_approved',
+        'approved_by',
     ];
 
     /**
