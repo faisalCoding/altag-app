@@ -61,6 +61,11 @@ class Student extends Authenticatable
         'two_factor_secret',
     ];
 
+    public function getGuardianPhoneAttribute()
+    {
+        return $this->guardian?->phone;
+    }
+
     /**
      * Get the attributes that should be cast.
      *

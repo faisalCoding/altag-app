@@ -30,6 +30,7 @@ class Guardian extends Authenticatable
         'name',
         'email',
         'password',
+        'phone',
         'is_approved',
         'approved_by',
     ];

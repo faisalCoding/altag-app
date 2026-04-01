@@ -18,7 +18,7 @@ class Attendance extends Component
 
     public string $date = '';
 
-    public $students = [];
+    public $students;
 
     /** @var array<int, string> student_id => status */
     public array $records = [];
@@ -29,6 +29,8 @@ class Attendance extends Component
 
     public function mount(): void
     {
+        
+        $this->students = collect();
         $this->date = now()->format('Y-m-d');
 
         $teacher = auth()->guard('teacher')->user();
@@ -38,6 +40,7 @@ class Attendance extends Component
             $this->selectedCircle = $this->circles->first()->id;
             $this->loadStudents();
         }
+        
     }
 
     public function updatedSelectedCircle(): void
@@ -66,7 +69,7 @@ class Attendance extends Component
 
         // Load existing attendance records for this date
         $existing = AttendanceModel::where('circle_id', $this->selectedCircle)
-            ->where('date', $this->date)
+            ->whereDate('date', $this->date)
             ->pluck('status', 'student_id')
             ->toArray();
 
@@ -136,6 +139,9 @@ class Attendance extends Component
         $teacher = auth()->guard('teacher')->user();
 
         foreach ($this->students as $student) {
+            if(AttendanceModel::whereDate('date', $this->date)->where('student_id', $student->id)->exists()){
+                continue;
+            }
             $this->records[$student->id] = 'present';
 
             AttendanceModel::updateOrCreate(
@@ -158,7 +164,15 @@ class Attendance extends Component
     private function saveRecord(int $studentId, string $status): void
     {
         $teacher = auth()->guard('teacher')->user();
-
+        if( AttendanceModel::whereDate('date', $this->date)->where('student_id', $studentId)->exists()){
+            AttendanceModel::whereDate('date', $this->date)->where('student_id', $studentId)->update([
+                'teacher_id' => $teacher->id,
+                'circle_id' => $this->selectedCircle,
+                'status' => $status,
+            ]);
+            Flux::toast('تم تحديث حالة الطالب بنجاح', variant: 'success');
+            return;
+        }
         AttendanceModel::updateOrCreate(
             [
                 'student_id' => $studentId,
