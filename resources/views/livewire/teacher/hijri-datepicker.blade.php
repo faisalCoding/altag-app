@@ -35,7 +35,7 @@
         </div>
 
         {{-- Days Grid --}}
-        <div class="grid grid-cols-7 gap-1 px-4 pb-4">
+        <div class="grid grid-cols-7 gap-1 px-3.5 pb-3.5">
             @foreach($days as $day)
                 @if($day === null)
                     <div class="h-16 w-full"></div>

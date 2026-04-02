@@ -7,7 +7,7 @@
         @include('teacher.sidebar-nav')
     </x-slot:sidebar>
 
-    <div class="p-6 md:p-8">
+    <div class="p-1 md:p-8">
         <livewire:teacher.attendance />
     </div>
 </x-layouts.role-shell>

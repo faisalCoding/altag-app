@@ -66,7 +66,7 @@
             <x-layouts.app.header-user-menu />
         </flux:header>
 
-        <flux:main>
+        <flux:main class="!p-1 md:p-8">
             {{ $slot }}
         </flux:main>
 
