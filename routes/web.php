@@ -54,6 +54,7 @@ Route::middleware(['auth:manager', 'approved'])->prefix('manager')->name('manage
     Route::view('/teachers', 'manager.teachers')->name('teachers');
     Route::view('/students', 'manager.students')->name('students');
     Route::view('/guardians', 'manager.guardians')->name('guardians');
+    Route::view('/attendance-reports', 'manager.attendance-reports')->name('attendance-reports');
 });
 
 // القاسم المشترك لمسارات الضيوف (Guest Routes) لكل دور

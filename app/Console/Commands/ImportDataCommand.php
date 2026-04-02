@@ -59,7 +59,10 @@ class ImportDataCommand extends Command
             $circles = [];
             $teachers = [];
             $students = [];
+            $teachers = [];
+            $students = [];
             $guardians = [];
+            $attendance = [];
             
             // Loop through JSON to categorize
             foreach ($jsonData as $item) {
@@ -75,8 +78,21 @@ class ImportDataCommand extends Command
                     $students[] = $item;
                 } elseif (isset($item['ولي الامر'])) {
                     $guardians[] = $item;
+                } elseif (isset($item['attendance_data'])) {
+                    $attendance = $item['attendance_data'];
                 }
             }
+
+            $this->info("Wiping existing data...");
+            DB::statement('PRAGMA foreign_keys = OFF');
+            DB::table('attendances')->truncate();
+            DB::table('students')->truncate();
+            DB::table('guardians')->truncate();
+            DB::table('teachers')->truncate();
+            DB::table('circles')->truncate();
+            DB::table('stages')->truncate();
+            DB::table('circle_teacher')->truncate(); // Correct pivot table name
+            DB::statement('PRAGMA foreign_keys = ON');
 
             // 1. Config Details (Manager)
             if ($configDetails) {
@@ -179,6 +195,48 @@ class ImportDataCommand extends Command
                 }
             }
             $this->info("Guardians imported.");
+
+            // 7. Attendance
+            if (!empty($attendance)) {
+                foreach ($attendance as $att) {
+                    \App\Models\Attendance::create([
+                        'student_id' => $att['student_id'],
+                        'teacher_id' => $att['teacher_id'] ?? null,
+                        'circle_id'  => $att['circle_id'],
+                        'date'       => $att['date'],
+                        'status'     => $att['status'],
+                        'notes'      => $att['notes'] ?? null,
+                    ]);
+                }
+                $this->info("Attendance records imported.");
+            } else {
+                // Optional: Generate some dummy attendance if empty to show reports
+                $this->info("No attendance data in JSON. Generating dummy records for the last 15 days...");
+                $allStudents = Student::all();
+                $statuses = ['present', 'present', 'present', 'absent', 'late', 'excused'];
+                
+                // Cache teachers by circle to avoid repeated queries
+                $circleTeachers = [];
+                
+                for ($i = 0; $i < 15; $i++) {
+                    $date = now()->subDays($i)->format('Y-m-d');
+                    foreach ($allStudents as $student) {
+                        if (!isset($circleTeachers[$student->circle_id])) {
+                            $circleTeachers[$student->circle_id] = DB::table('circle_teacher')
+                                ->where('circle_id', $student->circle_id)
+                                ->first()?->teacher_id;
+                        }
+
+                        \App\Models\Attendance::create([
+                            'student_id' => $student->id,
+                            'teacher_id' => $circleTeachers[$student->circle_id] ?? 1, // Fallback to 1 if no teacher
+                            'circle_id'  => $student->circle_id,
+                            'date'       => $date,
+                            'status'     => $statuses[array_rand($statuses)],
+                        ]);
+                    }
+                }
+            }
 
             DB::commit();
             $this->info("Data imported successfully!");

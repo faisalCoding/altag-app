@@ -26,4 +26,8 @@
             :current="request()->routeIs('manager.guardians')" wire:navigate>
             الأوصياء
         </flux:sidebar.item>
+        <flux:sidebar.item icon="chart-bar-square" :href="route('manager.attendance-reports')"
+            :current="request()->routeIs('manager.attendance-reports')" wire:navigate>
+            تقارير الحضور والغياب
+        </flux:sidebar.item>
     </flux:sidebar.group>

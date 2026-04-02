@@ -37,7 +37,7 @@
 
             <div class="w-full md:w-48 mt-auto relative z-50">
                 @if($selectedCircle)
-                    <livewire:teacher.hijri-datepicker wire:model.live="date" :circle-id="$selectedCircle" wire:key="datepicker-{{ $selectedCircle }}" style="justify-items: center;"/>
+                    <livewire:teacher.hijri-datepicker wire:model.live="date" :circle-id="$selectedCircle" wire:key="datepicker-{{ $selectedCircle }}" />
                 @else
                     <flux:input type="date" wire:model.live="date" label="التاريخ" disabled />
                 @endif
