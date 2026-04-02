@@ -12,7 +12,7 @@
 
     {{-- Dropdown Calendar --}}
     <div x-show="open" x-transition.opacity.duration.200ms style="display: none;" 
-         class="absolute z-50 top-full mt-2 w-104 sm:w-120 bg-white dark:bg-zinc-900 rounded-xl shadow-xl border border-zinc-200 dark:border-zinc-700 overflow-hidden" dir="rtl">
+         class="absolute z-50 top-full mt-2 w-96 sm:w-120 bg-white dark:bg-zinc-900 rounded-xl shadow-xl border border-zinc-200 dark:border-zinc-700 overflow-hidden" dir="rtl">
         
         {{-- Header: Month Navigation --}}
         <div class="flex items-center justify-between px-4 py-3 border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/50">
@@ -35,7 +35,7 @@
         </div>
 
         {{-- Days Grid --}}
-        <div class="grid grid-cols-7 gap-1 px-3.5 pb-3.5">
+        <div class="grid grid-cols-7 gap-0.5 px-1.5 pb-1.5">
             @foreach($days as $day)
                 @if($day === null)
                     <div class="h-16 w-full"></div>
