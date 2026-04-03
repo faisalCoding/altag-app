@@ -5,7 +5,7 @@
             <flux:subheading>إحصائيات مجمعة لتسجيلات الحضور والانصراف بحسب الفترات والمراحل.</flux:subheading>
         </div>
     </div>
-    <div class="flex flex-col items-center gap-3 flex-1 xl:justify-end">
+    <div class="flex flex-col items-center gap-1 flex-1 xl:justify-end">
             <flux:button wire:click="$set('showPrintModal', true)" icon="printer" variant="outline">طباعة تقرير</flux:button>
             <flux:modal wire:model="showPrintModal" class="min-w-[400px] overflow-visible">
                 <form wire:submit="downloadPDF" class="space-y-4">
@@ -25,29 +25,31 @@
             </flux:modal>
 
             {{-- Filter Toolbar --}}
-            <div class="flex items-start gap-3 bg-zinc-50 dark:bg-zinc-800/50 p-3 rounded-xl border border-zinc-200 dark:border-zinc-800">
+            <div class="flex flex-col items-center gap-3 bg-zinc-50 dark:bg-zinc-800/50 p-1 rounded-xl border border-zinc-200 dark:border-zinc-800">
                 <div class="flex flex-col gap-1">
                     <label class="text-xs font-medium text-zinc-500">نوع العرض</label>
                     <div class="flex p-0.5 bg-zinc-200 dark:bg-zinc-700 rounded-lg">
                     <button wire:click="$set('viewType', 'days')" class="px-3 py-1 text-xs font-medium rounded-md transition-all {{ $viewType === 'days' ? 'bg-white dark:bg-zinc-600 shadow-xs text-zinc-900 dark:text-white' : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300' }}">الأيام</button>
                     <button wire:click="$set('viewType', 'months')" class="px-3 py-1 text-xs font-medium rounded-md transition-all {{ $viewType === 'months' ? 'bg-white dark:bg-zinc-600 shadow-xs text-zinc-900 dark:text-white' : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300' }}">الأشهر</button>
+                    </div>
                 </div>
-            </div>
+            
 
-            <div class="flex flex-col gap-1 w-36">
-                <label class="text-xs font-medium text-zinc-500">من تاريخ</label>
-                <livewire:manager.hijri-datepicker wire:model.live="fromDate" label="من تاريخ" />
-            </div>
+            <div class="flex gap-1">
+                <div class="flex flex-col gap-1 w-36">
+                    <label class="text-xs font-medium text-zinc-500">من تاريخ</label>
+                    <livewire:manager.hijri-datepicker wire:model.live="fromDate" label="من تاريخ" />
+                </div>
 
-            <div class="flex flex-col gap-1 w-36">
-                <label class="text-xs font-medium text-zinc-500">إلى تاريخ</label>
-                <livewire:manager.hijri-datepicker wire:model.live="toDate" label="إلى تاريخ" />
-            </div>
+                <div class="flex flex-col gap-1 w-36">
+                    <label class="text-xs font-medium text-zinc-500">إلى تاريخ</label>
+                    <livewire:manager.hijri-datepicker wire:model.live="toDate" label="إلى تاريخ" />
+                </div>
 
-            <button wire:click="clearFilters" class="p-2 text-zinc-400 hover:text-red-500 transition-colors" title="مسح الفلاتر">
-                <flux:icon icon="x-mark" class="size-5" />
-            </button>
-            </div>
+                <button wire:click="clearFilters" class="p-2 text-zinc-400 hover:text-red-500 transition-colors" title="مسح الفلاتر">
+                    <flux:icon icon="x-mark" class="size-5" />
+                </button>
+            </div>  
         </div>
 
     <div class="flex items-center justify-center m-6 gap-2 border-b border-zinc-200 dark:border-zinc-800 pb-3 mb-6">
