@@ -34,12 +34,12 @@
                 </div>
             </div>
 
-            <div class="flex flex-col gap-1 w-44">
+            <div class="flex flex-col gap-1 w-36">
                 <label class="text-xs font-medium text-zinc-500">من تاريخ</label>
                 <livewire:manager.hijri-datepicker wire:model.live="fromDate" label="من تاريخ" />
             </div>
 
-            <div class="flex flex-col gap-1 w-44">
+            <div class="flex flex-col gap-1 w-36">
                 <label class="text-xs font-medium text-zinc-500">إلى تاريخ</label>
                 <livewire:manager.hijri-datepicker wire:model.live="toDate" label="إلى تاريخ" />
             </div>
