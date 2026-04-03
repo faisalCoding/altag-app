@@ -20,5 +20,9 @@
         <div class="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-100 dark:border-zinc-800 p-6 shadow-xs overflow-hidden">
             <livewire:manager.pending-approvals />
         </div>
+
+        <div>
+            <livewire:manager.ai-assistant />
+        </div>
     </div>
 </x-layouts.role-shell>

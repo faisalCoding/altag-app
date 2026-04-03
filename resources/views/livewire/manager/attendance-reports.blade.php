@@ -1,20 +1,20 @@
 <div>
-    <div class="mb-6 flex flex-col xl:flex-row xl:items-end justify-between gap-4">
+    <div class="m-6 flex flex-col xl:flex-row xl:items-end justify-between gap-4">
         <div>
             <flux:heading size="xl" class="font-bold">تقارير الحضور والغياب</flux:heading>
             <flux:subheading>إحصائيات مجمعة لتسجيلات الحضور والانصراف بحسب الفترات والمراحل.</flux:subheading>
         </div>
-
-        <div class="flex flex-wrap items-center gap-3 flex-1 xl:justify-end">
+    </div>
+    <div class="flex flex-col items-center gap-3 flex-1 xl:justify-end">
             <flux:button wire:click="$set('showPrintModal', true)" icon="printer" variant="outline">طباعة تقرير</flux:button>
-            <flux:modal wire:model="showPrintModal" class="min-w-[400px]">
+            <flux:modal wire:model="showPrintModal" class="min-w-[400px] overflow-visible">
                 <form wire:submit="downloadPDF" class="space-y-4">
                     <flux:heading size="lg">طباعة تقرير الحضور</flux:heading>
                     <flux:subheading>حدد الفترة لاستخراج جدول الحضور والغياب كملف PDF.</flux:subheading>
                     
                     <div class="space-y-4 my-4">
-                        <flux:input type="date" wire:model="printFrom" label="من تاريخ" required />
-                        <flux:input type="date" wire:model="printTo" label="إلى تاريخ" required />
+                        <livewire:manager.hijri-datepicker wire:model="printFrom" label="تاريخ البداية (من)" />
+                        <livewire:manager.hijri-datepicker wire:model="printTo" label="تاريخ النهاية (إلى)" />
                     </div>
 
                     <div class="flex justify-end gap-2">
@@ -25,7 +25,7 @@
             </flux:modal>
 
             {{-- Filter Toolbar --}}
-            <div class="flex flex-wrap items-end gap-3 bg-zinc-50 dark:bg-zinc-800/50 p-3 rounded-xl border border-zinc-200 dark:border-zinc-800">
+            <div class="flex items-start gap-3 bg-zinc-50 dark:bg-zinc-800/50 p-3 rounded-xl border border-zinc-200 dark:border-zinc-800">
                 <div class="flex flex-col gap-1">
                     <label class="text-xs font-medium text-zinc-500">نوع العرض</label>
                     <div class="flex p-0.5 bg-zinc-200 dark:bg-zinc-700 rounded-lg">
@@ -34,14 +34,14 @@
                 </div>
             </div>
 
-            <div class="flex flex-col gap-1">
+            <div class="flex flex-col gap-1 w-44">
                 <label class="text-xs font-medium text-zinc-500">من تاريخ</label>
-                <input type="date" wire:model.live="fromDate" class="bg-white dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 rounded-lg px-2 py-1 text-sm focus:ring-blue-500 focus:border-blue-500 dark:text-white">
+                <livewire:manager.hijri-datepicker wire:model.live="fromDate" label="من تاريخ" />
             </div>
 
-            <div class="flex flex-col gap-1">
+            <div class="flex flex-col gap-1 w-44">
                 <label class="text-xs font-medium text-zinc-500">إلى تاريخ</label>
-                <input type="date" wire:model.live="toDate" class="bg-white dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 rounded-lg px-2 py-1 text-sm focus:ring-blue-500 focus:border-blue-500 dark:text-white">
+                <livewire:manager.hijri-datepicker wire:model.live="toDate" label="إلى تاريخ" />
             </div>
 
             <button wire:click="clearFilters" class="p-2 text-zinc-400 hover:text-red-500 transition-colors" title="مسح الفلاتر">
@@ -49,9 +49,8 @@
             </button>
             </div>
         </div>
-    </div>
 
-    <div class="flex items-center gap-2 border-b border-zinc-200 dark:border-zinc-800 pb-3 mb-6">
+    <div class="flex items-center justify-center m-6 gap-2 border-b border-zinc-200 dark:border-zinc-800 pb-3 mb-6">
         <button wire:click="$set('tab', 'by_date')" class="px-4 py-2 text-sm font-medium rounded-lg transition-colors {{ $tab === 'by_date' ? 'bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-white' : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300' }}">
             <div class="flex items-center gap-2">
                 <flux:icon icon="calendar" class="size-4" />

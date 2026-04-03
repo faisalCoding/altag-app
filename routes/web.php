@@ -55,6 +55,7 @@ Route::middleware(['auth:manager', 'approved'])->prefix('manager')->name('manage
     Route::view('/students', 'manager.students')->name('students');
     Route::view('/guardians', 'manager.guardians')->name('guardians');
     Route::view('/attendance-reports', 'manager.attendance-reports')->name('attendance-reports');
+    Route::view('/ai-analysis', 'manager.ai-analysis')->name('ai-analysis');
 });
 
 // القاسم المشترك لمسارات الضيوف (Guest Routes) لكل دور
@@ -93,4 +94,5 @@ Route::middleware(['auth:teacher', 'approved'])->prefix('teacher')->name('teache
 Route::middleware(['auth:student', 'approved'])->get('/student/dashboard', fn () => view('student.dashboard'))->name('student.dashboard');
 Route::middleware(['auth:guardian', 'approved'])->get('/parent/dashboard', fn () => view('guardian.dashboard'))->name('parent.dashboard');
 
+Route::get('/test', function () {})->name('test');
 require __DIR__.'/settings.php';

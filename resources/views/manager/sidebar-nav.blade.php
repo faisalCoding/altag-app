@@ -30,4 +30,8 @@
             :current="request()->routeIs('manager.attendance-reports')" wire:navigate>
             تقارير الحضور والغياب
         </flux:sidebar.item>
+        <flux:sidebar.item icon="sparkles" :href="route('manager.ai-analysis')"
+            :current="request()->routeIs('manager.ai-analysis')" wire:navigate>
+            التحليل الذكي
+        </flux:sidebar.item>
     </flux:sidebar.group>
