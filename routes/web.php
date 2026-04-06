@@ -3,6 +3,8 @@
 use App\Livewire\Auth\Manager\Login;
 use App\Livewire\Auth\Manager\Register;
 use App\Livewire\Manager\PendingApprovals;
+use App\Models\StudentPlan;
+use App\Models\Surah;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -55,7 +57,10 @@ Route::middleware(['auth:manager', 'approved'])->prefix('manager')->name('manage
     Route::view('/students', 'manager.students')->name('students');
     Route::view('/guardians', 'manager.guardians')->name('guardians');
     Route::view('/attendance-reports', 'manager.attendance-reports')->name('attendance-reports');
+    Route::view('/yearly-attendance', 'manager.yearly-attendance')->name('yearly-attendance');
+    Route::view('/attendance/{circleId}/{date}', 'manager.student-attendance-list')->name('attendance-list');
     Route::view('/ai-analysis', 'manager.ai-analysis')->name('ai-analysis');
+    Route::view('/quran-editor', 'manager.quran-editor')->name('quran-editor');
 });
 
 // القاسم المشترك لمسارات الضيوف (Guest Routes) لكل دور
@@ -90,9 +95,30 @@ Route::middleware(['auth:supervisor', 'approved'])->get('/supervisor/dashboard',
 Route::middleware(['auth:teacher', 'approved'])->prefix('teacher')->name('teacher.')->group(function () {
     Route::get('/dashboard', fn () => view('teacher.dashboard'))->name('dashboard');
     Route::view('/attendance', 'teacher.attendance')->name('attendance');
+    Route::view('/plan-creator', 'teacher.plan-creator')->name('plan-creator');
+    Route::view('/student-plans', 'teacher.student-plans')->name('student-plans');
+    Route::get('/student-plans/{id}/print', function ($id) {
+        $plan = StudentPlan::with([
+            'student.circle',
+            'days.fromAyah.surah',
+            'days.toAyah.surah',
+            'days.reviewFromAyah.surah',
+            'days.reviewToAyah.surah',
+        ])->findOrFail($id);
+
+        if ($plan->teacher_id !== auth()->guard('teacher')->id()) {
+            abort(403);
+        }
+
+        return view('teacher.print-plan', compact('plan'));
+    })->name('print-plan');
 });
 Route::middleware(['auth:student', 'approved'])->get('/student/dashboard', fn () => view('student.dashboard'))->name('student.dashboard');
-Route::middleware(['auth:guardian', 'approved'])->get('/parent/dashboard', fn () => view('guardian.dashboard'))->name('parent.dashboard');
+Route::middleware(['auth:guardian', 'approved'])->get('/parent/dashboard', fn () => view('guardian.dashboard'))->name('guardian.dashboard');
+
+Route::get('/quran-json', function () {
+    return response()->json(Surah::with('ayahs')->get(), 200, [], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+});
 
 Route::get('/test', function () {})->name('test');
 require __DIR__.'/settings.php';

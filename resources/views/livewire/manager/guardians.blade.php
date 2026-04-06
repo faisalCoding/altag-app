@@ -92,6 +92,7 @@
             <div class="space-y-4">
                 <flux:input label="الاسم الكامل" wire:model="name" required />
                 <flux:input label="البريد الإلكتروني" wire:model="email" type="email" required />
+                <flux:input label="رقم الجوال" wire:model="phone" placeholder="9665xxxxxxxx" />
             </div>
 
             <div class="space-y-2">

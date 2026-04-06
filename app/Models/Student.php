@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Carbon;
 use Laravel\Fortify\TwoFactorAuthenticatable;
 
 class Student extends Authenticatable
@@ -32,6 +33,12 @@ class Student extends Authenticatable
     public function attendances(): HasMany
     {
         return $this->hasMany(Attendance::class);
+    }
+
+    /** @return HasMany<StudentPlan, $this> */
+    public function plans(): HasMany
+    {
+        return $this->hasMany(StudentPlan::class);
     }
 
     /**
@@ -60,6 +67,16 @@ class Student extends Authenticatable
         'two_factor_recovery_codes',
         'two_factor_secret',
     ];
+
+    public function getAbsencesInLast30DaysCount($date = null): int
+    {
+        $date = $date ? Carbon::parse($date) : now();
+
+        return $this->attendances()
+            ->where('status', 'absent')
+            ->whereBetween('date', [$date->copy()->subDays(30), $date])
+            ->count();
+    }
 
     public function getGuardianPhoneAttribute()
     {

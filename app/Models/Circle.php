@@ -28,6 +28,12 @@ class Circle extends Model
         return $this->belongsToMany(Teacher::class, 'circle_teacher', 'circle_id', 'teacher_id');
     }
 
+    /** @return HasMany<Attendance, $this> */
+    public function attendances(): HasMany
+    {
+        return $this->hasMany(Attendance::class);
+    }
+
     /** @return HasMany<Student, $this> */
     public function students(): HasMany
     {

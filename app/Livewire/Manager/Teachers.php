@@ -17,6 +17,8 @@ class Teachers extends Component
 
     public string $email = '';
 
+    public string $phone = '';
+
     public array $selectedCircles = [];
 
     public $editingTeacherId = null;
@@ -105,6 +107,7 @@ class Teachers extends Component
         $this->editingTeacherId = $teacher->id;
         $this->name = $teacher->name;
         $this->email = $teacher->email;
+        $this->phone = $teacher->phone ?? '';
         $this->selectedCircles = $teacher->circles->pluck('id')->toArray();
         Flux::modal('teacher-modal')->show();
     }
@@ -114,18 +117,20 @@ class Teachers extends Component
         $this->validate([
             'name' => 'required|string|max:255',
             'email' => 'required|email|unique:teachers,email,'.$this->editingTeacherId,
+            'phone' => 'nullable|string|max:20',
         ]);
 
         $teacher = Teacher::find($this->editingTeacherId);
         $teacher->update([
             'name' => $this->name,
             'email' => $this->email,
+            'phone' => $this->phone,
         ]);
 
         $teacher->circles()->sync($this->selectedCircles);
 
         Flux::toast(__('تم تحديث بيانات المعلم بنجاح'), variant: 'success');
-        $this->reset(['name', 'email', 'selectedCircles', 'editingTeacherId']);
+        $this->reset(['name', 'email', 'phone', 'selectedCircles', 'editingTeacherId']);
         $this->loadData();
         Flux::modal('teacher-modal')->close();
     }
@@ -144,7 +149,7 @@ class Teachers extends Component
 
     public function cancel()
     {
-        $this->reset(['name', 'email', 'selectedCircles', 'editingTeacherId']);
+        $this->reset(['name', 'email', 'phone', 'selectedCircles', 'editingTeacherId']);
     }
 
     public function render()

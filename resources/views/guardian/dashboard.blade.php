@@ -1,4 +1,4 @@
-<x-layouts.app>
+<x-layouts.role-shell>
     <div class="flex h-full w-full flex-1 flex-col gap-4 rounded-xl">
         <div class="flex items-center justify-between">
             <h1 class="text-2xl font-bold">لوحة تحكم ولي الأمر</h1>
@@ -61,4 +61,4 @@
             </div>
         </div>
     </div>
-</x-layouts.app>
+</x-layouts.role-shell>

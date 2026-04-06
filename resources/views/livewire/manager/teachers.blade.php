@@ -47,7 +47,12 @@
                         <flux:table.cell>
                             <div class="flex flex-col text-right">
                                 <span class="font-bold text-zinc-900 dark:text-white">{{ $teacher->name }}</span>
-                                <span class="text-xs text-zinc-500">{{ $teacher->email }}</span>
+                                <div class="flex gap-2">
+                                    <span class="text-xs text-zinc-500">{{ $teacher->email }}</span>
+                                    @if ($teacher->phone)
+                                        <span class="text-xs text-zinc-400">| {{ $teacher->phone }}</span>
+                                    @endif
+                                </div>
                             </div>
                         </flux:table.cell>
                         <flux:table.cell>
@@ -101,6 +106,8 @@
                 <flux:input label="الاسم" wire:model="name" required />
                 <flux:input label="البريد الإلكتروني" wire:model="email" type="email" required />
             </div>
+
+            <flux:input label="رقم الجوال" wire:model="phone" placeholder="9665xxxxxxx" />
 
             <div class="space-y-2">
                 <flux:heading>تعيين الحلقات</flux:heading>

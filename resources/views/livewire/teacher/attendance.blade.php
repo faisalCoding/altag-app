@@ -231,14 +231,14 @@
                         </div>
 
                         <div class="flex gap-2 mr-9 sm:mr-0">
-                            @if ($student->guardian_phone && ($records[$student->id] ?? '') === 'absent')
-                                <a class="whatsapp-link"
-                                    href="https://wa.me/{{ $student->guardian_phone }}/?text={{ urlencode(' السلام عليكم ورحمة الله وبركاته نود ان نشعركم بأن الطالب ' . $student->name . ' غائب اليوم') }}"
-                                    target="_blank" title="تواصل عبر واتساب">
-                                    <flux:icon icon="chat-bubble-left-right"
-                                        class="size-5 text-green-500 hover:text-green-600 transition-colors" />
-                                </a>
-                            @endif
+                             @if ($student->guardian_phone && ($records[$student->id] ?? '') === 'absent')
+                                 <a class="whatsapp-link"
+                                     href="https://wa.me/{{ $student->guardian_phone }}/?text={{ urlencode($this->getWhatsAppMessage($student)) }}"
+                                     target="_blank" title="تواصل عبر واتساب">
+                                     <flux:icon icon="chat-bubble-left-right"
+                                         class="size-5 text-green-500 hover:text-green-600 transition-colors" />
+                                 </a>
+                             @endif
                             @php $currentStatus = $records[$student->id] ?? ''; @endphp
 
                             <button wire:click="updateStatus({{ $student->id }}, 'present')"

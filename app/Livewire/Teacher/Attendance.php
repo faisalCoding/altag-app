@@ -29,7 +29,7 @@ class Attendance extends Component
 
     public function mount(): void
     {
-        
+
         $this->students = collect();
         $this->date = now()->format('Y-m-d');
 
@@ -40,7 +40,7 @@ class Attendance extends Component
             $this->selectedCircle = $this->circles->first()->id;
             $this->loadStudents();
         }
-        
+
     }
 
     public function updatedSelectedCircle(): void
@@ -139,7 +139,7 @@ class Attendance extends Component
         $teacher = auth()->guard('teacher')->user();
 
         foreach ($this->students as $student) {
-            if(AttendanceModel::whereDate('date', $this->date)->where('student_id', $student->id)->exists()){
+            if (AttendanceModel::whereDate('date', $this->date)->where('student_id', $student->id)->exists()) {
                 continue;
             }
             $this->records[$student->id] = 'present';
@@ -164,13 +164,14 @@ class Attendance extends Component
     private function saveRecord(int $studentId, string $status): void
     {
         $teacher = auth()->guard('teacher')->user();
-        if( AttendanceModel::whereDate('date', $this->date)->where('student_id', $studentId)->exists()){
+        if (AttendanceModel::whereDate('date', $this->date)->where('student_id', $studentId)->exists()) {
             AttendanceModel::whereDate('date', $this->date)->where('student_id', $studentId)->update([
                 'teacher_id' => $teacher->id,
                 'circle_id' => $this->selectedCircle,
                 'status' => $status,
             ]);
             Flux::toast('تم تحديث حالة الطالب بنجاح', variant: 'success');
+
             return;
         }
         AttendanceModel::updateOrCreate(
@@ -225,6 +226,43 @@ class Attendance extends Component
     public function getMarkedCountProperty(): int
     {
         return collect($this->records)->filter(fn ($s) => ! empty($s))->count();
+    }
+
+    public function getWhatsAppMessage(Student $student): string
+    {
+        $hijriDate = $this->getHijriDate();
+        $absencesCount = $student->getAbsencesInLast30DaysCount($this->date);
+
+        $ordinals = [
+            1 => 'أول',
+            2 => 'ثاني',
+            3 => 'ثالث',
+            4 => 'رابع',
+            5 => 'خامس',
+            6 => 'سادس',
+            7 => 'سابع',
+            8 => 'ثامن',
+            9 => 'تاسع',
+            10 => 'عاشر',
+        ];
+
+        $ordinal = $ordinals[$absencesCount] ?? $absencesCount;
+
+        return "السلام عليكم ورحمة الله وبركاته\n نود ان نشعركم بأن الطالب {$student->name} غائب اليوم {$hijriDate}\n و انه هذه {$ordinal} حالة غياب تم تسجيلها عليه \n`وفي حال تم تسجيل ثلاث حالات غياب على الطالب بلا عذر فسيتم ايقافه`";
+    }
+
+    private function getHijriDate(): string
+    {
+        $formatter = new \IntlDateFormatter(
+            'ar_SA@calendar=islamic-umalqura',
+            \IntlDateFormatter::FULL,
+            \IntlDateFormatter::NONE,
+            'Asia/Riyadh',
+            \IntlDateFormatter::TRADITIONAL,
+            'd MMMM yyyy'
+        );
+
+        return $formatter->format(strtotime($this->date));
     }
 
     public function render()

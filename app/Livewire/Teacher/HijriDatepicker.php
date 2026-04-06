@@ -4,6 +4,7 @@ namespace App\Livewire\Teacher;
 
 use App\Models\Attendance as AttendanceModel;
 use App\Models\Student;
+use Carbon\Carbon;
 use Livewire\Attributes\Modelable;
 use Livewire\Component;
 
@@ -20,7 +21,7 @@ class HijriDatepicker extends Component
     // For toggling dropdown state
     public $open = false;
 
-    public function mount($circleId)
+    public function mount($circleId = null)
     {
         $this->circleId = $circleId;
         $this->date = $this->date ?: now()->format('Y-m-d');
@@ -42,6 +43,7 @@ class HijriDatepicker extends Component
             \IntlDateFormatter::TRADITIONAL,
             'd MMMM yyyy'
         );
+
         return $formatter->format(strtotime($this->date));
     }
 
@@ -65,7 +67,7 @@ class HijriDatepicker extends Component
     {
         $this->date = $gregorianDate;
         $this->open = false;
-        
+
         // Optionally update view to selected month
         $cal = \IntlCalendar::createInstance('Asia/Riyadh', 'ar_SA@calendar=islamic-umalqura');
         $cal->setTime(strtotime($this->date) * 1000);
@@ -77,36 +79,39 @@ class HijriDatepicker extends Component
     {
         $cal = \IntlCalendar::createInstance('Asia/Riyadh', 'ar_SA@calendar=islamic-umalqura');
         $cal->setTime($this->currentViewTimestamp * 1000);
-        
+
         $monthLength = $cal->getActualMaximum(\IntlCalendar::FIELD_DAY_OF_MONTH);
         $startDayOfWeek = $cal->get(\IntlCalendar::FIELD_DAY_OF_WEEK); // 1 = Sunday
-        
+
         $monthNameFormatter = new \IntlDateFormatter('ar_SA@calendar=islamic-umalqura', \IntlDateFormatter::FULL, \IntlDateFormatter::NONE, 'Asia/Riyadh', \IntlDateFormatter::TRADITIONAL, 'MMMM yyyy');
         $monthName = $monthNameFormatter->format($this->currentViewTimestamp);
 
         // Fetch students and attendance
         $totalStudentsCount = Student::where('circle_id', $this->circleId)->where('is_approved', true)->count();
-        
+
         // Calculate bounds
         $cal->set(\IntlCalendar::FIELD_DAY_OF_MONTH, 1);
         $startTimestamp = $cal->getTime() / 1000;
-        
+
         $cal->set(\IntlCalendar::FIELD_DAY_OF_MONTH, $monthLength);
         $endTimestamp = $cal->getTime() / 1000;
 
         $startDate = date('Y-m-d', $startTimestamp);
         $endDate = date('Y-m-d', $endTimestamp);
 
-        $attendances = AttendanceModel::where('circle_id', $this->circleId)
-            ->whereBetween('date', [$startDate, $endDate])
-            ->get();
-        
-        $attendancesGrouped = $attendances->groupBy(function($item) {
-            return \Carbon\Carbon::parse($item->date)->format('Y-m-d');
+        $attendances = collect();
+        if ($this->circleId) {
+            $attendances = AttendanceModel::where('circle_id', $this->circleId)
+                ->whereBetween('date', [$startDate, $endDate])
+                ->get();
+        }
+
+        $attendancesGrouped = $attendances->groupBy(function ($item) {
+            return Carbon::parse($item->date)->format('Y-m-d');
         });
-        
+
         $days = [];
-        $emptySlots = $startDayOfWeek - 1; 
+        $emptySlots = $startDayOfWeek - 1;
 
         for ($i = 0; $i < $emptySlots; $i++) {
             $days[] = null;
@@ -116,17 +121,17 @@ class HijriDatepicker extends Component
             $cal->set(\IntlCalendar::FIELD_DAY_OF_MONTH, $i);
             $dayTimestamp = $cal->getTime() / 1000;
             $gregDate = date('Y-m-d', $dayTimestamp);
-            
+
             $dayRecords = $attendancesGrouped->get($gregDate, collect());
-            
+
             // "نسبة الحضور من الغياب" (Ratio of present to absent)
             $presentCount = $dayRecords->whereIn('status', ['present', 'late'])->count();
             $absentCount = $dayRecords->where('status', 'absent')->count();
-            
+
             $processedCount = $dayRecords->count();
-            
+
             $colorClass = 'bg-white hover:bg-zinc-50 dark:bg-zinc-800 dark:hover:bg-zinc-700'; // Default
-            
+
             if ($processedCount > 0) {
                 // If more present than absent -> green
                 // If more absent than present -> red
@@ -134,7 +139,7 @@ class HijriDatepicker extends Component
                 $totalTracked = $presentCount + $absentCount;
                 if ($totalTracked > 0) {
                     $ratio = $presentCount / $totalTracked;
-                    
+
                     if ($ratio >= 0.8) {
                         $colorClass = 'bg-green-100 hover:bg-green-200 dark:bg-green-900/40 dark:hover:bg-green-900/60 transition-colors border-green-200';
                     } elseif ($ratio > 0.5) {
@@ -146,7 +151,7 @@ class HijriDatepicker extends Component
                     }
                 }
             }
-            
+
             $completionRate = $totalStudentsCount > 0 ? min(100, round(($processedCount / $totalStudentsCount) * 100)) : 0;
 
             $days[] = [

@@ -15,6 +15,8 @@ class Guardians extends Component
 
     public string $email = '';
 
+    public string $phone = '';
+
     public $editingGuardianId = null;
 
     public string $search = '';
@@ -92,6 +94,7 @@ class Guardians extends Component
         $this->editingGuardianId = $guardian->id;
         $this->name = $guardian->name;
         $this->email = $guardian->email;
+        $this->phone = $guardian->phone ?? '';
         $this->selectedStudents = $guardian->students->pluck('id')->toArray();
         Flux::modal('guardian-modal')->show();
     }
@@ -101,12 +104,14 @@ class Guardians extends Component
         $this->validate([
             'name' => 'required|string|max:255',
             'email' => 'required|email|unique:guardians,email,'.$this->editingGuardianId,
+            'phone' => 'nullable|string|max:20',
         ]);
 
         $guardian = Guardian::find($this->editingGuardianId);
         $guardian->update([
             'name' => $this->name,
             'email' => $this->email,
+            'phone' => $this->phone,
         ]);
 
         // Remove guardian_id from students that are no longer assigned to this guardian
@@ -121,7 +126,7 @@ class Guardians extends Component
         }
 
         Flux::toast(__('تم تحديث بيانات ولي الأمر بنجاح'), variant: 'success');
-        $this->reset(['name', 'email', 'selectedStudents', 'editingGuardianId']);
+        $this->reset(['name', 'email', 'phone', 'selectedStudents', 'editingGuardianId']);
         $this->loadData();
         Flux::modal('guardian-modal')->close();
     }
@@ -140,7 +145,7 @@ class Guardians extends Component
 
     public function cancel()
     {
-        $this->reset(['name', 'email', 'selectedStudents', 'editingGuardianId']);
+        $this->reset(['name', 'email', 'phone', 'selectedStudents', 'editingGuardianId']);
     }
 
     public function render()

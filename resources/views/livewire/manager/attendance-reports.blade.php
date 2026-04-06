@@ -25,7 +25,7 @@
             </flux:modal>
 
             {{-- Filter Toolbar --}}
-            <div class="flex flex-col items-center gap-3 bg-zinc-50 dark:bg-zinc-800/50 p-1 rounded-xl border border-zinc-200 dark:border-zinc-800">
+            <div class="flex items-start gap-3 bg-zinc-50 dark:bg-zinc-800/50 p-1 rounded-xl border border-zinc-200 dark:border-zinc-800">
                 <div class="flex flex-col gap-1">
                     <label class="text-xs font-medium text-zinc-500">نوع العرض</label>
                     <div class="flex p-0.5 bg-zinc-200 dark:bg-zinc-700 rounded-lg">
@@ -35,21 +35,22 @@
                 </div>
             
 
-            <div class="flex gap-1">
-                <div class="flex flex-col gap-1 w-36">
-                    <label class="text-xs font-medium text-zinc-500">من تاريخ</label>
-                    <livewire:manager.hijri-datepicker wire:model.live="fromDate" label="من تاريخ" />
-                </div>
+            <div class="flex flex-col gap-1 w-36">
+            <div class="flex flex-col gap-1 w-36">
+                <label class="text-xs font-medium text-zinc-500">من تاريخ</label>
+                <livewire:manager.hijri-datepicker wire:model.live="fromDate" label="من تاريخ" />
+            </div>
 
-                <div class="flex flex-col gap-1 w-36">
-                    <label class="text-xs font-medium text-zinc-500">إلى تاريخ</label>
-                    <livewire:manager.hijri-datepicker wire:model.live="toDate" label="إلى تاريخ" />
-                </div>
+            <div class="flex flex-col gap-1 w-36">
+                <label class="text-xs font-medium text-zinc-500">إلى تاريخ</label>
+                <livewire:manager.hijri-datepicker wire:model.live="toDate" label="إلى تاريخ" />
+            </div>
 
-                <button wire:click="clearFilters" class="p-2 text-zinc-400 hover:text-red-500 transition-colors" title="مسح الفلاتر">
-                    <flux:icon icon="x-mark" class="size-5" />
-                </button>
-            </div>  
+            <button wire:click="clearFilters" class="p-2 text-zinc-400 hover:text-red-500 transition-colors" title="مسح الفلاتر">
+                <flux:icon icon="x-mark" class="size-5" />
+            </button>
+                </div>  
+            </div>
         </div>
 
     <div class="flex items-center justify-center m-6 gap-2 border-b border-zinc-200 dark:border-zinc-800 pb-3 mb-6">
