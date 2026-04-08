@@ -25,6 +25,7 @@ new class extends Component {
     public $bulkStartSurah;
     public $bulkStartVerse;
     public $selectAll = false;
+    public $selectionStart = null;
 
     public function mount()
     {
@@ -65,8 +66,25 @@ new class extends Component {
 
     public function toggleDaySelection($index)
     {
-        if (isset($this->planDays[$index])) {
+        if (!isset($this->planDays[$index])) {
+            return;
+        }
+
+        if ($this->selectionStart === null) {
+            $this->selectionStart = $index;
             $this->planDays[$index]['selected'] = !$this->planDays[$index]['selected'];
+        } else {
+            $start = min($this->selectionStart, $index);
+            $end = max($this->selectionStart, $index);
+            
+            // Check if we should select or deselect based on the first click
+            $targetValue = $this->planDays[$this->selectionStart]['selected'];
+            
+            for ($i = $start; $i <= $end; $i++) {
+                $this->planDays[$i]['selected'] = $targetValue;
+            }
+            
+            $this->selectionStart = null;
         }
     }
 
@@ -486,7 +504,7 @@ new class extends Component {
                             <tbody class="divide-y divide-zinc-100 dark:divide-zinc-800">
                                 @foreach($planDays as $index => $day)
                                     <tr wire:key="row-{{ $index }}">
-                                        <td class="p-3 cursor-pointer transition-colors hover:bg-indigo-50 dark:hover:bg-indigo-900/40 {{ $day['selected'] ? 'bg-indigo-100 dark:bg-indigo-900/60' : '' }}"
+                                        <td class="p-3 cursor-pointer transition-colors hover:bg-indigo-50 dark:hover:bg-indigo-900/40 {{ $day['selected'] ? 'bg-indigo-100 dark:bg-indigo-900/60' : '' }} {{ $selectionStart === $index ? 'ring-2 ring-inset ring-indigo-500' : '' }}"
                                             wire:click="toggleDaySelection({{ $index }})">
                                             <div class="flex flex-col">
                                                 <span

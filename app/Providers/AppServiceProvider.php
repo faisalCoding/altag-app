@@ -27,7 +27,6 @@ class AppServiceProvider extends ServiceProvider
         $this->configureDefaults();
 
         Blaze::optimize()->in(resource_path('views/components'));
-        Blaze::debug();
 
     }
 
