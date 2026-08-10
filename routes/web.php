@@ -163,6 +163,7 @@ Route::middleware(['auth:supervisor', 'approved', 'page.enabled'])->prefix('supe
     Route::view('/circles', 'supervisor.circles')->name('circles');
     Route::get('/circles/{circle}/report', fn ($circle) => view('supervisor.circle-report', ['circleId' => $circle]))->name('circles.report');
     Route::get('/stages/{stage}/report', fn ($stage) => view('supervisor.stage-report', ['stageId' => $stage]))->name('stages.report');
+    Route::view('/custom-reports', 'supervisor.custom-reports')->name('custom-reports');
     Route::view('/teacher-competitions', 'supervisor.teacher-competitions')->name('teacher-competitions');
     Route::get('/teacher-competitions/{competition}', fn ($competition) => view('supervisor.teacher-competition-manage', ['competitionId' => $competition]))->name('teacher-competitions.manage');
     Route::view('/students', 'supervisor.students')->name('students');
