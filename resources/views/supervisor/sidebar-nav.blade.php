@@ -85,6 +85,12 @@
 @endif
 
 <flux:sidebar.group heading="المتابعة والتقارير" class="grid">
+    @if(\App\Support\RolePages::isEnabled('supervisor', 'supervisor.custom-reports'))
+        <flux:sidebar.item class="[&_svg]:bg-[#6366f1] hover:[&_svg]:bg-[#4f46e5]" icon="chart-bar" :href="route('supervisor.custom-reports')"
+            :current="request()->routeIs('supervisor.custom-reports')" wire:navigate>
+            تقارير مخصصة
+        </flux:sidebar.item>
+    @endif
     @if(\App\Support\RolePages::isEnabled('supervisor', 'supervisor.yearly-attendance'))
         <flux:sidebar.item class="[&_svg]:bg-[#10b981] hover:[&_svg]:bg-[#059669]" icon="calendar" :href="route('supervisor.yearly-attendance')"
             :current="request()->routeIs('supervisor.yearly-attendance')" wire:navigate>
