@@ -386,7 +386,7 @@ Livewire fires only on: markStatus | updateStatus | markAllPresent | loadStudent
                     <button @click="filterStatus = 'absent'" :class="filterStatus === 'absent' ? '!bg-rose-500 !text-white' : 'bg-rose-50 dark:bg-rose-900/20 text-rose-600'"
                         class="px-4 py-1.5 rounded-full text-sm font-bold whitespace-nowrap">غائب</button>
                     <button @click="filterStatus = 'excused'" :class="filterStatus === 'excused' ? '!bg-zinc-500 !text-white' : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-500'"
-                        class="px-4 py-1.5 rounded-full text-sm font-bold whitespace-nowrap">مستثنى</button>
+                        class="px-4 py-1.5 rounded-full text-sm font-bold whitespace-nowrap">مستأذن</button>
                 </div>
 
                 <div class="w-full sm:w-64">
@@ -489,7 +489,7 @@ Livewire fires only on: markStatus | updateStatus | markAllPresent | loadStudent
                 ['status' => 'present', 'label' => 'حاضر', 'color' => 'emerald', 'icon' => 'user-group'],
                 ['status' => 'late', 'label' => 'متأخر', 'color' => 'amber', 'icon' => 'clock'],
                 ['status' => 'absent', 'label' => 'غائب', 'color' => 'rose', 'icon' => 'user-minus'],
-                ['status' => 'excused', 'label' => 'مستثنى', 'color' => 'blue', 'icon' => 'user-plus'],
+                ['status' => 'excused', 'label' => 'مستأذن', 'color' => 'blue', 'icon' => 'user-plus'],
             ] as $card)
                 @php
                     $series = $this->sparklineFor($card['status']);
@@ -527,7 +527,7 @@ Livewire fires only on: markStatus | updateStatus | markAllPresent | loadStudent
                             ['key' => 'present', 'label' => 'حاضر', 'dot' => 'bg-emerald-500'],
                             ['key' => 'late', 'label' => 'متأخر', 'dot' => 'bg-amber-500'],
                             ['key' => 'absent', 'label' => 'غائب', 'dot' => 'bg-rose-500'],
-                            ['key' => 'excused', 'label' => 'مستثنى', 'dot' => 'bg-zinc-400'],
+                            ['key' => 'excused', 'label' => 'مستأذن', 'dot' => 'bg-zinc-400'],
                         ] as $legend)
                             <div class="flex items-center gap-2 text-sm">
                                 <span class="size-2.5 rounded-full {{ $legend['dot'] }}"></span>
