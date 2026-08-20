@@ -107,7 +107,7 @@ new class extends Component
     <div class="rounded-2xl border border-zinc-100 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">
         <div class="p-5 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
             <flux:heading size="sm">{{ __('الحلقات') }}</flux:heading>
-            <flux:link accent="false" :href="route('supervisor.circles')" wire:navigate>{{ __('عرض الكل') }}</flux:link>
+            <flux:link :accent="false" :href="route('supervisor.circles')" wire:navigate>{{ __('عرض الكل') }}</flux:link>
         </div>
         @if($recentCircles->isEmpty())
             <p class="text-sm text-zinc-400 text-center py-10">{{ __('لا توجد حلقات ضمن نطاق إشرافك بعد') }}</p>

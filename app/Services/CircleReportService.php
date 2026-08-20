@@ -94,10 +94,14 @@ class CircleReportService
 
     /**
      * Build the achievement report for the given students within a date range:
-     * Quran (distinct hifz/review pages and grades), attendance, memorized
-     * hadiths and ode verses. Graded work is attributed to its grading date,
-     * falling back to the plan-day date for legacy rows without a graded_at
-     * timestamp.
+     * Quran pages and grades, attendance, memorized hadiths and ode verses.
+     * Graded work is attributed to its grading date, falling back to the
+     * plan-day date for legacy rows without a graded_at timestamp.
+     *
+     * Hifz pages are distinct — the extent of the mushaf reached. Review pages
+     * are the running total, with the distinct figure alongside it, because
+     * revisiting the same pages is the substance of revision rather than a
+     * duplicate to be removed. See pageCountsPerStudent().
      *
      * Attendance is measured against the circle's working days over each
      * student's own membership, and a day off taken with permission is set
@@ -106,7 +110,7 @@ class CircleReportService
      * days and was excused for the other two counts as a full attendance.
      *
      * @param  EloquentCollection<int, Student>  $students
-     * @return array{totals: array{hifz: array{pages: int, days: int, average: float|null}, review: array{pages: int, days: int, average: float|null}, attendance: array{present: int, late: int, absent: int, excused: int, total: int, working_days: int, expected_days: int, rate: int|null}, hadiths: int, verses: int}, perStudent: Collection<int, array<string, mixed>>}
+     * @return array{totals: array{hifz: array{pages: int, days: int, average: float|null}, review: array{pages: int, pages_distinct: int, days: int, average: float|null}, attendance: array{present: int, late: int, absent: int, excused: int, total: int, working_days: int, expected_days: int, rate: int|null}, hadiths: int, verses: int}, perStudent: Collection<int, array<string, mixed>>}
      */
     public static function build(EloquentCollection $students, Carbon $from, Carbon $to): array
     {
@@ -118,7 +122,7 @@ class CircleReportService
         foreach ($studentIds as $id) {
             $per[$id] = [
                 'hifz_pages' => 0, 'hifz_days' => 0, 'hifz_score_sum' => 0,
-                'review_pages' => 0, 'review_days' => 0, 'review_score_sum' => 0,
+                'review_pages' => 0, 'review_pages_distinct' => 0, 'review_days' => 0, 'review_score_sum' => 0,
                 'present' => 0, 'late' => 0, 'absent' => 0, 'excused' => 0, 'attendance_total' => 0,
                 'working_days' => 0, 'expected_days' => 0,
                 'hadiths' => 0, 'verses' => 0,
@@ -171,11 +175,12 @@ class CircleReportService
             }
         }
 
-        foreach (self::distinctPagesPerStudent($hifzRanges) as $sid => $pages) {
-            $per[$sid]['hifz_pages'] = $pages;
+        foreach (self::pageCountsPerStudent($hifzRanges) as $sid => $counts) {
+            $per[$sid]['hifz_pages'] = $counts['distinct'];
         }
-        foreach (self::distinctPagesPerStudent($reviewRanges) as $sid => $pages) {
-            $per[$sid]['review_pages'] = $pages;
+        foreach (self::pageCountsPerStudent($reviewRanges) as $sid => $counts) {
+            $per[$sid]['review_pages'] = $counts['total'];
+            $per[$sid]['review_pages_distinct'] = $counts['distinct'];
         }
 
         // Attendance within the range, only while the student was active on that date.
@@ -224,7 +229,7 @@ class CircleReportService
 
         $totals = [
             'hifz' => ['pages' => 0, 'days' => 0, 'average' => null],
-            'review' => ['pages' => 0, 'days' => 0, 'average' => null],
+            'review' => ['pages' => 0, 'pages_distinct' => 0, 'days' => 0, 'average' => null],
             'attendance' => [
                 'present' => 0, 'late' => 0, 'absent' => 0, 'excused' => 0, 'total' => 0,
                 'working_days' => 0, 'expected_days' => 0, 'rate' => null,
@@ -240,6 +245,7 @@ class CircleReportService
             $totals['hifz']['days'] += $row['hifz_days'];
             $hifzScoreSum += $row['hifz_score_sum'];
             $totals['review']['pages'] += $row['review_pages'];
+            $totals['review']['pages_distinct'] += $row['review_pages_distinct'];
             $totals['review']['days'] += $row['review_days'];
             $reviewScoreSum += $row['review_score_sum'];
             $totals['attendance']['present'] += $row['present'];
@@ -348,13 +354,20 @@ class CircleReportService
     }
 
     /**
-     * Count the distinct mushaf pages covered by each student's ayah ranges,
-     * so overlapping days within the period do not double-count a page.
+     * Count the mushaf pages each student's ayah ranges cover, two ways.
+     *
+     * "distinct" counts a page once however often it recurs — the extent of the
+     * mushaf the student reached. "total" adds every day's pages up — the work
+     * actually done. The two answer different questions and neither replaces the
+     * other: memorisation is read by extent, since re-reciting a page you already
+     * hold is not another page memorised, while review is read by total, since
+     * revisiting the same pages is the whole point of revision and deduplicating
+     * it hides most of the effort.
      *
      * @param  array<int, array<int, array{0: int, 1: int}>>  $rangesByStudent
-     * @return array<int, int>
+     * @return array<int, array{distinct: int, total: int}>
      */
-    private static function distinctPagesPerStudent(array $rangesByStudent): array
+    private static function pageCountsPerStudent(array $rangesByStudent): array
     {
         if ($rangesByStudent === []) {
             return [];
@@ -375,15 +388,23 @@ class CircleReportService
         $counts = [];
         foreach ($rangesByStudent as $sid => $ranges) {
             $pages = [];
+            $total = 0;
+
             foreach ($ranges as [$min, $max]) {
+                $dayPages = [];
                 for ($ayahId = $min; $ayahId <= $max; $ayahId++) {
                     $page = $pageByAyah[$ayahId] ?? null;
                     if ($page !== null) {
                         $pages[$page] = true;
+                        $dayPages[$page] = true;
                     }
                 }
+                // Counted per day, so a page spanning two days of one range adds
+                // once for each — while a page read twice in a single day is one.
+                $total += count($dayPages);
             }
-            $counts[$sid] = count($pages);
+
+            $counts[$sid] = ['distinct' => count($pages), 'total' => $total];
         }
 
         return $counts;

@@ -25,6 +25,6 @@
 
     <div class="space-x-1 rtl:space-x-reverse text-center text-sm text-zinc-600 dark:text-zinc-400">
         <span>{{ __('لديك حساب بالفعل؟') }}</span>
-        <flux:link accent="false" :href="route('login')" wire:navigate>{{ __('تسجيل الدخول') }}</flux:link>
+        <flux:link :accent="false" :href="route('login')" wire:navigate>{{ __('تسجيل الدخول') }}</flux:link>
     </div>
 </div>

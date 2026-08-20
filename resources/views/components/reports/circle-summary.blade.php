@@ -30,7 +30,8 @@
             </div>
             <p class="text-2xl font-bold text-blue-600 dark:text-blue-400">{{ number_format($totals['review']['pages']) }} <span class="text-sm font-medium">صفحة</span></p>
             <p class="text-xs text-zinc-400 mt-1">
-                {{ $totals['review']['days'] }} يوم مراجعة
+                {{ number_format($totals['review']['pages_distinct']) }} صفحة مميزة
+                · {{ $totals['review']['days'] }} يوم مراجعة
                 @if($totals['review']['average'] !== null)
                     · متوسط التقييم {{ $totals['review']['average'] }}/3
                 @endif
@@ -81,7 +82,7 @@
                     <flux:table.column class="hidden md:table-cell">الحلقة</flux:table.column>
                 @endif
                 <flux:table.column class="text-center">صفحات الحفظ</flux:table.column>
-                <flux:table.column class="text-center">صفحات المراجعة</flux:table.column>
+                <flux:table.column class="text-center">صفحات المراجعة <span class="font-normal text-zinc-400">(المميزة)</span></flux:table.column>
                 <flux:table.column class="text-center">
                     الحضور
                     <span class="block text-[10px] font-normal text-zinc-400">مستأذن / حاضر / أيام الدوام</span>
@@ -104,6 +105,9 @@
                         </flux:table.cell>
                         <flux:table.cell class="text-center">
                             <span class="font-semibold text-blue-600 dark:text-blue-400">{{ $row['review_pages'] }}</span>
+                            {{-- The distinct figure alongside: how much of the mushaf the
+                                 repetitions covered, as against how much work they were. --}}
+                            <span class="text-xs text-zinc-400 dark:text-zinc-500" title="صفحات مميزة دون تكرار">({{ $row['review_pages_distinct'] }})</span>
                         </flux:table.cell>
                         <flux:table.cell class="text-center">
                             @php

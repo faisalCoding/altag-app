@@ -29,7 +29,7 @@
                         <flux:text class="mt-4">
                             بريدك الإلكتروني غير موثّق.
 
-                            <flux:link accent="false" class="text-sm cursor-pointer" wire:click.prevent="resendVerificationNotification">
+                            <flux:link :accent="false" class="text-sm cursor-pointer" wire:click.prevent="resendVerificationNotification">
                                 اضغط هنا لإعادة إرسال رابط التوثيق.
                             </flux:link>
                         </flux:text>

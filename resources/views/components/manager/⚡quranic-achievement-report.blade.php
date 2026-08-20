@@ -44,9 +44,12 @@ new class extends Component {
     public function getMetricsProperty()
     {
         // 1. Fetch Hifz days
+        // whereDate, not whereBetween: plan-day dates carry a time component, so
+        // bare Y-m-d bounds string-compare below the last day and silently drop it.
         $hifzQuery = StudentPlanDay::with(['fromAyah', 'toAyah', 'plan.student.circle'])
             ->whereNotNull('hifz_achievement')
-            ->whereBetween('date', [$this->dateFrom, $this->dateTo]);
+            ->whereDate('date', '>=', $this->dateFrom)
+            ->whereDate('date', '<=', $this->dateTo);
 
         if ($this->circleId) {
             $hifzQuery->whereHas('plan.student', fn($q) => $q->where('circle_id', $this->circleId));
@@ -78,7 +81,8 @@ new class extends Component {
         // 2. Fetch Review days
         $reviewQuery = StudentPlanDay::with(['reviewFromAyah', 'reviewToAyah'])
             ->whereNotNull('review_achievement')
-            ->whereBetween('date', [$this->dateFrom, $this->dateTo]);
+            ->whereDate('date', '>=', $this->dateFrom)
+            ->whereDate('date', '<=', $this->dateTo);
 
         if ($this->circleId) {
             $reviewQuery->whereHas('plan.student', fn($q) => $q->where('circle_id', $this->circleId));

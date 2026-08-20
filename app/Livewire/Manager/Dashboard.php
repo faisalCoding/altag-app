@@ -205,51 +205,24 @@ class Dashboard extends Component
             $isSchoolDay = $isSingleDay ? $this->isSchoolDay($from) : null;
         }
 
-        $rows = DB::table('student_plan_days')
+        // whereDate is required throughout: plan-day dates carry a time component,
+        // so a raw whereBetween against bare Y-m-d bounds drops the boundary day —
+        // the same trap the attendance queries above already guard against.
+        $gradedDays = fn () => DB::table('student_plan_days')
             ->join('student_plans', 'student_plan_days.student_plan_id', '=', 'student_plans.id')
-            ->join('users as students', 'student_plans.student_id', '=', 'students.id')
-            ->whereBetween('student_plan_days.date', [$from, $to])
-            ->where('student_plans.is_approved', 1)
-            ->where(function ($q) {
-                $q->whereNotNull('hifz_achievement')->orWhereNotNull('review_achievement');
-            })
-            ->select(
-                'students.circle_id',
-                DB::raw('SUM(CASE WHEN hifz_achievement IS NOT NULL THEN CAST((
-                    COALESCE(to_ayah_id, from_ayah_id) - COALESCE(from_ayah_id, to_ayah_id)
-                ) AS FLOAT) / 15 ELSE 0 END) as hifz_pages'),
-                DB::raw('SUM(CASE WHEN review_achievement IS NOT NULL THEN CAST((
-                    COALESCE(review_to_ayah_id, review_from_ayah_id) - COALESCE(review_from_ayah_id, review_to_ayah_id)
-                ) AS FLOAT) / 15 ELSE 0 END) as review_pages'),
-                DB::raw('COUNT(DISTINCT student_plans.student_id) as active_students'),
-                DB::raw('COUNT(*) as sessions')
-            )
-            ->groupBy('students.circle_id')
-            ->get();
+            ->whereDate('student_plan_days.date', '>=', $from)
+            ->whereDate('student_plan_days.date', '<=', $to)
+            ->where('student_plans.is_approved', 1);
 
-        // Totals from actual graded sessions (counts sessions not pages for simplicity)
-        $hifzSessions = DB::table('student_plan_days')
-            ->join('student_plans', 'student_plan_days.student_plan_id', '=', 'student_plans.id')
-            ->whereBetween('student_plan_days.date', [$from, $to])
-            ->where('student_plans.is_approved', 1)
-            ->whereNotNull('hifz_achievement')
-            ->count();
+        $hifzSessions = $gradedDays()->whereNotNull('hifz_achievement')->count();
 
-        $reviewSessions = DB::table('student_plan_days')
-            ->join('student_plans', 'student_plan_days.student_plan_id', '=', 'student_plans.id')
-            ->whereBetween('student_plan_days.date', [$from, $to])
-            ->where('student_plans.is_approved', 1)
-            ->whereNotNull('review_achievement')
-            ->count();
+        $reviewSessions = $gradedDays()->whereNotNull('review_achievement')->count();
 
-        $excellentCount = DB::table('student_plan_days')
-            ->join('student_plans', 'student_plan_days.student_plan_id', '=', 'student_plans.id')
-            ->whereBetween('student_plan_days.date', [$from, $to])
-            ->where('student_plans.is_approved', 1)
-            ->where(function ($q) {
-                $q->where('hifz_achievement', 3)->orWhere('review_achievement', 3);
-            })
-            ->count();
+        // Counted per session, not per row, so it shares a unit with the two
+        // figures it sits beside: a day graded excellent in both hifz and review
+        // is two excellent sessions, exactly as it is two sessions in the totals.
+        $excellentCount = $gradedDays()->where('hifz_achievement', 3)->count()
+            + $gradedDays()->where('review_achievement', 3)->count();
 
         $stageRows = $this->getQuranByStage($from, $to);
 
@@ -266,23 +239,17 @@ class Dashboard extends Component
                 return null;
             }
 
-            $hifz = DB::table('student_plan_days')
+            $stageDays = fn () => DB::table('student_plan_days')
                 ->join('student_plans', 'student_plan_days.student_plan_id', '=', 'student_plans.id')
                 ->join('users as students', 'student_plans.student_id', '=', 'students.id')
                 ->whereIn('students.circle_id', $circleIds)
-                ->whereBetween('student_plan_days.date', [$from, $to])
-                ->where('student_plans.is_approved', 1)
-                ->whereNotNull('hifz_achievement')
-                ->count();
+                ->whereDate('student_plan_days.date', '>=', $from)
+                ->whereDate('student_plan_days.date', '<=', $to)
+                ->where('student_plans.is_approved', 1);
 
-            $review = DB::table('student_plan_days')
-                ->join('student_plans', 'student_plan_days.student_plan_id', '=', 'student_plans.id')
-                ->join('users as students', 'student_plans.student_id', '=', 'students.id')
-                ->whereIn('students.circle_id', $circleIds)
-                ->whereBetween('student_plan_days.date', [$from, $to])
-                ->where('student_plans.is_approved', 1)
-                ->whereNotNull('review_achievement')
-                ->count();
+            $hifz = $stageDays()->whereNotNull('hifz_achievement')->count();
+
+            $review = $stageDays()->whereNotNull('review_achievement')->count();
 
             if ($hifz + $review === 0) {
                 return null;

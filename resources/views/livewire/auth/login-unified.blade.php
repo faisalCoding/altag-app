@@ -12,7 +12,7 @@
                 autocomplete="current-password" :placeholder="__('كلمة المرور')" viewable />
 
             @if (Route::has('password.request'))
-                <flux:link accent="false" class="absolute top-0 text-sm inset-e-0" :href="route('password.request')" wire:navigate>
+                <flux:link :accent="false" class="absolute top-0 text-sm inset-e-0" :href="route('password.request')" wire:navigate>
                     {{ __('نسيت كلمة المرور؟') }}
                 </flux:link>
             @endif
@@ -29,6 +29,6 @@
 
     <div class="space-x-1 text-sm text-center rtl:space-x-reverse text-zinc-600 dark:text-zinc-400">
         <span>{{ __('ليس لديك حساب؟') }}</span>
-        <flux:link accent="false" :href="route('register')" wire:navigate>{{ __('إنشاء حساب جديد') }}</flux:link>
+        <flux:link :accent="false" :href="route('register')" wire:navigate>{{ __('إنشاء حساب جديد') }}</flux:link>
     </div>
 </div>

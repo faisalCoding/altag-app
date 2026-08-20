@@ -111,7 +111,7 @@
                 </flux:button>
                 <div class="text-sm text-zinc-500 dark:text-zinc-400">
                     ليس لديك حساب؟
-                    <flux:link accent="false" :href="route('register')" wire:navigate>إنشاء حساب جديد</flux:link>
+                    <flux:link :accent="false" :href="route('register')" wire:navigate>إنشاء حساب جديد</flux:link>
                 </div>
             </div>
 

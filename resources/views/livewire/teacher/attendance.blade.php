@@ -129,12 +129,14 @@ Livewire fires only on: markStatus | updateStatus | markAllPresent | loadStudent
             </div>
 
             <div class="flex flex-wrap items-end gap-3 flex-1">
-                <flux:button wire:click="$set('date', '{{ now()->format('Y-m-d') }}')" variant="primary" class="!bg-maroon hover:!bg-burgundy" icon="plus">
-                    إضافة جلسة
-                </flux:button>
-                <flux:button wire:click="exportCsv" variant="ghost" icon="arrow-down-tray">
-                    تصدير تقرير
-                </flux:button>
+                <div x-show="mode !== 'sheet'" class="flex flex-wrap items-end gap-3">
+                    <flux:button wire:click="$set('date', '{{ now()->format('Y-m-d') }}')" variant="primary" class="!bg-maroon hover:!bg-burgundy" icon="plus">
+                        إضافة جلسة
+                    </flux:button>
+                    <flux:button wire:click="exportCsv" variant="ghost" icon="arrow-down-tray">
+                        تصدير تقرير
+                    </flux:button>
+                </div>
 
                 @if ($circles->count() > 1)
                     <div class="w-full sm:w-52">
@@ -152,7 +154,7 @@ Livewire fires only on: markStatus | updateStatus | markAllPresent | loadStudent
                     </div>
                 @endif
 
-                <div class="w-full sm:w-44 relative">
+                <div x-show="mode !== 'sheet'" class="w-full sm:w-44 relative">
                     @if($selectedCircle)
                         <livewire:teacher.hijri-datepicker wire:model.live="date" :circle-id="$selectedCircle"
                             wire:key="datepicker-{{ $selectedCircle }}" />
@@ -164,7 +166,7 @@ Livewire fires only on: markStatus | updateStatus | markAllPresent | loadStudent
 
                 {{-- Working times as the calendar holds them for this stage. --}}
                 @if($this->todaysSessions)
-                    <div class="flex flex-wrap items-center gap-1.5 self-end pb-1.5">
+                    <div x-show="mode !== 'sheet'" class="flex flex-wrap items-center gap-1.5 self-end pb-1.5">
                         <flux:icon icon="clock" class="size-4 text-zinc-400" />
                         @foreach($this->todaysSessions as $session)
                             <span class="px-2 py-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-xs font-medium text-zinc-600 dark:text-zinc-300 dir-ltr">
@@ -191,9 +193,17 @@ Livewire fires only on: markStatus | updateStatus | markAllPresent | loadStudent
                             قائمة يدوية
                         </span>
                     </button>
+                    <button @click="mode = 'sheet'" :class="mode === 'sheet'
+                                ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-sm'
+                                : 'text-zinc-500 dark:text-zinc-400'" class="px-3 py-1.5 text-sm font-medium rounded-md ">
+                        <span class="flex items-center gap-1.5">
+                            <flux:icon icon="table-cells" class="size-4" />
+                            جدول الشهر
+                        </span>
+                    </button>
                 </div>
 
-                <div x-show="studentOrder.length > 0" class="flex items-center gap-2">
+                <div x-show="studentOrder.length > 0 && mode !== 'sheet'" class="flex items-center gap-2">
                     <flux:button x-show="!isComplete" wire:click="markAllPresent" size="sm">
                         <span class="flex items-center gap-1">
                             <flux:icon icon="check-circle" class="size-4" />
@@ -214,7 +224,7 @@ Livewire fires only on: markStatus | updateStatus | markAllPresent | loadStudent
         </div>
 
         {{-- Progress bar — Alpine computed, no round-trip --}}
-        <div x-show="studentOrder.length > 0" class="mt-4">
+        <div x-show="studentOrder.length > 0 && mode !== 'sheet'" class="mt-4">
             <div class="flex items-center justify-between text-sm text-zinc-500 dark:text-zinc-400 mb-1.5">
                 <span>الجلسة: <span x-text="markedCount"></span> / <span x-text="studentOrder.length"></span></span>
                 <span x-show="isComplete"
@@ -232,8 +242,24 @@ Livewire fires only on: markStatus | updateStatus | markAllPresent | loadStudent
         </div>
     </div>
 
+    {{-- ══════════════════ SHEET MODE ══════════════════ --}}
+    {{-- The whole month at once. Lazy so its month of rows is only fetched when
+         the teacher actually opens the tab. --}}
+    <div x-cloak x-show="mode === 'sheet'">
+        @if ($selectedCircle)
+            <livewire:teacher.attendance-sheet :circle-id="$selectedCircle"
+                :key="'sheet-'.$selectedCircle" lazy />
+        @else
+            <div class="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-100 dark:border-zinc-800 shadow-xs p-16 text-center">
+                <flux:icon icon="table-cells" class="size-12 mx-auto text-zinc-300 dark:text-zinc-600 mb-4" />
+                <flux:heading size="lg" class="text-zinc-500 dark:text-zinc-400">اختر حلقة لعرض الجدول</flux:heading>
+            </div>
+        @endif
+    </div>
+
     {{-- ══════════════════ MAIN CONTENT ══════════════════ --}}
 
+    <div x-show="mode !== 'sheet'" class="space-y-6">
     @if (!$selectedCircle)
         {{-- No circle selected --}}
         <div
@@ -481,8 +507,10 @@ Livewire fires only on: markStatus | updateStatus | markAllPresent | loadStudent
             </div>
         </div>
     @endif
+    </div>
 
     {{-- ══════════════════ STATS WITH 7-DAY SPARKLINES ══════════════════ --}}
+    <div x-show="mode !== 'sheet'" class="space-y-6">
     @if($selectedCircle)
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
             @foreach([
@@ -596,6 +624,7 @@ Livewire fires only on: markStatus | updateStatus | markAllPresent | loadStudent
             </div>
         </div>
     @endif
+    </div>
 
     {{-- Clear Attendance Modal --}}
     <flux:modal name="confirm-clear-attendance" class="min-w-[22rem]">
