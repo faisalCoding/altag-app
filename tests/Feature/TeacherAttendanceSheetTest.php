@@ -283,3 +283,24 @@ it('moves between Hijri months and drops the cached grid', function () {
     $component->call('goToCurrentMonth');
     expect($component->instance()->monthLabel())->toBe($opening);
 });
+
+it('stacks only the first two name parts for phone-width rows', function () {
+    $student = Student::factory()->create([
+        'circle_id' => $this->circle->id,
+        'name' => 'عبدالرحمن  محمد عبدالله الغامدي',
+    ]);
+
+    expect($student->shortNameParts())->toBe(['عبدالرحمن', 'محمد']);
+
+    Livewire::test(AttendanceSheet::class, ['circleId' => $this->circle->id])
+        ->assertSeeInOrder([
+            'sm:hidden',
+            '<span class="block truncate">عبدالرحمن</span>',
+            '<span class="block truncate">محمد</span>',
+        ], false)
+        ->assertSee('عبدالرحمن  محمد عبدالله الغامدي');
+});
+
+it('keeps a one-word name to a single line', function () {
+    expect($this->studentA->shortNameParts())->toBe(['أحمد']);
+});

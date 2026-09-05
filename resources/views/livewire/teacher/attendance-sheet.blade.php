@@ -321,7 +321,7 @@ a reason — enforced here for the prompt, and again on the server for real.
                 <table class="border-collapse text-sm w-max min-w-full">
                     <thead>
                         <tr>
-                            <th class="sticky top-0 right-0 z-30 bg-zinc-50 dark:bg-zinc-800 border-b border-l border-zinc-200 dark:border-zinc-700 px-3 py-2 text-right min-w-52">
+                            <th class="sticky top-0 right-0 z-30 bg-zinc-50 dark:bg-zinc-800 border-b border-l border-zinc-200 dark:border-zinc-700 px-3 py-2 text-right min-w-36 sm:min-w-52">
                                 <span class="text-xs font-bold text-zinc-600 dark:text-zinc-300">الطالب</span>
                             </th>
 
@@ -354,10 +354,16 @@ a reason — enforced here for the prompt, and again on the server for real.
                                 <th class="sticky right-0 z-10 bg-white dark:bg-zinc-900 group-hover:bg-zinc-50 dark:group-hover:bg-zinc-800/60 border-b border-l border-zinc-200 dark:border-zinc-700 p-0 text-right">
                                     <button type="button" x-on:click="selectRow({{ $rowIndex }})"
                                         class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-700/60">
-                                        <span class="text-[10px] font-mono text-zinc-400 w-5 shrink-0">{{ $rowIndex + 1 }}</span>
+                                        <span class="hidden sm:block text-[10px] font-mono text-zinc-400 w-5 shrink-0">{{ $rowIndex + 1 }}</span>
                                         <span class="size-6 shrink-0 rounded-full flex items-center justify-center font-bold text-[9px]"
                                             style="{{ $student->avatarStyle() }}">{{ $student->initials() }}</span>
-                                        <span class="truncate font-medium text-zinc-800 dark:text-zinc-100 text-xs">{{ $student->name }}</span>
+                                        {{-- Phone: only the first two name parts, stacked. Wider: the full name. --}}
+                                        <span class="sm:hidden min-w-0 flex-1 max-w-22 font-medium text-zinc-800 dark:text-zinc-100 text-xs leading-tight text-right">
+                                            @foreach ($student->shortNameParts() as $part)
+                                                <span class="block truncate">{{ $part }}</span>
+                                            @endforeach
+                                        </span>
+                                        <span class="hidden sm:block truncate font-medium text-zinc-800 dark:text-zinc-100 text-xs">{{ $student->name }}</span>
                                     </button>
                                 </th>
 
