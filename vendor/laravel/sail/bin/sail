@@ -56,6 +56,10 @@ function display_help {
     echo "  ${GREEN}sail composer ...${NC}                       Run a Composer command"
     echo "  ${GREEN}sail composer require laravel/sanctum${NC}"
     echo
+    echo "${YELLOW}CPX Commands:${NC}"
+    echo "  ${GREEN}sail cpx ...${NC}                       Run a CPX command (requires PHP 8.2+)"
+    echo "  ${GREEN}sail cpx php-cs-fixer fix ./src${NC}"
+    echo
     echo "${YELLOW}Node Commands:${NC}"
     echo "  ${GREEN}sail node ...${NC}         Run a Node command"
     echo "  ${GREEN}sail node --version${NC}"
@@ -164,6 +168,40 @@ function sail_is_not_running {
     exit 1
 }
 
+# AI agent environment variables to forward into containers...
+AGENT_ENV_VARS=(
+    AI_AGENT
+    CLAUDECODE
+    CLAUDE_CODE
+    CLAUDE_CODE_IS_COWORK
+    CURSOR_TRACE_ID
+    CURSOR_AGENT
+    GEMINI_CLI
+    CODEX_SANDBOX
+    CODEX_CI
+    CODEX_THREAD_ID
+    AUGMENT_AGENT
+    OPENCODE_CLIENT
+    OPENCODE
+    AMP_CURRENT_THREAD_ID
+    REPL_ID
+    ANTIGRAVITY_AGENT
+    COPILOT_MODEL
+    COPILOT_ALLOW_ALL
+    COPILOT_GITHUB_TOKEN
+    COPILOT_CLI
+    PI_CODING_AGENT
+    KIRO_AGENT_PATH
+)
+
+function forward_agent_env() {
+    for VAR in "${AGENT_ENV_VARS[@]}"; do
+        if [ -n "${!VAR:-}" ]; then
+            ARGS+=(-e "${VAR}=${!VAR}")
+        fi
+    done
+}
+
 # Define Docker Compose command prefix...
 if ${SAIL_DOCKER_BINARY} compose &> /dev/null; then
     COMPOSE_CMD=(${SAIL_DOCKER_BINARY} compose)
@@ -217,6 +255,7 @@ if [ "$1" == "php" ]; then
     if [ "$EXEC" == "yes" ]; then
         ARGS+=(exec -u "$APP_USER")
         [ ! -t 0 ] && ARGS+=(-T)
+        forward_agent_env
         ARGS+=("$APP_SERVICE" "php")
     else
         sail_is_not_running
@@ -231,6 +270,7 @@ elif [ "$1" == "bin" ]; then
         shift 1
         ARGS+=(exec -u "$APP_USER")
         [ ! -t 0 ] && ARGS+=(-T)
+        forward_agent_env
         ARGS+=("$APP_SERVICE" ./vendor/bin/"$CMD")
     else
         sail_is_not_running
@@ -245,6 +285,7 @@ elif [ "$1" == "run" ]; then
         shift 1
         ARGS+=(exec -u "$APP_USER")
         [ ! -t 0 ] && ARGS+=(-T)
+        forward_agent_env
         ARGS+=("$APP_SERVICE" "$CMD")
     else
         sail_is_not_running
@@ -257,6 +298,7 @@ elif [ "$1" == "docker-compose" ]; then
     if [ "$EXEC" == "yes" ]; then
         ARGS+=(exec -u "$APP_USER")
         [ ! -t 0 ] && ARGS+=(-T)
+        forward_agent_env
         ARGS+=("$APP_SERVICE" "${COMPOSE_CMD[@]}")
     else
         sail_is_not_running
@@ -269,7 +311,36 @@ elif [ "$1" == "composer" ]; then
     if [ "$EXEC" == "yes" ]; then
         ARGS+=(exec -u "$APP_USER")
         [ ! -t 0 ] && ARGS+=(-T)
+        forward_agent_env
         ARGS+=("$APP_SERVICE" "composer")
+    else
+        sail_is_not_running
+    fi
+
+# Proxy CPX commands to the "cpx" binary on the application container...
+elif [ "$1" == "cpx" ]; then
+    shift 1
+
+    if [ "$EXEC" == "yes" ]; then
+        # Determine the PHP version running in the container...
+        if ! PHP_VERSION=$("${COMPOSE_CMD[@]}" exec -u "$APP_USER" -T "$APP_SERVICE" php -r 'echo PHP_MAJOR_VERSION . "." . PHP_MINOR_VERSION;'); then
+            sail_is_not_running
+        fi
+
+        PHP_MAJOR="${PHP_VERSION%%.*}"
+        PHP_MINOR="${PHP_VERSION#*.}"
+
+        # Ensure cpx is supported on the current PHP version (requires PHP 8.2+)...
+        if [ "$PHP_MAJOR" -lt 8 ] || { [ "$PHP_MAJOR" -eq 8 ] && [ "$PHP_MINOR" -lt 2 ]; }; then
+            echo "${BOLD}cpx is not supported on PHP ${PHP_VERSION}. cpx requires PHP 8.2 or higher.${NC}" >&2
+
+            exit 1
+        fi
+
+        ARGS+=(exec -u "$APP_USER")
+        [ ! -t 0 ] && ARGS+=(-T)
+        forward_agent_env
+        ARGS+=("$APP_SERVICE" "cpx")
     else
         sail_is_not_running
     fi
@@ -280,7 +351,10 @@ elif [ "$1" == "artisan" ] || [ "$1" == "art" ] || [ "$1" == "a" ]; then
 
     if [ "$EXEC" == "yes" ]; then
         ARGS+=(exec -u "$APP_USER")
-        [ ! -t 0 ] && ARGS+=(-T)
+        if [ ! -t 0 ] || [ "$1" == "schedule:run" ]; then
+            ARGS+=(-T)
+        fi
+        forward_agent_env
         ARGS+=("$APP_SERVICE" php artisan)
     else
         sail_is_not_running
@@ -293,6 +367,7 @@ elif [ "$1" == "debug" ]; then
     if [ "$EXEC" == "yes" ]; then
         ARGS+=(exec -u "$APP_USER" -e XDEBUG_TRIGGER=1)
         [ ! -t 0 ] && ARGS+=(-T)
+        forward_agent_env
         ARGS+=("$APP_SERVICE" php artisan)
     else
         sail_is_not_running
@@ -305,6 +380,7 @@ elif [ "$1" == "test" ]; then
     if [ "$EXEC" == "yes" ]; then
         ARGS+=(exec -u "$APP_USER")
         [ ! -t 0 ] && ARGS+=(-T)
+        forward_agent_env
         ARGS+=("$APP_SERVICE" php artisan test)
     else
         sail_is_not_running
@@ -317,6 +393,7 @@ elif [ "$1" == "phpunit" ]; then
     if [ "$EXEC" == "yes" ]; then
         ARGS+=(exec -u "$APP_USER")
         [ ! -t 0 ] && ARGS+=(-T)
+        forward_agent_env
         ARGS+=("$APP_SERVICE" php vendor/bin/phpunit)
     else
         sail_is_not_running
@@ -329,6 +406,7 @@ elif [ "$1" == "pest" ]; then
     if [ "$EXEC" == "yes" ]; then
         ARGS+=(exec -u "$APP_USER")
         [ ! -t 0 ] && ARGS+=(-T)
+        forward_agent_env
         ARGS+=("$APP_SERVICE" php vendor/bin/pest)
     else
         sail_is_not_running
@@ -341,6 +419,7 @@ elif [ "$1" == "pint" ]; then
     if [ "$EXEC" == "yes" ]; then
         ARGS+=(exec -u "$APP_USER")
         [ ! -t 0 ] && ARGS+=(-T)
+        forward_agent_env
         ARGS+=("$APP_SERVICE" php vendor/bin/pint)
     else
         sail_is_not_running
@@ -353,6 +432,7 @@ elif [ "$1" == "dusk" ]; then
     if [ "$EXEC" == "yes" ]; then
         ARGS+=(exec -u "$APP_USER")
         [ ! -t 0 ] && ARGS+=(-T)
+        forward_agent_env
         ARGS+=(-e "APP_URL=http://${APP_SERVICE}")
         ARGS+=(-e "DUSK_DRIVER_URL=http://selenium:4444/wd/hub")
         ARGS+=("$APP_SERVICE" php artisan dusk)
@@ -367,6 +447,7 @@ elif [ "$1" == "dusk:fails" ]; then
     if [ "$EXEC" == "yes" ]; then
         ARGS+=(exec -u "$APP_USER")
         [ ! -t 0 ] && ARGS+=(-T)
+        forward_agent_env
         ARGS+=(-e "APP_URL=http://${APP_SERVICE}")
         ARGS+=(-e "DUSK_DRIVER_URL=http://selenium:4444/wd/hub")
         ARGS+=("$APP_SERVICE" php artisan dusk:fails)
@@ -381,6 +462,7 @@ elif [ "$1" == "tinker" ]; then
     if [ "$EXEC" == "yes" ]; then
         ARGS+=(exec -u "$APP_USER")
         [ ! -t 0 ] && ARGS+=(-T)
+        forward_agent_env
         ARGS+=("$APP_SERVICE" php artisan tinker)
     else
         sail_is_not_running
@@ -393,6 +475,7 @@ elif [ "$1" == "node" ]; then
     if [ "$EXEC" == "yes" ]; then
         ARGS+=(exec -u "$APP_USER")
         [ ! -t 0 ] && ARGS+=(-T)
+        forward_agent_env
         ARGS+=("$APP_SERVICE" node)
     else
         sail_is_not_running
@@ -405,6 +488,7 @@ elif [ "$1" == "npm" ]; then
     if [ "$EXEC" == "yes" ]; then
         ARGS+=(exec -u "$APP_USER")
         [ ! -t 0 ] && ARGS+=(-T)
+        forward_agent_env
         ARGS+=("$APP_SERVICE" npm)
     else
         sail_is_not_running
@@ -417,6 +501,7 @@ elif [ "$1" == "npx" ]; then
     if [ "$EXEC" == "yes" ]; then
         ARGS+=(exec -u "$APP_USER")
         [ ! -t 0 ] && ARGS+=(-T)
+        forward_agent_env
         ARGS+=("$APP_SERVICE" npx)
     else
         sail_is_not_running
@@ -429,6 +514,7 @@ elif [ "$1" == "pnpm" ]; then
     if [ "$EXEC" == "yes" ]; then
         ARGS+=(exec -u "$APP_USER")
         [ ! -t 0 ] && ARGS+=(-T)
+        forward_agent_env
         ARGS+=("$APP_SERVICE" pnpm)
     else
         sail_is_not_running
@@ -441,6 +527,7 @@ elif [ "$1" == "pnpx" ]; then
     if [ "$EXEC" == "yes" ]; then
         ARGS+=(exec -u "$APP_USER")
         [ ! -t 0 ] && ARGS+=(-T)
+        forward_agent_env
         ARGS+=("$APP_SERVICE" pnpx)
     else
         sail_is_not_running
@@ -453,6 +540,7 @@ elif [ "$1" == "yarn" ]; then
     if [ "$EXEC" == "yes" ]; then
         ARGS+=(exec -u "$APP_USER")
         [ ! -t 0 ] && ARGS+=(-T)
+        forward_agent_env
         ARGS+=("$APP_SERVICE" yarn)
     else
         sail_is_not_running
@@ -465,6 +553,7 @@ elif [ "$1" == "bun" ]; then
     if [ "$EXEC" == "yes" ]; then
         ARGS+=(exec -u "$APP_USER")
         [ ! -t 0 ] && ARGS+=(-T)
+        forward_agent_env
         ARGS+=("$APP_SERVICE" bun)
     else
         sail_is_not_running
@@ -477,6 +566,7 @@ elif [ "$1" == "bunx" ]; then
     if [ "$EXEC" == "yes" ]; then
         ARGS+=(exec -u "$APP_USER")
         [ ! -t 0 ] && ARGS+=(-T)
+        forward_agent_env
         ARGS+=("$APP_SERVICE" bunx)
     else
         sail_is_not_running
@@ -528,6 +618,7 @@ elif [ "$1" == "shell" ] || [ "$1" == "bash" ]; then
     if [ "$EXEC" == "yes" ]; then
         ARGS+=(exec -u "$APP_USER")
         [ ! -t 0 ] && ARGS+=(-T)
+        forward_agent_env
         ARGS+=("$APP_SERVICE" bash)
     else
         sail_is_not_running
@@ -540,6 +631,7 @@ elif [ "$1" == "root-shell" ] || [ "$1" == "root-bash" ]; then
     if [ "$EXEC" == "yes" ]; then
         ARGS+=(exec -u root)
         [ ! -t 0 ] && ARGS+=(-T)
+        forward_agent_env
         ARGS+=("$APP_SERVICE" bash)
     else
         sail_is_not_running

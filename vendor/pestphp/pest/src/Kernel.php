@@ -27,8 +27,13 @@ use Whoops\Exception\Inspector;
 /**
  * @internal
  */
-final readonly class Kernel
+final class Kernel
 {
+    /**
+     * Either the kernel is terminated or not.
+     */
+    private bool $terminated = false;
+
     /**
      * The Kernel bootstrappers.
      *
@@ -46,12 +51,7 @@ final readonly class Kernel
     /**
      * Creates a new Kernel instance.
      */
-    public function __construct(
-        private Application $application,
-        private OutputInterface $output,
-    ) {
-        //
-    }
+    public function __construct(private readonly Application $application, private readonly OutputInterface $output) {}
 
     /**
      * Boots the Kernel.
@@ -112,9 +112,13 @@ final readonly class Kernel
         $configuration = Registry::get();
         $result = Facade::result();
 
-        return CallsAddsOutput::execute(
+        $result = CallsAddsOutput::execute(
             Result::exitCode($configuration, $result),
         );
+
+        $this->terminate();
+
+        return $result;
     }
 
     /**
@@ -122,6 +126,12 @@ final readonly class Kernel
      */
     public function terminate(): void
     {
+        if ($this->terminated) {
+            return;
+        }
+
+        $this->terminated = true;
+
         $preBufferOutput = Container::getInstance()->get(KernelDump::class);
 
         assert($preBufferOutput instanceof KernelDump);
@@ -139,7 +149,7 @@ final readonly class Kernel
         $this->terminate();
 
         if (is_array($error = error_get_last())) {
-            if (! in_array($error['type'], [E_ERROR, E_CORE_ERROR], true)) {
+            if (! in_array($error['type'], [E_ERROR, E_COMPILE_ERROR, E_CORE_ERROR], true)) {
                 return;
             }
 

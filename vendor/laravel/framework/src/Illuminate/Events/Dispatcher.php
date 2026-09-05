@@ -20,6 +20,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Contracts\Queue\ShouldQueueAfterCommit;
 use Illuminate\Queue\Attributes\Backoff;
 use Illuminate\Queue\Attributes\Connection;
+use Illuminate\Queue\Attributes\Delay;
 use Illuminate\Queue\Attributes\DeleteWhenMissingModels;
 use Illuminate\Queue\Attributes\FailOnTimeout;
 use Illuminate\Queue\Attributes\MaxExceptions;
@@ -180,13 +181,7 @@ class Dispatcher implements DispatcherContract
      */
     public function hasWildcardListeners($eventName)
     {
-        foreach ($this->wildcards as $key => $listeners) {
-            if (Str::is($key, $eventName)) {
-                return true;
-            }
-        }
-
-        return false;
+        return array_any($this->wildcards, fn ($listeners, $key) => Str::is($key, $eventName));
     }
 
     /**
@@ -679,7 +674,7 @@ class Dispatcher implements DispatcherContract
 
         $delay = method_exists($listener, 'withDelay')
             ? (isset($arguments[0]) ? $listener->withDelay($arguments[0]) : $listener->withDelay())
-            : $listener->delay ?? null;
+            : $this->getAttributeValue($listener, Delay::class, 'delay');
 
         if (is_null($queue)) {
             $queue = $this->resolveQueueFromQueueRoute($listener) ?? null;
@@ -699,6 +694,8 @@ class Dispatcher implements DispatcherContract
      * @param  string  $method
      * @param  array  $arguments
      * @return array{TListener, mixed}
+     *
+     * @throws \ReflectionException
      */
     protected function createListenerAndJob($class, $method, $arguments)
     {
@@ -891,7 +888,7 @@ class Dispatcher implements DispatcherContract
     /**
      * Gets the raw, unprepared listeners.
      *
-     * @return array
+     * @return array<string, callable|array|class-string|null>
      */
     public function getRawListeners()
     {

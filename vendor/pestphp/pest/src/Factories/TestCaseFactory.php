@@ -60,6 +60,11 @@ final class TestCaseFactory
     ];
 
     /**
+     * The namespace for the test case, overrides the path-based namespace when set.
+     */
+    public ?string $namespace = null;
+
+    /**
      * Creates a new Factory instance.
      */
     public function __construct(
@@ -89,7 +94,8 @@ final class TestCaseFactory
             $filename = (string) preg_replace_callback('~^(?P<drive>[a-z]+:\\\)~i', static fn (array $match): string => strtolower($match['drive']), $filename);
         }
 
-        $filename = str_replace('\\\\', '\\', addslashes((string) realpath($filename)));
+        $realpath = (string) realpath($filename);
+        $filename = str_replace('\\\\', '\\', addslashes($realpath));
         $rootPath = TestSuite::getInstance()->rootPath;
         $relativePath = str_replace($rootPath.DIRECTORY_SEPARATOR, '', $filename);
 
@@ -111,8 +117,8 @@ final class TestCaseFactory
         $relativePath = (string) preg_replace('|%[a-fA-F0-9][a-fA-F0-9]|', '', $relativePath);
         // Remove escaped quote sequences (maintain namespace)
         $relativePath = str_replace(array_map(fn (string $quote): string => sprintf('\\%s', $quote), ['\'', '"']), '', $relativePath);
-        // Limit to A-Z, a-z, 0-9, '_', '-'.
-        $relativePath = (string) preg_replace('/[^A-Za-z0-9\\\\]/', '', $relativePath);
+        // Limit to Unicode letters and numbers.
+        $relativePath = (string) preg_replace('/[^\p{L}\p{N}\\\\]/u', '', $relativePath);
 
         $classFQN = 'P\\'.$relativePath;
 
@@ -127,7 +133,7 @@ final class TestCaseFactory
 
         $partsFQN = explode('\\', $classFQN);
         $className = array_pop($partsFQN);
-        $namespace = implode('\\', $partsFQN);
+        $namespace = $this->namespace ?? implode('\\', $partsFQN);
         $baseClass = sprintf('\%s', $this->class);
 
         if (trim($className) === '') {
@@ -144,6 +150,8 @@ final class TestCaseFactory
 
         $attributesCode = Attributes::code($this->attributes);
 
+        $filenameLiteral = var_export($realpath, true);
+
         $methodsCode = implode('', array_map(
             fn (TestCaseMethodFactory $methodFactory): string => $methodFactory->buildForEvaluation(),
             $methods
@@ -153,6 +161,7 @@ final class TestCaseFactory
             $classCode = <<<PHP
             namespace $namespace;
 
+            use Pest\Exceptions\DatasetProviderError as __PestDatasetProviderError;
             use Pest\Repositories\DatasetsRepository as __PestDatasets;
             use Pest\TestSuite as __PestTestSuite;
 
@@ -161,7 +170,7 @@ final class TestCaseFactory
             final class $className extends $baseClass implements $hasPrintableTestCaseClassFQN {
                 $traitsCode
 
-                private static \$__filename = '$filename';
+                public static \$__filename = $filenameLiteral;
 
                 $methodsCode
             }

@@ -4,6 +4,9 @@ namespace App\Livewire\Public;
 
 use App\Models\Form;
 use App\Models\FormResponse;
+use App\Models\User;
+use App\Services\SurveyAssignmentService;
+use App\Support\SurveyFieldTypes;
 use Illuminate\Support\Facades\Storage;
 use Intervention\Image\Drivers\Gd\Driver;
 use Intervention\Image\Encoders\WebpEncoder;
@@ -36,6 +39,11 @@ class FormSubmit extends Component
 
         // Initialize default answers
         foreach ($this->form->fields as $field) {
+            // A section divider is a heading, never an answer.
+            if (SurveyFieldTypes::isLayout($field['type'])) {
+                continue;
+            }
+
             if ($field['type'] === 'multiselect') {
                 $this->answers[$field['id']] = [];
             } elseif ($field['type'] === 'date') {
@@ -81,6 +89,32 @@ class FormSubmit extends Component
             $label = $field['label'];
             $allowOther = $field['allow_other'] ?? false;
 
+            if (SurveyFieldTypes::isLayout($field['type'])) {
+                continue;
+            }
+
+            // A scale answer must land inside the range the question declares, so
+            // a tampered payload cannot store an 11 on a five-point rating.
+            if ($bounds = SurveyFieldTypes::scaleBounds($field)) {
+                $rule = ($field['required'] ? 'required' : 'nullable')
+                    ."|integer|min:{$bounds['min']}|max:{$bounds['max']}";
+                $rules["answers.{$fieldId}"] = $rule;
+                $messages["answers.{$fieldId}.required"] = "حقل ({$label}) مطلوب.";
+                $messages["answers.{$fieldId}.integer"] = "قيمة غير صالحة لحقل ({$label}).";
+                $messages["answers.{$fieldId}.min"] = "قيمة خارج المقياس لحقل ({$label}).";
+                $messages["answers.{$fieldId}.max"] = "قيمة خارج المقياس لحقل ({$label}).";
+
+                continue;
+            }
+
+            if ($field['type'] === 'yesno') {
+                $rules["answers.{$fieldId}"] = ($field['required'] ? 'required' : 'nullable').'|in:نعم,لا';
+                $messages["answers.{$fieldId}.required"] = "حقل ({$label}) مطلوب.";
+                $messages["answers.{$fieldId}.in"] = "قيمة غير صالحة لحقل ({$label}).";
+
+                continue;
+            }
+
             if ($allowOther) {
                 $hasOtherSelected = false;
                 if ($field['type'] === 'select') {
@@ -125,6 +159,10 @@ class FormSubmit extends Component
         foreach ($this->form->fields as $field) {
             $fieldId = $field['id'];
 
+            if (SurveyFieldTypes::isLayout($field['type'])) {
+                continue;
+            }
+
             if ($field['type'] === 'image') {
                 if (isset($this->temp_uploads[$fieldId]) && $this->temp_uploads[$fieldId]) {
                     $file = $this->temp_uploads[$fieldId];
@@ -168,13 +206,35 @@ class FormSubmit extends Component
         }
 
         // Save Response
-        FormResponse::create([
+        $response = FormResponse::create([
             'form_id' => $this->form->id,
             'answers' => $finalAnswers,
             'is_processed' => false,
         ]);
 
+        // A signed-in respondent may owe this form. Closing their assignment is
+        // what lifts the gate for them and moves the response rate; a stranger
+        // arriving by the public link simply has none to close.
+        if ($user = self::currentUser()) {
+            SurveyAssignmentService::completeFor($this->form, $user->id, $response->id);
+        }
+
         $this->submitted = true;
+    }
+
+    /**
+     * Whoever is signed in, under whichever guard. The public page is reachable
+     * by everyone, so this is often nobody.
+     */
+    private static function currentUser(): ?User
+    {
+        foreach (['manager', 'supervisor', 'teacher', 'student', 'guardian', 'staff'] as $guard) {
+            if ($user = auth()->guard($guard)->user()) {
+                return $user;
+            }
+        }
+
+        return null;
     }
 
     public function render()

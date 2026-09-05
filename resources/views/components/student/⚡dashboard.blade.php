@@ -479,6 +479,8 @@ new class extends Component {
 ?>
 
 <div>
+    <x-shared.pending-surveys />
+
     {{-- The whole "everyday" dashboard is hidden while a competition is
     active — the page should show only the competition widget, not both. --}}
     @unless($leaderboard)

@@ -56,8 +56,10 @@ class PublishCommand extends Command
             'Accordion' => ['accordion'],
             'Autocomplete' => ['autocomplete'],
             'Calendar' => ['calendar'],
+            'Carousel' => ['carousel'],
             'Chart' => ['chart'],
             'Checkbox' => ['checkbox'],
+            'Color picker' => ['color-picker'],
             'Command' => ['command'],
             'Composer' => ['composer'],
             'Context' => ['context'],
@@ -72,6 +74,7 @@ class PublishCommand extends Command
             'Tabs' => ['tabs','tab'],
             'Table' => ['table', 'pagination'],
             'Time picker' => ['time-picker'],
+            'Timeline' => ['timeline'],
         ],
     ];
 

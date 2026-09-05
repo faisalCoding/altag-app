@@ -53,6 +53,8 @@ new class extends Component
 ?>
 
 <div class="space-y-6" dir="rtl">
+    <x-shared.pending-surveys />
+
     <div class="flex items-center gap-3">
         <div class="p-2.5 rounded-xl bg-maroon/10 text-maroon dark:bg-white/10 dark:text-white">
             <flux:icon icon="squares-2x2" />

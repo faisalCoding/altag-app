@@ -51,6 +51,11 @@ final class TestCaseMethodFactory
     public int $repetitions = 1;
 
     /**
+     * The test's number of flaky retry tries.
+     */
+    public ?int $flakyTries = null;
+
+    /**
      * Determines if the test is a "todo".
      */
     public bool $todo = false;
@@ -230,6 +235,10 @@ final class TestCaseMethodFactory
             $attributesCode
                 public function $methodName(...\$arguments)
                 {
+                    if (count(\$arguments) === 1 && \$arguments[array_key_first(\$arguments)] instanceof __PestDatasetProviderError) {
+                        throw \$arguments[array_key_first(\$arguments)]->getPrevious() ?? \$arguments[array_key_first(\$arguments)];
+                    }
+
                     return \$this->__runTest(
                         \$this->__test,
                         ...\$arguments,
@@ -256,7 +265,11 @@ final class TestCaseMethodFactory
 
                 public static function $dataProviderName()
                 {
-                    return __PestDatasets::get(self::\$__filename, "$methodName");
+                    try {
+                        return __PestDatasets::get(self::\$__filename, "$methodName");
+                    } catch (\Throwable \$throwable) {
+                        return [[new __PestDatasetProviderError(\$throwable)]];
+                    }
                 }
 
         EOF;

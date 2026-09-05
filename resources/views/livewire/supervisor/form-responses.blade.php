@@ -45,6 +45,89 @@
     </div>
     <!-- Responses Tab -->
     <div x-show="activeTab === 'responses'" class="space-y-4">
+    {{-- What the answers say, before the table of what each person said. --}}
+    @if($completion['assigned'] > 0 || collect($summaries)->sum('answered') > 0)
+        <div class="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-5 space-y-5 mb-6" dir="rtl">
+            <div class="flex items-center justify-between flex-wrap gap-3">
+                <h2 class="text-lg font-bold text-zinc-900 dark:text-white">خلاصة النتائج</h2>
+                @if($completion['assigned'] > 0)
+                    <div class="flex items-center gap-2 text-sm">
+                        <span class="text-zinc-500">نسبة الاستجابة</span>
+                        <flux:badge size="sm" :color="$completion['rate'] >= 70 ? 'emerald' : ($completion['rate'] >= 40 ? 'amber' : 'rose')">
+                            {{ $completion['rate'] }}%
+                        </flux:badge>
+                        <span class="text-xs text-zinc-400 tabular-nums">
+                            {{ $completion['completed'] }} من {{ $completion['assigned'] }}
+                        </span>
+                    </div>
+                @endif
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                @foreach($summaries as $summary)
+                    @continue($summary['answered'] === 0)
+                    <div class="rounded-lg border border-zinc-100 dark:border-zinc-800 p-4 space-y-3">
+                        <div class="flex items-start justify-between gap-3">
+                            <span class="text-sm font-bold text-zinc-800 dark:text-zinc-100">{{ $summary['label'] }}</span>
+                            <span class="text-[11px] text-zinc-400 whitespace-nowrap tabular-nums">{{ $summary['answered'] }} إجابة</span>
+                        </div>
+
+                        @if($summary['kind'] === 'scale')
+                            <div class="flex items-baseline gap-2">
+                                <span class="text-3xl font-black text-accent tabular-nums">{{ $summary['average'] ?? '—' }}</span>
+                                <span class="text-sm text-zinc-400">/ {{ $summary['max'] }}</span>
+                                @if($summary['positive_rate'] !== null)
+                                    <span class="text-xs text-emerald-600 dark:text-emerald-400 mr-auto">
+                                        {{ $summary['positive_rate'] }}% إيجابي
+                                    </span>
+                                @endif
+                            </div>
+                            <div class="space-y-1.5">
+                                @foreach(array_reverse($summary['counts'], true) as $value => $count)
+                                    @php $share = $summary['total'] > 0 ? round($count / $summary['total'] * 100) : 0; @endphp
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-[11px] text-zinc-500 w-24 shrink-0 truncate">
+                                            {{ $summary['labels'][$value] ?? $value }}
+                                        </span>
+                                        <div class="flex-1 h-2.5 rounded-full bg-zinc-100 dark:bg-zinc-800 overflow-hidden">
+                                            <div class="h-full rounded-full bg-accent" style="width: {{ $share }}%"></div>
+                                        </div>
+                                        <span class="text-[11px] text-zinc-400 w-10 text-left tabular-nums">{{ $count }}</span>
+                                    </div>
+                                @endforeach
+                            </div>
+
+                        @elseif($summary['kind'] === 'choice')
+                            <div class="space-y-1.5">
+                                @foreach($summary['counts'] as $choice => $count)
+                                    @continue($count === 0)
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-[11px] text-zinc-500 w-28 shrink-0 truncate" title="{{ $choice }}">{{ $choice }}</span>
+                                        <div class="flex-1 h-2.5 rounded-full bg-zinc-100 dark:bg-zinc-800 overflow-hidden">
+                                            <div class="h-full rounded-full bg-accent" style="width: {{ $summary['shares'][$choice] ?? 0 }}%"></div>
+                                        </div>
+                                        <span class="text-[11px] text-zinc-400 w-16 text-left tabular-nums">
+                                            {{ $count }} · {{ $summary['shares'][$choice] ?? 0 }}%
+                                        </span>
+                                    </div>
+                                @endforeach
+                            </div>
+
+                        @elseif($summary['kind'] === 'text')
+                            <div class="space-y-1.5 max-h-40 overflow-auto">
+                                @foreach($summary['samples'] as $sample)
+                                    <p class="text-xs text-zinc-600 dark:text-zinc-300 bg-zinc-50 dark:bg-zinc-800/60 rounded-lg px-2.5 py-1.5">
+                                        {{ is_array($sample) ? implode('، ', $sample) : $sample }}
+                                    </p>
+                                @endforeach
+                            </div>
+                        @endif
+                    </div>
+                @endforeach
+            </div>
+        </div>
+    @endif
+
         <!-- Search and Filters bar -->
         <div class="grid grid-cols-1 md:grid-cols-12 gap-4 bg-white dark:bg-zinc-900 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800">
             <div class="md:col-span-4">
@@ -103,6 +186,7 @@
                 <select wire:model.live="filterFieldId" class="block w-full rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-700 dark:text-zinc-300 font-medium hover:bg-zinc-50 dark:hover:bg-zinc-950 transition-colors focus:ring-2 focus:ring-accent focus:outline-hidden">
                     <option value="">-- تصفية حسب سؤال معين --</option>
                     @foreach($form->fields as $field)
+                        @continue(\App\Support\SurveyFieldTypes::isLayout($field['type']))
                         <option value="{{ $field['id'] }}">{{ $field['label'] }}</option>
                     @endforeach
                 </select>
@@ -178,6 +262,7 @@
                             </th>
                             <th class="p-4 text-start bg-inherit">تاريخ الرد</th>
                             @foreach($form->fields as $field)
+                                @continue(\App\Support\SurveyFieldTypes::isLayout($field['type']))
                                 <th class="p-4 text-start min-w-[120px] bg-inherit">{{ $field['label'] }}</th>
                             @endforeach
                             <th class="p-4 text-start bg-inherit">الحالة / الربط</th>
@@ -197,6 +282,7 @@
                                     <x-hijri-date :date="$response->created_at" style="withTime" />
                                 </td>
                                 @foreach($form->fields as $field)
+                                    @continue(\App\Support\SurveyFieldTypes::isLayout($field['type']))
                                     @php
                                         $fieldId = $field['id'];
                                         $answer = $response->answers[$fieldId] ?? null;
@@ -214,6 +300,11 @@
                                                     </span>
                                                 @endforeach
                                             </div>
+                                        @elseif($field['type'] === 'likert' && $answer !== null && $answer !== '')
+                                            <span class="text-xs font-medium">{{ \App\Support\SurveyFieldTypes::likertScale()[(int) $answer] ?? $answer }}</span>
+                                        @elseif(\App\Support\SurveyFieldTypes::isScale($field['type']) && $answer !== null && $answer !== '')
+                                            @php $bounds = \App\Support\SurveyFieldTypes::scaleBounds($field); @endphp
+                                            <span class="text-xs font-bold tabular-nums">{{ $answer }}<span class="text-zinc-400 font-normal"> / {{ $bounds['max'] }}</span></span>
                                         @else
                                             <span title="{{ is_array($answer) ? implode(', ', $answer) : $answer }}">
                                                 {{ is_array($answer) ? implode(', ', $answer) : $answer }}
@@ -442,6 +533,7 @@
                             <select wire:model="bulkMap.{{ $attr }}" class="block w-full rounded-lg border border-zinc-200 dark:border-zinc-800 bg-transparent px-3 py-2 text-sm">
                                 <option value="">-- لا شيء --</option>
                                 @foreach($form->fields as $field)
+                                    @continue(\App\Support\SurveyFieldTypes::isLayout($field['type']))
                                     <option value="{{ $field['id'] }}">{{ $field['label'] }}</option>
                                 @endforeach
                             </select>

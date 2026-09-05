@@ -1,6 +1,34 @@
 Changelog
 =========
 
+## 2.4.1
+
+### Fixed
+
+- Corrected `uuid` assertion to prevent braces and prefixes being _inside_ the value.
+
+## 2.4.0
+
+### Changed
+
+- Updated docblocks for many methods, improving psalm support and type hints.
+
+## 2.3.0
+
+### Changed
+
+- Clarified documentation and testing of `uniqueValues`.
+
+### Added
+
+- All assertions now support `string|callable` for the message.
+
+## 2.2.0
+
+### Added
+
+- Added `isNotInstanceOfAny` assertion.
+
 ## 2.1.6
 
 ### Fixed

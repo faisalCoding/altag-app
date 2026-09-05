@@ -253,6 +253,8 @@ new class extends Component {
 ?>
 
 <div class="space-y-8" dir="rtl">
+    <x-shared.pending-surveys />
+
     <!-- Header Section -->
     <div>
         <flux:heading size="xl" class="font-bold text-zinc-900 dark:text-white">

@@ -38,7 +38,7 @@ class Codex extends Agent implements SupportsGuidelines, SupportsMcp, SupportsSk
     {
         return [
             'paths' => ['.codex'],
-            'files' => ['AGENTS.md', '.codex/config.toml'],
+            'files' => ['.codex/config.toml'],
         ];
     }
 
@@ -54,7 +54,7 @@ class Codex extends Agent implements SupportsGuidelines, SupportsMcp, SupportsSk
 
     public function mcpConfigPath(): string
     {
-        return '.codex/config.toml';
+        return config('boost.agents.codex.mcp_config_path', '.codex/config.toml');
     }
 
     public function mcpConfigKey(): string
@@ -77,7 +77,7 @@ class Codex extends Agent implements SupportsGuidelines, SupportsMcp, SupportsSk
         return collect([
             'command' => $command,
             'args' => $args,
-            'cwd' => config('boost.executable_paths.current_directory', base_path()),
+            'cwd' => config('boost.executable_paths.current_directory'),
             'env' => $env,
         ])->filter(fn ($value): bool => ! in_array($value, [[], null, ''], true))
             ->toArray();

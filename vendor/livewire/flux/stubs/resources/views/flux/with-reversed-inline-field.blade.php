@@ -4,7 +4,7 @@
 ])
 
 @php
-extract(flux::forwardedattributes($attributes, [
+extract(Flux::forwardedattributes($attributes, [
     'name',
     'description',
     'label',
@@ -29,7 +29,9 @@ extract(flux::forwardedattributes($attributes, [
 
         {{ $slot }}
 
-        <flux:error :$name />
+        @unblaze(scope: ['name' => $name])
+            <flux:error :name="$scope['name']" />
+        @endunblaze
     </flux:field>
 <?php else: ?>
     {{ $slot }}

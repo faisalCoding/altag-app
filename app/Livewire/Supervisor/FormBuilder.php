@@ -2,7 +2,14 @@
 
 namespace App\Livewire\Supervisor;
 
+use App\Ai\SurveyQuestionExtractor;
+use App\Models\Circle;
 use App\Models\Form;
+use App\Models\Stage;
+use App\Models\User;
+use App\Services\SurveyAssignmentService;
+use App\Services\SurveyTextParser;
+use App\Support\SurveyFieldTypes;
 use Flux\Flux;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -44,17 +51,48 @@ class FormBuilder extends Component
     // Fields
     public array $fields = [];
 
+    // ── Delivery ──────────────────────────────────────────────────────
+    /** @var array<string, mixed> The audience rule, in shared_with's shape. */
+    public array $audience = [];
+
+    public ?string $due_date = null;
+
+    public bool $is_blocking = false;
+
+    public string $status = 'draft';
+
+    /** The block a supervisor pastes to have it broken into questions. */
+    public string $pastedQuestions = '';
+
+    /** @var array<int, array<string, mixed>> Parsed but not yet accepted into the form. */
+    public array $parsedPreview = [];
+
+    public bool $aiWorking = false;
+
     public function mount(?int $formId = null): void
     {
         if ($formId) {
             $this->formId = $formId;
             $this->isEditing = true;
 
-            $supervisorId = auth()->guard('supervisor')->id();
+            [$author, $role] = $this->author();
+
             $form = Form::where('id', $formId)
-                ->where(function ($q) use ($supervisorId) {
-                    $q->where('supervisor_id', $supervisorId)
-                        ->orWhere('is_supervisor_shared', true);
+                ->where(function ($q) use ($author, $role) {
+                    $q->where(fn ($owned) => $owned->where('created_by_id', $author->id)
+                        ->where('created_by_type', $role));
+
+                    // Supervisors may still share a form with one another, and a
+                    // manager oversees everything the academy asks.
+                    if ($role === 'supervisor') {
+                        // Forms made before ownership became a morph carry only
+                        // supervisor_id; their author must not lose them.
+                        $q->orWhere('supervisor_id', $author->id)
+                            ->orWhere('is_supervisor_shared', true);
+                    }
+                    if ($role === 'manager') {
+                        $q->orWhereRaw('1 = 1');
+                    }
                 })
                 ->firstOrFail();
 
@@ -68,6 +106,10 @@ class FormBuilder extends Component
             $this->is_public_report = $form->is_public_report ?? false;
             $this->is_supervisor_shared = $form->is_supervisor_shared ?? false;
             $this->fields = $form->fields ?? [];
+            $this->audience = $form->audience ?? [];
+            $this->due_date = $form->due_date?->toDateString();
+            $this->is_blocking = $form->is_blocking ?? false;
+            $this->status = $form->status ?? 'draft';
         } else {
             $this->slug = Str::random(8);
             // Default first field
@@ -75,17 +117,121 @@ class FormBuilder extends Component
         }
     }
 
+    /**
+     * The author and the role they are building as.
+     *
+     * Forms used to belong to supervisors alone; managers and teachers own them
+     * now too, so every ownership question routes through here rather than
+     * reading one guard directly.
+     *
+     * @return array{0: User, 1: string}
+     */
+    private function author(): array
+    {
+        foreach (['manager', 'supervisor', 'teacher'] as $guard) {
+            if ($user = auth()->guard($guard)->user()) {
+                return [$user, $guard];
+            }
+        }
+
+        abort(403);
+    }
+
     public function addField(string $type = 'text', string $label = '', bool $required = false, bool $isName = false, bool $isUsername = false): void
     {
-        $this->fields[] = [
+        if (! SurveyFieldTypes::exists($type)) {
+            return;
+        }
+
+        $this->fields[] = array_merge([
             'id' => 'field_'.uniqid(),
             'type' => $type,
+            // A section divider asks nothing, so it is never required of anyone.
+            'required' => SurveyFieldTypes::isLayout($type) ? false : $required,
             'label' => $label,
-            'required' => $required,
             'options' => [],
             'is_student_name' => $isName,
             'is_student_username' => $isUsername,
-        ];
+        ], SurveyFieldTypes::defaultsFor($type));
+    }
+
+    /**
+     * Break the pasted block into questions and show them for review.
+     *
+     * Nothing reaches the form here: the supervisor sees what the parser made
+     * of their text and accepts it deliberately, so a bad guess is corrected
+     * before it becomes the survey rather than after.
+     */
+    public function parsePastedQuestions(): void
+    {
+        $this->parsedPreview = SurveyTextParser::parse($this->pastedQuestions);
+
+        if ($this->parsedPreview === []) {
+            Flux::toast('لم يُعثر على أسئلة في النص الملصوق', variant: 'warning');
+        }
+    }
+
+    /**
+     * Accept the reviewed questions, appending them after what is already built.
+     */
+    public function applyParsedQuestions(): void
+    {
+        if ($this->parsedPreview === []) {
+            return;
+        }
+
+        $added = 0;
+        foreach ($this->parsedPreview as $field) {
+            // The registry has the final say, even over our own parser.
+            if (! SurveyFieldTypes::exists($field['type'] ?? '')) {
+                continue;
+            }
+            $this->fields[] = $field;
+            $added++;
+        }
+
+        $this->discardParsedQuestions();
+
+        Flux::toast("تمت إضافة {$added} سؤالاً", variant: 'success');
+    }
+
+    /**
+     * Ask the model to make better sense of the same pasted text.
+     *
+     * Offered as a second opinion on top of the rule parser, never as a
+     * replacement for review: what comes back lands in the same preview the
+     * supervisor already accepts or discards deliberately. A provider that is
+     * down leaves the rule-parsed preview exactly as it was.
+     */
+    public function enhanceWithAi(): void
+    {
+        if (trim($this->pastedQuestions) === '') {
+            Flux::toast('الصق الأسئلة أولاً', variant: 'warning');
+
+            return;
+        }
+
+        $this->aiWorking = true;
+
+        $improved = SurveyQuestionExtractor::extract($this->pastedQuestions);
+
+        $this->aiWorking = false;
+
+        if ($improved === []) {
+            Flux::toast('تعذّر التحسين بالذكاء — ما فكّكته القواعد باقٍ كما هو', variant: 'warning');
+
+            return;
+        }
+
+        $this->parsedPreview = $improved;
+
+        Flux::toast('حسّن الذكاء التفكيك — راجعه قبل الإضافة', variant: 'success');
+    }
+
+    public function discardParsedQuestions(): void
+    {
+        $this->pastedQuestions = '';
+        $this->parsedPreview = [];
     }
 
     public function removeField(int $index): void
@@ -149,7 +295,7 @@ class FormBuilder extends Component
         $this->fields[$index]['is_student_username'] = ! $currentState;
     }
 
-    public function save(): void
+    public function save(bool $redirect = true): void
     {
         $this->slug = Str::slug($this->slug);
 
@@ -163,17 +309,20 @@ class FormBuilder extends Component
             'success_text' => 'nullable|string',
             'is_public_report' => 'boolean',
             'is_supervisor_shared' => 'boolean',
+            'due_date' => 'nullable|date',
+            'is_blocking' => 'boolean',
             'fields' => 'required|array|min:1',
             'fields.*.label' => 'required|string|max:255',
-            'fields.*.type' => 'required|in:text,image,select,multiselect,date',
+            'fields.*.type' => 'required|in:'.SurveyFieldTypes::validationList(),
             'fields.*.allow_other' => 'nullable|boolean',
+            'fields.*.max' => 'nullable|integer|min:3|max:10',
         ], [
             'fields.*.label.required' => 'يجب إدخال تسمية للحقل.',
+            'fields.*.max.min' => 'أقل مقياس رضا هو ٣ درجات.',
+            'fields.*.max.max' => 'أعلى مقياس رضا هو ١٠ درجات.',
             'slug.unique' => 'رابط الاستمارة مستخدم بالفعل، يرجى كتابة رابط آخر.',
             'slug.alpha_dash' => 'يجب أن يحتوي الرابط على أحرف صغيرة وأرقام وشُرط فقط.',
         ]);
-
-        $supervisorId = auth()->guard('supervisor')->id();
 
         // Process header image if uploaded
         if ($this->header_image_file) {
@@ -210,24 +359,115 @@ class FormBuilder extends Component
             'is_public_report' => $this->is_public_report,
             'is_supervisor_shared' => $this->is_supervisor_shared,
             'fields' => $this->fields,
+            'audience' => $this->audience,
+            'due_date' => $this->due_date ?: null,
+            'is_blocking' => $this->is_blocking,
+            'status' => $this->status,
         ];
 
         if ($this->formId) {
-            // A shared form may be edited by any supervisor; ownership is preserved.
+            [$author, $role] = $this->author();
             $form = Form::findOrFail($this->formId);
-            abort_unless($form->supervisor_id === $supervisorId || $form->is_supervisor_shared, 403);
+
+            // Ownership is preserved on edit: a shared form may be improved by any
+            // supervisor, and a manager may edit anything, but neither takes it over.
+            abort_unless(
+                ($form->created_by_id === $author->id && $form->created_by_type === $role)
+                    || ($role === 'supervisor' && $form->is_supervisor_shared)
+                    || $role === 'manager',
+                403
+            );
+
             $form->update($data);
         } else {
-            $data['supervisor_id'] = $supervisorId;
-            Form::create($data);
+            [$author, $role] = $this->author();
+            $data['created_by_id'] = $author->id;
+            $data['created_by_type'] = $role;
+            $data['supervisor_id'] = $role === 'supervisor' ? $author->id : null;
+            $form = Form::create($data);
+
+            // Remembered so a follow-on publish has a form to work with, and so a
+            // second save edits this one rather than creating another.
+            $this->formId = $form->id;
+            $this->isEditing = true;
+        }
+
+        if (! $redirect) {
+            return;
         }
 
         Flux::toast($this->isEditing ? 'تم تعديل النموذج بنجاح' : 'تم حفظ النموذج بنجاح', variant: 'success');
-        $this->redirectRoute('supervisor.forms');
+        // Back to whichever role's list they came from.
+        [, $role] = $this->author();
+        $this->redirectRoute("{$role}.forms");
+    }
+
+    /**
+     * Save, then ask the audience.
+     *
+     * Publishing is separated from saving on purpose: a survey is written and
+     * rewritten many times, and each save must not fire notifications at people.
+     * Only this button asks anyone anything.
+     */
+    public function publish(): void
+    {
+        if ($this->audience === [] || ! collect($this->audience)->filter()->count()) {
+            Flux::toast('اختر من تُوجَّه إليه الاستبانة قبل النشر', variant: 'warning');
+
+            return;
+        }
+
+        [$author, $role] = $this->author();
+
+        // The audience arrives from a form the author controls, so it is narrowed
+        // here — on the server — to the people that role may actually ask.
+        $this->audience = SurveyAssignmentService::clampToAuthor($this->audience, $author, $role);
+
+        if ($this->audience === []) {
+            Flux::toast('لا أحد ضمن نطاقك في هذا التوجيه', variant: 'warning');
+
+            return;
+        }
+
+        $this->status = 'published';
+        $this->save(redirect: false);
+
+        $form = Form::findOrFail($this->formId);
+        $form->forceFill(['published_at' => $form->published_at ?? now()])->save();
+
+        $added = SurveyAssignmentService::sync($form);
+        $notified = SurveyAssignmentService::notifyPending($form);
+
+        Flux::toast(
+            $added > 0
+                ? "تم النشر وإسنادها إلى {$added} شخصاً، وأُشعر منهم {$notified}"
+                : 'تم النشر — لا أحد جديد ليُسنَد إليه',
+            variant: 'success'
+        );
+    }
+
+    /** How many the current audience rule would reach, shown before publishing. */
+    public function audienceSize(): int
+    {
+        $draft = new Form(['audience' => $this->audience]);
+
+        return SurveyAssignmentService::resolveAudience($draft)->count();
     }
 
     public function render()
     {
-        return view('livewire.supervisor.form-builder');
+        return view('livewire.supervisor.form-builder', [
+            'fieldTypes' => SurveyFieldTypes::all(),
+            'stages' => Stage::orderBy('name')->get(['id', 'name']),
+            'circleList' => Circle::orderBy('name')->get(['id', 'name', 'stage_id']),
+            'audienceRoles' => [
+                'guardian' => 'أولياء الأمور',
+                'student' => 'الطلاب',
+                'teacher' => 'المعلمون',
+                'supervisor' => 'المشرفون',
+                'manager' => 'المديرون',
+            ],
+            'likertScale' => SurveyFieldTypes::likertScale(),
+        ]);
     }
 }

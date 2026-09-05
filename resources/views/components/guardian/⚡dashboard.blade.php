@@ -96,6 +96,8 @@ new class extends Component
 }; ?>
 
 <div class="space-y-6" dir="rtl">
+    <x-shared.pending-surveys />
+
     @php
         $guardian = auth()->guard('guardian')->user();
     @endphp

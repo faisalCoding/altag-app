@@ -18,19 +18,20 @@
     ],
     "require": {
         "php": "^8.3.0",
-        "brianium/paratest": "^7.19.2",
-        "nunomaduro/collision": "^8.9.1",
+        "brianium/paratest": "^7.20.0",
+        "composer/xdebug-handler": "^3.0.5",
+        "nunomaduro/collision": "^8.9.5",
         "nunomaduro/termwind": "^2.4.0",
         "pestphp/pest-plugin": "^4.0.0",
-        "pestphp/pest-plugin-arch": "^4.0.0",
+        "pestphp/pest-plugin-arch": "^4.0.2",
         "pestphp/pest-plugin-mutate": "^4.0.1",
         "pestphp/pest-plugin-profanity": "^4.2.1",
-        "phpunit/phpunit": "^12.5.14",
-        "symfony/process": "^7.4.5|^8.0.5"
+        "phpunit/phpunit": "^12.5.33",
+        "symfony/process": "^7.4.13|^8.1.0"
     },
     "conflict": {
         "filp/whoops": "<2.18.3",
-        "phpunit/phpunit": ">12.5.14",
+        "phpunit/phpunit": ">12.5.33",
         "sebastian/exporter": "<7.0.0",
         "webmozart/assert": "<1.11.0"
     },
@@ -50,15 +51,19 @@
             "Tests\\Fixtures\\Arch\\": "tests/Fixtures/Arch",
             "Tests\\": "tests/PHPUnit/"
         },
+        "classmap": [
+            "tests/Fixtures/Arch/ToBeCasedCorrectly/IncorrectCasing/incorrectCasing.php"
+        ],
         "files": [
             "tests/Autoload.php"
         ]
     },
     "require-dev": {
+        "mrpunyapal/peststan": "^0.2.12",
         "pestphp/pest-dev-tools": "^4.1.0",
-        "pestphp/pest-plugin-browser": "^4.3.0",
-        "pestphp/pest-plugin-type-coverage": "^4.0.3",
-        "psy/psysh": "^0.12.21"
+        "pestphp/pest-plugin-browser": "^4.3.1",
+        "pestphp/pest-plugin-type-coverage": "^4.0.4",
+        "psy/psysh": "^0.12.24"
     },
     "minimum-stability": "dev",
     "prefer-stable": true,
@@ -73,10 +78,14 @@
         "bin/pest"
     ],
     "scripts": {
-        "refacto": "rector",
-        "lint": "pint --parallel",
-        "test:refacto": "rector --dry-run",
-        "test:lint": "pint --parallel --test",
+        "lint": [
+            "rector",
+            "pint --parallel"
+        ],
+        "test:lint": [
+            "rector --dry-run",
+            "pint --parallel --test"
+        ],
         "test:profanity": "php bin/pest --profanity --compact",
         "test:type:check": "phpstan analyse --ansi --memory-limit=-1 --debug",
         "test:type:coverage": "php -d memory_limit=-1  bin/pest --type-coverage --min=100",
@@ -86,7 +95,6 @@
         "test:integration": "php bin/pest --group=integration -v",
         "update:snapshots": "REBUILD_SNAPSHOTS=true php bin/pest --update-snapshots",
         "test": [
-            "@test:refacto",
             "@test:lint",
             "@test:type:check",
             "@test:type:coverage",

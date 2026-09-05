@@ -114,4 +114,10 @@
             </flux:sidebar.item>
         @endif
     </flux:sidebar.group>
+    @if(\App\Support\RolePages::isEnabled('teacher', 'teacher.forms'))
+        <flux:sidebar.item class="[&_svg]:bg-[#14b8a6] hover:[&_svg]:bg-[#0d9488]" icon="document-text" :href="route('teacher.forms')"
+            :current="request()->routeIs('teacher.forms*')" wire:navigate>
+            الاستبانات والنماذج
+        </flux:sidebar.item>
+    @endif
 </flux:sidebar.group>

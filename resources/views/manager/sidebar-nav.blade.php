@@ -151,4 +151,10 @@
         </flux:sidebar.item>
     @endif
 
+    @if(\App\Support\RolePages::isEnabled('manager', 'manager.forms'))
+        <flux:sidebar.item class="[&_svg]:bg-[#14b8a6] hover:[&_svg]:bg-[#0d9488]" icon="document-text" :href="route('manager.forms')"
+            :current="request()->routeIs('manager.forms*')" wire:navigate>
+            الاستبانات والنماذج
+        </flux:sidebar.item>
+    @endif
 </flux:sidebar.group>

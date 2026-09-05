@@ -2,7 +2,6 @@
 
 namespace Livewire\Features\SupportLifecycleHooks;
 
-use function Livewire\store;
 use function Livewire\wrap;
 use function Livewire\on;
 use Livewire\ComponentHook;
@@ -25,7 +24,7 @@ class SupportLifecycleHooks extends ComponentHook
 
     public function mount($params)
     {
-        if (store($this->component)->has('skipMount')) { return; }
+        if ($this->storeHas('skipMount')) { return; }
 
         $this->callHook('boot');
         $this->callTraitHook('boot');
@@ -41,7 +40,7 @@ class SupportLifecycleHooks extends ComponentHook
 
     public function hydrate()
     {
-        if (store($this->component)->has('skipHydrate')) { return; }
+        if ($this->storeHas('skipHydrate')) { return; }
 
         $this->callHook('boot');
         $this->callTraitHook('boot');
@@ -197,7 +196,21 @@ class SupportLifecycleHooks extends ComponentHook
             }
 
             if (static::$methodCache[$cacheKey]) {
-                wrap($this->component)->$method(...$params);
+                // resolveMethodDependencies() can produce arrays with both
+                // string and integer keys (e.g. ['postId' => '123', 0 => null]).
+                // PHP forbids positional args after named args when spreading,
+                // so strip the integer-keyed entries in that case. When all keys
+                // are the same type (e.g. updating/updated hooks pass only
+                // integer-keyed [$name, $value]), leave them as-is.
+                $keys = array_keys($params);
+                $hasStringKeys = array_filter($keys, 'is_string');
+                $hasIntKeys = array_filter($keys, 'is_int');
+
+                $paramsToSpread = ($hasStringKeys && $hasIntKeys)
+                    ? array_filter($params, 'is_string', ARRAY_FILTER_USE_KEY)
+                    : $params;
+
+                wrap($this->component)->$method(...$paramsToSpread);
             }
         }
     }

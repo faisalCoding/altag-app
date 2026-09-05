@@ -8,6 +8,7 @@ use App\Models\FormResponse;
 use App\Models\Stage;
 use App\Models\Student;
 use App\Services\FormResponsesExporter;
+use App\Support\SurveyResults;
 use Carbon\Carbon;
 use Flux\Flux;
 use Illuminate\Support\Str;
@@ -873,6 +874,11 @@ class FormResponses extends Component
         $reportsData = $this->getReportsData();
 
         return view('livewire.supervisor.form-responses', [
+            // Summarised over the same filtered set the table shows, so narrowing
+            // to one circle narrows the satisfaction figures with it rather than
+            // leaving a whole-academy average above a single circle's answers.
+            'summaries' => SurveyResults::summarise($this->form->fields ?? [], $responses),
+            'completion' => $this->form->completion(),
             'responses' => $responses,
             'circles' => $circles,
             'stages' => $stages,

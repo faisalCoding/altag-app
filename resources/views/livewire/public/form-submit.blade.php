@@ -138,6 +138,13 @@
                 border-right: 3px solid var(--theme-color);
                 padding-right: 0.75rem;
             }
+            /* Scale and yes/no answers carry the form's own colour when chosen. */
+            .accent-bg {
+                background-color: var(--theme-color) !important;
+            }
+            .form-section-rule {
+                border-color: color-mix(in srgb, var(--theme-color) 40%, #e4e4e7) !important;
+            }
             
             /* Inputs and control borders */
             .accent-ring, select, input[type="date"], textarea {
@@ -289,6 +296,14 @@
                                 $required = $field['required'] ?? false;
                             @endphp
 
+                            {{-- A section divider is a heading between questions, not a question. --}}
+                            @if($field['type'] === 'section')
+                                <div class="pt-4 pb-1 border-b-2 form-section-rule">
+                                    <h2 class="text-lg font-bold text-zinc-900 field-label">{{ $label }}</h2>
+                                </div>
+                                @continue
+                            @endif
+
                             <div class="space-y-2">
                                 <label class="block text-sm font-semibold text-zinc-800 field-label">
                                     {{ $label }}
@@ -300,6 +315,97 @@
                                 <!-- Text Field -->
                                 @if($field['type'] === 'text')
                                     <flux:input wire:model="answers.{{ $fieldId }}" placeholder="اكتب إجابتك هنا..." class="accent-ring" />
+                                    <flux:error name="answers.{{ $fieldId }}" />
+                                @endif
+
+                                <!-- Long text -->
+                                @if($field['type'] === 'long_text')
+                                    <flux:textarea wire:model="answers.{{ $fieldId }}" rows="4" placeholder="اكتب إجابتك هنا..." class="accent-ring" />
+                                    <flux:error name="answers.{{ $fieldId }}" />
+                                @endif
+
+                                <!-- Satisfaction rating: stars, clickable, keyboard reachable -->
+                                @if($field['type'] === 'rating')
+                                    @php $max = max(3, min(10, (int) ($field['max'] ?? 5))); @endphp
+                                    <div class="flex flex-wrap items-center gap-1.5" role="radiogroup" aria-label="{{ $label }}">
+                                        @for($star = 1; $star <= $max; $star++)
+                                            <button type="button"
+                                                wire:click="$set('answers.{{ $fieldId }}', {{ $star }})"
+                                                role="radio"
+                                                aria-checked="{{ (int) ($answers[$fieldId] ?? 0) === $star ? 'true' : 'false' }}"
+                                                aria-label="{{ $star }}"
+                                                class="size-10 rounded-lg border flex items-center justify-center transition
+                                                    {{ (int) ($answers[$fieldId] ?? 0) >= $star
+                                                        ? 'bg-amber-50 border-amber-300 text-amber-500'
+                                                        : 'border-zinc-200 text-zinc-300 hover:border-amber-200 hover:text-amber-300' }}">
+                                                <flux:icon icon="star" variant="solid" class="size-5" />
+                                            </button>
+                                        @endfor
+                                        @if(($answers[$fieldId] ?? '') !== '')
+                                            <span class="mr-2 text-sm font-bold text-zinc-700">{{ $answers[$fieldId] }} / {{ $max }}</span>
+                                        @endif
+                                    </div>
+                                    <flux:error name="answers.{{ $fieldId }}" />
+                                @endif
+
+                                <!-- Agreement scale -->
+                                @if($field['type'] === 'likert')
+                                    <div class="grid grid-cols-1 sm:grid-cols-5 gap-1.5" role="radiogroup" aria-label="{{ $label }}">
+                                        @foreach(\App\Support\SurveyFieldTypes::likertScale() as $value => $text)
+                                            <button type="button"
+                                                wire:click="$set('answers.{{ $fieldId }}', {{ $value }})"
+                                                role="radio"
+                                                aria-checked="{{ (int) ($answers[$fieldId] ?? 0) === $value ? 'true' : 'false' }}"
+                                                class="px-2 py-2.5 rounded-lg border text-xs font-medium transition
+                                                    {{ (int) ($answers[$fieldId] ?? 0) === $value
+                                                        ? 'accent-bg text-white border-transparent'
+                                                        : 'border-zinc-200 text-zinc-600 hover:border-zinc-300' }}">
+                                                {{ $text }}
+                                            </button>
+                                        @endforeach
+                                    </div>
+                                    <flux:error name="answers.{{ $fieldId }}" />
+                                @endif
+
+                                <!-- Recommendation scale -->
+                                @if($field['type'] === 'nps')
+                                    <div class="flex flex-wrap gap-1" role="radiogroup" aria-label="{{ $label }}">
+                                        @for($n = 0; $n <= 10; $n++)
+                                            <button type="button"
+                                                wire:click="$set('answers.{{ $fieldId }}', {{ $n }})"
+                                                role="radio"
+                                                aria-checked="{{ ($answers[$fieldId] ?? '') !== '' && (int) $answers[$fieldId] === $n ? 'true' : 'false' }}"
+                                                class="size-9 rounded-lg border text-sm font-semibold transition
+                                                    {{ ($answers[$fieldId] ?? '') !== '' && (int) $answers[$fieldId] === $n
+                                                        ? 'accent-bg text-white border-transparent'
+                                                        : 'border-zinc-200 text-zinc-600 hover:border-zinc-300' }}">
+                                                {{ $n }}
+                                            </button>
+                                        @endfor
+                                    </div>
+                                    <div class="flex justify-between text-[11px] text-zinc-400 pt-1">
+                                        <span>لا أُرشّح إطلاقاً</span>
+                                        <span>أُرشّح بشدة</span>
+                                    </div>
+                                    <flux:error name="answers.{{ $fieldId }}" />
+                                @endif
+
+                                <!-- Yes / no -->
+                                @if($field['type'] === 'yesno')
+                                    <div class="flex gap-2" role="radiogroup" aria-label="{{ $label }}">
+                                        @foreach(['نعم', 'لا'] as $choice)
+                                            <button type="button"
+                                                wire:click="$set('answers.{{ $fieldId }}', '{{ $choice }}')"
+                                                role="radio"
+                                                aria-checked="{{ ($answers[$fieldId] ?? '') === $choice ? 'true' : 'false' }}"
+                                                class="px-6 py-2 rounded-lg border text-sm font-semibold transition
+                                                    {{ ($answers[$fieldId] ?? '') === $choice
+                                                        ? 'accent-bg text-white border-transparent'
+                                                        : 'border-zinc-200 text-zinc-600 hover:border-zinc-300' }}">
+                                                {{ $choice }}
+                                            </button>
+                                        @endforeach
+                                    </div>
                                     <flux:error name="answers.{{ $fieldId }}" />
                                 @endif
 
