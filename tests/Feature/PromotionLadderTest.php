@@ -145,3 +145,39 @@ it('refuses a rank that is not a positive number', function () {
 
     expect($c['first']->fresh()->level)->toBe(1);
 });
+
+it('shows the new order immediately after the ranks are saved', function () {
+    $c = ladderFixture();
+
+    $this->actingAs(Manager::factory()->create(), 'manager');
+
+    // Before: the top of the primary stage feeds the middle stage.
+    expect((new PromotionLadder)->nextCircleFor($c['sixth'])->stage->name)->toBe('متوسطة');
+
+    // Slot a new grade in between and the destination must change in the same
+    // response, not on the next page load.
+    $seventhZero = Circle::factory()->create([
+        'name' => 'صف مستحدث',
+        'stage_id' => $c['sixth']->stage_id,
+        'level' => null,
+    ]);
+
+    Livewire::test(LadderScreen::class)
+        ->set("circleLevels.{$seventhZero->id}", 3)
+        ->call('save')
+        ->assertSee('صف مستحدث');
+
+    expect((new PromotionLadder)->nextCircleFor($c['sixth'])->name)->toBe('صف مستحدث');
+});
+
+it('gives every row in the ladder a stable key', function () {
+    $c = ladderFixture();
+
+    $this->actingAs(Manager::factory()->create(), 'manager');
+
+    // Without a key per row Livewire may carry a rank into a neighbouring row
+    // when it patches the DOM, since every row is the same shape.
+    Livewire::test(LadderScreen::class)
+        ->assertSeeHtml('wire:key="ladder-circle-'.$c['first']->id.'"')
+        ->assertSeeHtml('wire:key="ladder-stage-'.$c['first']->stage_id.'"');
+});

@@ -37,7 +37,8 @@
     {{-- ─────────── ضبط الرتب ─────────── --}}
     <div class="space-y-4">
         @foreach ($stages as $stage)
-            <div class="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-100 dark:border-zinc-800 shadow-xs overflow-hidden">
+            <div wire:key="ladder-stage-{{ $stage->id }}"
+                class="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-100 dark:border-zinc-800 shadow-xs overflow-hidden">
                 <div class="flex items-center justify-between gap-4 px-4 py-3 border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/70 dark:bg-zinc-800/40">
                     <div class="flex items-center gap-3 min-w-0">
                         <div class="w-16 shrink-0">
@@ -58,7 +59,7 @@
                 <div class="divide-y divide-zinc-100 dark:divide-zinc-800">
                     @forelse ($stage->circles as $circle)
                         @php $next = $ladder->nextCircleFor($circle); @endphp
-                        <div class="flex items-center gap-3 px-4 py-2.5">
+                        <div wire:key="ladder-circle-{{ $circle->id }}" class="flex items-center gap-3 px-4 py-2.5">
                             <div class="w-16 shrink-0">
                                 <flux:input type="number" min="1" max="99" size="sm"
                                     wire:model="circleLevels.{{ $circle->id }}" placeholder="—" />
@@ -96,7 +97,8 @@
         <flux:subheading class="mb-4">هذه هي الدرجات التي سيصعدها الطلاب، بعد آخر حفظ</flux:subheading>
 
         @forelse ($rungs as $index => $rung)
-            <div class="flex items-start gap-3 py-2 {{ $index > 0 ? 'border-t border-zinc-50 dark:border-zinc-800/60' : '' }}">
+            <div wire:key="ladder-rung-{{ $rung['stage']->id }}-{{ $rung['level'] }}"
+                class="flex items-start gap-3 py-2 {{ $index > 0 ? 'border-t border-zinc-50 dark:border-zinc-800/60' : '' }}">
                 <span class="mt-0.5 size-6 shrink-0 rounded-full bg-maroon/10 text-maroon dark:bg-white/10 dark:text-white flex items-center justify-center text-[11px] font-bold">
                     {{ $index + 1 }}
                 </span>

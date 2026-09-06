@@ -19,13 +19,22 @@ use Illuminate\Support\Collection;
 class PromotionLadder
 {
     /**
+     * The ladder is asked for once per circle when a screen draws every
+     * destination, so it is built once per instance instead of once per ask.
+     * An instance is short-lived — one request — so it cannot go stale.
+     *
+     * @var Collection<int, array{stage: Stage, level: int, circles: Collection<int, Circle>}>|null
+     */
+    private ?Collection $rungs = null;
+
+    /**
      * Every rung, in climbing order.
      *
      * @return Collection<int, array{stage: Stage, level: int, circles: Collection<int, Circle>}>
      */
     public function rungs(): Collection
     {
-        return $this->rankedStages()
+        return $this->rungs ??= $this->rankedStages()
             ->flatMap(function (Stage $stage) {
                 return $stage->circles
                     ->whereNotNull('level')
