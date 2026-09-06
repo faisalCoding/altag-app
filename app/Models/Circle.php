@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['name', 'description', 'stage_id'])]
+#[Fillable(['name', 'description', 'stage_id', 'level'])]
 class Circle extends Model
 {
     /** @use HasFactory<CircleFactory> */

@@ -23,6 +23,13 @@
         الحلقات
     </flux:sidebar.item>
 @endif
+
+@if(\App\Support\RolePages::isEnabled('manager', 'manager.promotion-ladder'))
+    <flux:sidebar.item class="[&_svg]:bg-[#c2410c] hover:[&_svg]:bg-[#9a3412]" icon="bars-arrow-up" :href="route('manager.promotion-ladder')"
+        :current="request()->routeIs('manager.promotion-ladder')" wire:navigate>
+        سلّم الترحيل
+    </flux:sidebar.item>
+@endif
 <flux:sidebar.group heading="المستخدمين" class="grid">
 
     @if(\App\Support\RolePages::isEnabled('manager', 'manager.students') || \App\Support\RolePages::isEnabled('manager', 'manager.teachers') || \App\Support\RolePages::isEnabled('manager', 'manager.supervisors') || \App\Support\RolePages::isEnabled('manager', 'manager.guardians'))
