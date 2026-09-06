@@ -40,8 +40,10 @@
             <div class="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-100 dark:border-zinc-800 shadow-xs overflow-hidden">
                 <div class="flex items-center justify-between gap-4 px-4 py-3 border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/70 dark:bg-zinc-800/40">
                     <div class="flex items-center gap-3 min-w-0">
-                        <flux:input type="number" min="1" max="99" size="sm" class="w-20 shrink-0"
-                            wire:model="stageLevels.{{ $stage->id }}" placeholder="—" />
+                        <div class="w-16 shrink-0">
+                            <flux:input type="number" min="1" max="99" size="sm"
+                                wire:model="stageLevels.{{ $stage->id }}" placeholder="—" />
+                        </div>
                         <div class="min-w-0">
                             <div class="font-bold text-zinc-900 dark:text-white truncate">{{ $stage->name }}</div>
                             <div class="text-xs text-zinc-400">{{ $stage->circles->count() }} حلقة</div>
@@ -57,15 +59,17 @@
                     @forelse ($stage->circles as $circle)
                         @php $next = $ladder->nextCircleFor($circle); @endphp
                         <div class="flex items-center gap-3 px-4 py-2.5">
-                            <flux:input type="number" min="1" max="99" size="sm" class="w-20 shrink-0"
-                                wire:model="circleLevels.{{ $circle->id }}" placeholder="—" />
+                            <div class="w-16 shrink-0">
+                                <flux:input type="number" min="1" max="99" size="sm"
+                                    wire:model="circleLevels.{{ $circle->id }}" placeholder="—" />
+                            </div>
 
                             <div class="min-w-0 flex-1">
                                 <div class="text-sm font-medium text-zinc-800 dark:text-zinc-100 truncate">{{ $circle->name }}</div>
                                 <div class="text-xs text-zinc-400">{{ $circle->students_count }} طالب</div>
                             </div>
 
-                            <div class="text-xs text-zinc-500 dark:text-zinc-400 text-left shrink-0">
+                            <div class="text-xs text-zinc-500 dark:text-zinc-400 text-left shrink-0 max-w-36 truncate">
                                 @if ($circle->level === null)
                                     <span class="text-zinc-400">لا يُرحَّل</span>
                                 @elseif ($next)
