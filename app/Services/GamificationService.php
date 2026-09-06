@@ -21,6 +21,7 @@ use App\Models\StudentPlanDay;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 class GamificationService
@@ -2392,6 +2393,22 @@ class GamificationService
      */
     public static function getTeamScore(GamificationTeam $team, Leaderboard $leaderboard, ?string $onlyDate = null): int
     {
+        $totals = self::teamScoreTotals($team, $leaderboard, $onlyDate);
+
+        return $onlyDate === null ? $totals['total'] : $totals['on_date'];
+    }
+
+    /**
+     * The team's whole-competition score and its score on a single day, from one
+     * read of its transactions.
+     *
+     * The standings want both numbers for every team, and asking for them
+     * separately means loading — and dating — the same rows twice.
+     *
+     * @return array{total: int, on_date: int}
+     */
+    private static function teamScoreTotals(GamificationTeam $team, Leaderboard $leaderboard, ?string $onlyDate = null): array
+    {
         $teamStudents = $team->students()->get();
         $teamStudentIds = $teamStudents->pluck('id')->toArray();
 
@@ -2444,7 +2461,26 @@ class GamificationService
             ->toArray();
         $extraPoints = empty($extraPointIds) ? collect() : DB::table('leaderboard_extra_points')->whereIn('id', $extraPointIds)->get()->keyBy('id');
 
+        // Read both multiplier calendars once rather than per transaction.
+        $studentMultipliers = self::multiplierCalendar(
+            empty($teamStudentIds) ? collect() : GamificationStorePurchase::whereIn('student_id', $teamStudentIds)
+                ->whereNull('team_id')
+                ->where('status', 'approved')
+                ->with('item')
+                ->get(),
+            fn ($purchase) => $purchase->student_id,
+        );
+
+        $teamMultipliers = self::multiplierCalendar(
+            GamificationStorePurchase::where('team_id', $team->id)
+                ->where('status', 'approved')
+                ->with('item')
+                ->get(),
+            fn ($purchase) => $purchase->team_id,
+        )[$team->id] ?? [];
+
         $totalTeamScore = 0;
+        $onDateScore = 0;
 
         // Only these sources bake an individual multiplier into xp_amount at creation time,
         // so only they need the base XP recovered before the team multiplier is reapplied.
@@ -2480,22 +2516,24 @@ class GamificationService
             // still applies to every source of XP, not just the ones with a business date.
             $date ??= $tx->created_at;
 
-            // When scoped to a single day (e.g. "points earned today"), skip rows
-            // whose business date is not that day.
-            if ($onlyDate !== null && Carbon::parse($date)->format('Y-m-d') !== $onlyDate) {
-                continue;
-            }
+            $day = Carbon::parse($date)->format('Y-m-d');
 
             $individualMultiplier = 1;
             if (in_array($tx->reference_type, $individualMultiplierEligibleTypes, true)) {
                 $student = $teamStudents->firstWhere('id', $tx->student_id);
                 if ($student) {
-                    $individualMultiplier = self::getMultiplierForStudent($student, $leaderboard->id, $date);
+                    $individualMultiplier = $studentMultipliers[$student->id][$day] ?? 1;
                 }
             }
 
-            // Determine the team multiplier on this date
-            $teamMultiplier = self::getMultiplierForTeam($team, $date);
+            // Determine the team multiplier on this date. The standing grant on the
+            // team row is open-ended, so it stays a direct check rather than a date key.
+            $teamMultiplier = $teamMultipliers[$day] ?? 1;
+
+            if ($teamMultiplier === 1 && $team->multiplier_active_until
+                && Carbon::parse($date)->startOfDay()->lte($team->multiplier_active_until)) {
+                $teamMultiplier = 2;
+            }
 
             // Effective multiplier is max of individual and team multiplier, up to 2
             $effectiveMultiplier = min(2, max($individualMultiplier, $teamMultiplier));
@@ -2504,10 +2542,15 @@ class GamificationService
             $baseXp = $individualMultiplier > 1 ? (int) round($tx->xp_amount / $individualMultiplier) : $tx->xp_amount;
 
             // Team receives base XP multiplied by the effective multiplier
-            $totalTeamScore += ($baseXp * $effectiveMultiplier);
+            $earned = $baseXp * $effectiveMultiplier;
+            $totalTeamScore += $earned;
+
+            if ($onlyDate !== null && $day === $onlyDate) {
+                $onDateScore += $earned;
+            }
         }
 
-        return $totalTeamScore;
+        return ['total' => $totalTeamScore, 'on_date' => $onDateScore];
     }
 
     /**
@@ -2521,6 +2564,49 @@ class GamificationService
     {
         $date = $date ? Carbon::parse($date)->format('Y-m-d') : now()->format('Y-m-d');
 
+        // The standings are the same table for everyone in the competition, yet every
+        // student's dashboard rebuilt them from scratch. They are cached per version
+        // instead: anything that can move a score bumps the version, so a recitation
+        // graded a second ago is already reflected — the short expiry is only a floor
+        // under the things no write hook covers.
+        $key = "gamification.standings.{$leaderboard->id}.".self::standingsVersion($leaderboard->id).".{$date}";
+
+        return Cache::remember($key, now()->addSeconds(30), fn () => self::computeTeamStandings($leaderboard, $date));
+    }
+
+    /**
+     * The current standings version for a competition. Part of the cache key, so
+     * bumping it retires every cached day at once without enumerating them.
+     */
+    private static function standingsVersion(int $leaderboardId): int
+    {
+        return (int) Cache::get("gamification.standings.version.{$leaderboardId}", 0);
+    }
+
+    /**
+     * Retire the cached standings for a competition.
+     *
+     * Called from the model hooks on everything the standings read — earnings,
+     * store purchases, the teams themselves — so the next read recomputes rather
+     * than waiting out an expiry.
+     */
+    public static function forgetTeamStandings(?int $leaderboardId): void
+    {
+        if ($leaderboardId === null) {
+            return;
+        }
+
+        Cache::forever(
+            "gamification.standings.version.{$leaderboardId}",
+            self::standingsVersion($leaderboardId) + 1,
+        );
+    }
+
+    /**
+     * @return array<int, array{team: GamificationTeam, score: int, rank: int, points_today: int, enthusiasm_today: int}>
+     */
+    private static function computeTeamStandings(Leaderboard $leaderboard, string $date): array
+    {
         $teams = GamificationTeam::where('leaderboard_id', $leaderboard->id)
             ->with('students')
             ->get();
@@ -2534,10 +2620,12 @@ class GamificationService
                 }
             }
 
+            $totals = self::teamScoreTotals($team, $leaderboard, $date);
+
             $rows[] = [
                 'team' => $team,
-                'score' => self::getTeamScore($team, $leaderboard),
-                'points_today' => self::getTeamScore($team, $leaderboard, $date),
+                'score' => $totals['total'],
+                'points_today' => $totals['on_date'],
                 'enthusiasm_today' => $enthusiasmToday,
             ];
         }
@@ -2551,6 +2639,50 @@ class GamificationService
         unset($row);
 
         return $rows;
+    }
+
+    /**
+     * Every date a bought multiplier covers, mapped to its factor.
+     *
+     * `getMultiplierForStudent()` and `getMultiplierForTeam()` each cost a query,
+     * and the team score asks for both on every single transaction — which is a
+     * query per row of a table that only grows. The purchases are the same handful
+     * either way, so they are read once here and matched in PHP.
+     *
+     * A purchase counts on the date it was bought for, and — when the item itself
+     * is a multiplier pinned to a date — on that date too, which is exactly the
+     * pair of conditions the per-row lookups spell out as SQL.
+     *
+     * @param  \Illuminate\Support\Collection<int, GamificationStorePurchase>  $purchases
+     * @param  callable(GamificationStorePurchase): (int|null)  $keyBy
+     * @return array<int, array<string, int>> owner id → 'Y-m-d' → factor
+     */
+    private static function multiplierCalendar($purchases, callable $keyBy): array
+    {
+        $calendar = [];
+
+        foreach ($purchases as $purchase) {
+            $owner = $keyBy($purchase);
+
+            if ($owner === null) {
+                continue;
+            }
+
+            $factor = max(2, (int) ($purchase->item->value ?? 0));
+
+            $dates = [$purchase->target_date];
+
+            if (($purchase->item->item_type ?? null) === 'multiplier') {
+                $dates[] = $purchase->item->target_date;
+            }
+
+            foreach (array_filter($dates) as $date) {
+                $day = Carbon::parse($date)->format('Y-m-d');
+                $calendar[$owner][$day] = max($calendar[$owner][$day] ?? 0, $factor);
+            }
+        }
+
+        return $calendar;
     }
 
     /**

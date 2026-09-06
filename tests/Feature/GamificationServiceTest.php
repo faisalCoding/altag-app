@@ -1728,3 +1728,186 @@ it('refuses to cancel an already-cancelled purchase', function () {
     expect(GamificationService::cancelPurchase($purchase->id))->toBe('success');
     expect(GamificationService::cancelPurchase($purchase->id))->toBe('not_cancellable');
 });
+
+it('reads the team standings without a query per transaction', function () {
+    $team = GamificationTeam::create([
+        'leaderboard_id' => $this->leaderboard->id,
+        'name' => 'كتيبة القياس',
+        'coins' => 0,
+    ]);
+    $team->students()->attach($this->student->id, ['role' => 'leader']);
+
+    $plan = StudentPlan::create([
+        'student_id' => $this->student->id,
+        'plan_type' => 'hifz_review',
+        'start_date' => now()->subDays(40),
+        'is_approved' => 1,
+        'days_count' => 40,
+        'active_days' => [0, 1, 2, 3, 4, 5, 6],
+    ]);
+
+    // Enough graded days that a per-transaction lookup would dominate the count.
+    foreach (range(1, 30) as $offset) {
+        $day = StudentPlanDay::create([
+            'student_plan_id' => $plan->id,
+            'date' => now()->subDays($offset)->format('Y-m-d'),
+            'day_name' => 'السبت',
+            'hifz_achievement' => 3,
+            'hifz_graded_at' => now()->subDays($offset),
+        ]);
+
+        GamificationService::syncStudentPlanDayXP($day);
+    }
+
+    DB::flushQueryLog();
+    DB::enableQueryLog();
+
+    $standings = GamificationService::getTeamStandings($this->leaderboard);
+
+    $queries = count(DB::getQueryLog());
+    DB::disableQueryLog();
+
+    expect($standings)->toHaveCount(1);
+    expect($standings[0]['score'])->toBeGreaterThan(0);
+
+    // Thirty graded days used to cost roughly two queries each on top of the
+    // fixed reads. The ceiling is what keeps that from creeping back.
+    expect($queries)->toBeLessThan(30);
+});
+
+it('still scores a whole competition and a single day the same way', function () {
+    $team = GamificationTeam::create([
+        'leaderboard_id' => $this->leaderboard->id,
+        'name' => 'كتيبة اليوم',
+        'coins' => 0,
+    ]);
+    $team->students()->attach($this->student->id, ['role' => 'leader']);
+
+    $plan = StudentPlan::create([
+        'student_id' => $this->student->id,
+        'plan_type' => 'hifz_review',
+        'start_date' => now()->subDays(10),
+        'is_approved' => 1,
+        'days_count' => 10,
+        'active_days' => [0, 1, 2, 3, 4, 5, 6],
+    ]);
+
+    $graded = [];
+
+    foreach ([1, 2] as $offset) {
+        $date = now()->subDays($offset);
+
+        $day = StudentPlanDay::create([
+            'student_plan_id' => $plan->id,
+            'date' => $date->format('Y-m-d'),
+            'day_name' => 'السبت',
+            'hifz_achievement' => 3,
+            'hifz_graded_at' => $date,
+        ]);
+
+        GamificationService::syncStudentPlanDayXP($day);
+        $graded[$offset] = $date->format('Y-m-d');
+    }
+
+    $total = GamificationService::getTeamScore($team, $this->leaderboard);
+    $firstDay = GamificationService::getTeamScore($team, $this->leaderboard, $graded[1]);
+    $secondDay = GamificationService::getTeamScore($team, $this->leaderboard, $graded[2]);
+
+    expect($total)->toBeGreaterThan(0);
+    expect($firstDay + $secondDay)->toBe($total);
+
+    // A day nobody was graded on scores nothing, and never the whole total.
+    expect(GamificationService::getTeamScore($team, $this->leaderboard, now()->addDays(5)->format('Y-m-d')))->toBe(0);
+});
+
+it('serves repeat standings from cache but never a stale score', function () {
+    $team = GamificationTeam::create([
+        'leaderboard_id' => $this->leaderboard->id,
+        'name' => 'كتيبة الكاش',
+        'coins' => 0,
+    ]);
+    $team->students()->attach($this->student->id, ['role' => 'leader']);
+
+    $plan = StudentPlan::create([
+        'student_id' => $this->student->id,
+        'plan_type' => 'hifz_review',
+        'start_date' => now()->subDays(10),
+        'is_approved' => 1,
+        'days_count' => 10,
+        'active_days' => [0, 1, 2, 3, 4, 5, 6],
+    ]);
+
+    $grade = function (int $offset) use ($plan) {
+        $date = now()->subDays($offset);
+
+        GamificationService::syncStudentPlanDayXP(StudentPlanDay::create([
+            'student_plan_id' => $plan->id,
+            'date' => $date->format('Y-m-d'),
+            'day_name' => 'السبت',
+            'hifz_achievement' => 3,
+            'hifz_graded_at' => $date,
+        ]));
+    };
+
+    $grade(1);
+    $first = GamificationService::getTeamStandings($this->leaderboard);
+
+    // A second read of unchanged standings should not touch the database.
+    DB::flushQueryLog();
+    DB::enableQueryLog();
+    $cached = GamificationService::getTeamStandings($this->leaderboard);
+    $queries = count(DB::getQueryLog());
+    DB::disableQueryLog();
+
+    expect($queries)->toBe(0);
+    expect($cached[0]['score'])->toBe($first[0]['score']);
+
+    // Grading again must be visible immediately, not after the expiry.
+    $grade(2);
+
+    expect(GamificationService::getTeamStandings($this->leaderboard)[0]['score'])
+        ->toBeGreaterThan($first[0]['score']);
+});
+
+it('retires cached standings when a team multiplier is bought', function () {
+    $team = GamificationTeam::create([
+        'leaderboard_id' => $this->leaderboard->id,
+        'name' => 'كتيبة المضاعف',
+        'coins' => 500,
+    ]);
+    $team->students()->attach($this->student->id, ['role' => 'leader']);
+
+    $tomorrow = now()->addDay();
+
+    $plan = StudentPlan::create([
+        'student_id' => $this->student->id,
+        'plan_type' => 'hifz_review',
+        'start_date' => now()->subDays(5),
+        'is_approved' => 1,
+        'days_count' => 30,
+        'active_days' => [0, 1, 2, 3, 4, 5, 6],
+    ]);
+
+    GamificationService::syncStudentPlanDayXP(StudentPlanDay::create([
+        'student_plan_id' => $plan->id,
+        'date' => $tomorrow->format('Y-m-d'),
+        'day_name' => 'السبت',
+        'hifz_achievement' => 3,
+        'hifz_graded_at' => $tomorrow,
+    ]));
+
+    $before = GamificationService::getTeamStandings($this->leaderboard)[0]['score'];
+
+    $multiplierItem = GamificationStoreItem::create([
+        'leaderboard_id' => $this->leaderboard->id,
+        'name' => 'مضاعف نقاط ثنائي',
+        'price' => 50,
+        'item_type' => 'multiplier',
+        'value' => 2,
+        'is_team_product' => true,
+    ]);
+
+    GamificationService::requestStorePurchase($this->student->id, $multiplierItem->id, null, $tomorrow->format('Y-m-d'));
+
+    expect(GamificationService::getTeamStandings($this->leaderboard)[0]['score'])->toBe($before * 2);
+});

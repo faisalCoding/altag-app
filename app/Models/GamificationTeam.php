@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\GamificationService;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -10,6 +11,21 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class GamificationTeam extends Model
 {
+    /**
+     * The team's own row carries its name and its open-ended multiplier grant,
+     * both of which the cached standings render.
+     */
+    protected static function booted(): void
+    {
+        static::saved(function (GamificationTeam $team) {
+            GamificationService::forgetTeamStandings($team->leaderboard_id);
+        });
+
+        static::deleted(function (GamificationTeam $team) {
+            GamificationService::forgetTeamStandings($team->leaderboard_id);
+        });
+    }
+
     use HasFactory;
 
     protected $guarded = [];

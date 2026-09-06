@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\GamificationService;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -30,6 +31,15 @@ class GamificationTransaction extends Model
             if (! array_key_exists('claimed_at', $transaction->getAttributes())) {
                 $transaction->claimed_at = now();
             }
+        });
+
+        // Points just moved, so the cached team standings are out of date.
+        static::saved(function ($transaction) {
+            GamificationService::forgetTeamStandings($transaction->leaderboard_id);
+        });
+
+        static::deleted(function ($transaction) {
+            GamificationService::forgetTeamStandings($transaction->leaderboard_id);
         });
     }
 
