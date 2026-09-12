@@ -73,6 +73,8 @@
                         <flux:table.cell class="first:ps-3" >
                             <div class="flex items-center justify-end gap-2">
                                 <flux:button size="sm" variant="ghost" icon="pencil-square" wire:click="edit({{ $circle->id }})" />
+                                <flux:button size="sm" variant="ghost" icon="arrows-pointing-in" title="دمج في حلقة أخرى"
+                                    wire:click="openMerge({{ $circle->id }})" />
                                 <flux:button size="sm" variant="ghost" icon="trash" class="text-red-500 hover:text-red-600" wire:confirm="هل أنت متأكد من حذف هذه الحلقة؟" wire:click="delete({{ $circle->id }})" />
                             </div>
                         </flux:table.cell>
@@ -129,4 +131,5 @@
             </div>
         </form>
     </flux:modal>
+    <x-shared.circle-merge :circles="$mergeableCircles" :source="$mergeSource" :preview="$mergePreview" :merges="$recentMerges" />
 </div>

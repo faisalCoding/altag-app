@@ -2,13 +2,25 @@
 
 namespace App\Livewire\Supervisor;
 
+use App\Livewire\Concerns\MergesCircles;
 use App\Models\Circle;
 use App\Models\Teacher;
+use App\Services\CircleMergeService;
 use Flux\Flux;
 use Livewire\Component;
 
 class Circles extends Component
 {
+    use MergesCircles;
+
+    /**
+     * A supervisor merges only within the stages they hold.
+     */
+    protected function mergeableCircleIds(): ?array
+    {
+        return $this->getSupervisorCircleIds();
+    }
+
     public $circles;
 
     public string $name = '';
@@ -193,10 +205,16 @@ class Circles extends Component
         $this->reset(['name', 'description', 'editingCircleId', 'selectedTeachers', 'stage_id']);
     }
 
-    public function render()
+    public function render(CircleMergeService $merges)
     {
+        $mergeSource = $this->mergeSourceId ? Circle::find($this->mergeSourceId) : null;
+
         return view('livewire.supervisor.circles', [
             'stages' => $this->getSupervisorStages(),
+            'mergeSource' => $mergeSource,
+            'mergePreview' => $mergeSource ? $merges->preview($mergeSource) : null,
+            'mergeableCircles' => Circle::whereIn('id', $this->getSupervisorCircleIds())->orderBy('name')->get(['id', 'name']),
+            'recentMerges' => $this->recentMerges(),
         ])->layout('layouts.role-shell');
     }
 }

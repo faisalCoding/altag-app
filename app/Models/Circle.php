@@ -39,4 +39,10 @@ class Circle extends Model
     {
         return $this->hasMany(Student::class);
     }
+
+    /** @return HasMany<Leaderboard, $this> */
+    public function leaderboards(): HasMany
+    {
+        return $this->hasMany(Leaderboard::class);
+    }
 }

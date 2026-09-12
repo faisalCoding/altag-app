@@ -80,6 +80,8 @@
                             <div class="flex items-center gap-1">
                                 <flux:button size="sm" variant="ghost" icon="chart-bar" :href="route('supervisor.circles.report', $circle->id)" title="تقرير الإنجاز" />
                                 <flux:button size="sm" variant="ghost" icon="pencil-square" wire:click="edit({{ $circle->id }})" />
+                                <flux:button size="sm" variant="ghost" icon="arrows-pointing-in" title="دمج في حلقة أخرى"
+                                    wire:click="openMerge({{ $circle->id }})" />
                             </div>
                         </flux:table.cell>
                     </flux:table.row>
@@ -190,4 +192,5 @@
             </div>
         </div>
     </flux:modal>
+    <x-shared.circle-merge :circles="$mergeableCircles" :source="$mergeSource" :preview="$mergePreview" :merges="$recentMerges" />
 </div>

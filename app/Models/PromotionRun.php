@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['name', 'status', 'created_by_id', 'applied_at', 'reverted_at'])]
+#[Fillable(['name', 'type', 'status', 'created_by_id', 'applied_at', 'reverted_at'])]
 class PromotionRun extends Model
 {
     use HasFactory;
@@ -18,6 +18,12 @@ class PromotionRun extends Model
     public const APPLIED = 'applied';
 
     public const REVERTED = 'reverted';
+
+    /** A whole year group climbing the ladder. */
+    public const PROMOTION = 'promotion';
+
+    /** One circle's students folded into another. */
+    public const MERGE = 'merge';
 
     protected $casts = [
         'applied_at' => 'datetime',

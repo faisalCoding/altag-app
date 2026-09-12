@@ -2,14 +2,26 @@
 
 namespace App\Livewire\Manager;
 
+use App\Livewire\Concerns\MergesCircles;
 use App\Models\Circle;
 use App\Models\Stage;
 use App\Models\Teacher;
+use App\Services\CircleMergeService;
 use Flux\Flux;
 use Livewire\Component;
 
 class Circles extends Component
 {
+    use MergesCircles;
+
+    /**
+     * A manager may merge any circle into any other.
+     */
+    protected function mergeableCircleIds(): ?array
+    {
+        return null;
+    }
+
     public $circles;
 
     public $stages;
@@ -133,6 +145,15 @@ class Circles extends Component
             return;
         }
 
+        // Attendance, its revisions and the circle's competitions are all wired to
+        // cascade, so deleting an emptied circle would take its register with it —
+        // which is precisely the state a merge leaves a circle in.
+        if ($circle->attendances()->exists() || $circle->leaderboards()->exists()) {
+            Flux::toast(__('لا يمكن حذف الحلقة لأن سجل حضورها ومسابقاتها محفوظة فيها. أفرغها بالدمج واتركها للأرشيف.'), variant: 'danger');
+
+            return;
+        }
+
         $circle->delete();
         $this->loadData();
         Flux::toast(__('تم حذف الحلقة بنجاح'), variant: 'success');
@@ -143,8 +164,15 @@ class Circles extends Component
         $this->reset(['name', 'description', 'stage_id', 'editingCircleId', 'selectedTeachers']);
     }
 
-    public function render()
+    public function render(CircleMergeService $merges)
     {
-        return view('livewire.manager.circles');
+        $mergeSource = $this->mergeSourceId ? Circle::find($this->mergeSourceId) : null;
+
+        return view('livewire.manager.circles', [
+            'mergeSource' => $mergeSource,
+            'mergePreview' => $mergeSource ? $merges->preview($mergeSource) : null,
+            'mergeableCircles' => Circle::orderBy('name')->get(['id', 'name']),
+            'recentMerges' => $this->recentMerges(),
+        ]);
     }
 }
