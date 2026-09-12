@@ -172,6 +172,7 @@ it('shows the new order immediately after the ranks are saved', function () {
 
 it('gives every row in the ladder a stable key', function () {
     $c = ladderFixture();
+    Student::factory()->create(['circle_id' => $c['offLadder']->id]);
 
     $this->actingAs(Manager::factory()->create(), 'manager');
 
@@ -179,5 +180,24 @@ it('gives every row in the ladder a stable key', function () {
     // when it patches the DOM, since every row is the same shape.
     Livewire::test(LadderScreen::class)
         ->assertSeeHtml('wire:key="ladder-circle-'.$c['first']->id.'"')
-        ->assertSeeHtml('wire:key="ladder-stage-'.$c['first']->stage_id.'"');
+        ->assertSeeHtml('wire:key="ladder-stage-'.$c['first']->stage_id.'"')
+        ->assertSeeHtml('wire:key="ladder-warning-circle-unranked-'.$c['offLadder']->id.'"');
+});
+
+it('keys a warning by what it is about, not by its position in the list', function () {
+    $c = ladderFixture();
+    Student::factory()->create(['circle_id' => $c['offLadder']->id]);
+
+    $second = Circle::factory()->create(['name' => 'حلقة أخرى', 'stage_id' => $c['first']->stage_id, 'level' => null]);
+    Student::factory()->create(['circle_id' => $second->id]);
+
+    $keys = (new PromotionLadder)->warnings()->pluck('key');
+
+    expect($keys->unique())->toHaveCount($keys->count());
+    expect($keys)->toContain("circle-unranked-{$c['offLadder']->id}", "circle-unranked-{$second->id}");
+
+    // Ranking the first one must not renumber the other's key.
+    $c['offLadder']->update(['level' => 3]);
+
+    expect((new PromotionLadder)->warnings()->pluck('key'))->toContain("circle-unranked-{$second->id}");
 });

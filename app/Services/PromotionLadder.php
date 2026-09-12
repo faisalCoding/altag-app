@@ -108,18 +108,22 @@ class PromotionLadder
      * Everything that would make a promotion do the wrong thing, phrased for the
      * manager who has to fix it.
      *
-     * @return Collection<int, array{level: string, text: string}>
+     * Each carries a key of its own: the list shifts as ranks are corrected, and
+     * a warning must keep its identity while its neighbours come and go.
+     *
+     * @return Collection<int, array{key: string, level: string, text: string}>
      */
     public function warnings(): Collection
     {
         $warnings = collect();
 
-        $unrankedStages = Stage::whereNull('level')->whereHas('circles')->pluck('name');
+        $unrankedStages = Stage::whereNull('level')->whereHas('circles')->get();
 
-        foreach ($unrankedStages as $name) {
+        foreach ($unrankedStages as $stage) {
             $warnings->push([
+                'key' => "stage-unranked-{$stage->id}",
                 'level' => 'danger',
-                'text' => "المرحلة «{$name}» بلا رتبة، فحلقاتها كلها خارج الترحيل.",
+                'text' => "المرحلة «{$stage->name}» بلا رتبة، فحلقاتها كلها خارج الترحيل.",
             ]);
         }
 
@@ -130,6 +134,7 @@ class PromotionLadder
 
         foreach ($duplicateStageRanks as $level => $stages) {
             $warnings->push([
+                'key' => "stage-rank-clash-{$level}",
                 'level' => 'danger',
                 'text' => 'المرحلتان «'.$stages->pluck('name')->implode('» و«')."» تحملان الرتبة {$level}. رتبة المرحلة يجب أن تكون فريدة.",
             ]);
@@ -144,6 +149,7 @@ class PromotionLadder
 
         foreach ($unranked as $circle) {
             $warnings->push([
+                'key' => "circle-unranked-{$circle->id}",
                 'level' => 'warning',
                 'text' => "حلقة «{$circle->name}» بلا رتبة، فلن يُرحَّل طلابها الـ{$circle->students_count} تلقائياً.",
             ]);
@@ -154,6 +160,7 @@ class PromotionLadder
 
             if ($empty->count() === $rung['circles']->count()) {
                 $warnings->push([
+                    'key' => 'rung-empty-'.$rung['stage']->id.'-'.$rung['level'],
                     'level' => 'warning',
                     'text' => 'رتبة '.$rung['level'].' في «'.$rung['stage']->name.'» كل حلقاتها فارغة، وسيُرحَّل إليها طلاب الرتبة السابقة.',
                 ]);
