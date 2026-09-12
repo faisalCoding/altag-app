@@ -30,6 +30,13 @@
         سلّم الترحيل
     </flux:sidebar.item>
 @endif
+
+@if(\App\Support\RolePages::isEnabled('manager', 'manager.promotions'))
+    <flux:sidebar.item class="[&_svg]:bg-[#b45309] hover:[&_svg]:bg-[#92400e]" icon="arrows-right-left" :href="route('manager.promotions')"
+        :current="request()->routeIs('manager.promotions')" wire:navigate>
+        ترحيل الطلاب
+    </flux:sidebar.item>
+@endif
 <flux:sidebar.group heading="المستخدمين" class="grid">
 
     @if(\App\Support\RolePages::isEnabled('manager', 'manager.students') || \App\Support\RolePages::isEnabled('manager', 'manager.teachers') || \App\Support\RolePages::isEnabled('manager', 'manager.supervisors') || \App\Support\RolePages::isEnabled('manager', 'manager.guardians'))

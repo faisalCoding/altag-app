@@ -112,6 +112,7 @@ Route::middleware(['auth:manager', 'approved', 'page.enabled'])->prefix('manager
     Route::view('/stages', 'manager.stages')->name('stages');
     Route::view('/circles', 'manager.circles')->name('circles');
     Route::view('/promotion-ladder', 'manager.promotion-ladder')->name('promotion-ladder');
+    Route::view('/promotions', 'manager.promotions')->name('promotions');
     Route::view('/supervisors', 'manager.supervisors')->name('supervisors');
     Route::view('/teachers', 'manager.teachers')->name('teachers');
     Route::view('/students', 'manager.students')->name('students');
