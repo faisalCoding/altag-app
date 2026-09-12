@@ -27,6 +27,12 @@
             المعلمون
         </flux:sidebar.item>
     @endif
+
+    @if(\App\Support\RolePages::isEnabled('supervisor', 'supervisor.teacher-attendance'))
+        <flux:sidebar.item class="[&_svg]:bg-[#0891b2] hover:[&_svg]:bg-[#0e7490]" icon="clipboard-document-check" :href="route('supervisor.teacher-attendance')" :current="request()->routeIs('supervisor.teacher-attendance')" wire:navigate>
+            تحضير المعلمين
+        </flux:sidebar.item>
+    @endif
 </flux:sidebar.group>
 
 <flux:sidebar.group heading="المحتوى العلمي" class="grid">

@@ -160,6 +160,7 @@ Route::middleware(['auth:manager', 'approved'])->prefix('manager')->name('manage
 Route::middleware(['auth:supervisor', 'approved', 'page.enabled', 'surveys.required'])->prefix('supervisor')->name('supervisor.')->group(function () {
     Route::get('/dashboard', fn () => view('supervisor.dashboard'))->name('dashboard');
     Route::view('/teachers', 'supervisor.teachers')->name('teachers');
+    Route::view('/teacher-attendance', 'supervisor.teacher-attendance')->name('teacher-attendance');
     Route::view('/odes', 'supervisor.odes')->name('odes');
     Route::view('/odes/paths', 'supervisor.ode-paths')->name('odes.paths');
     Route::view('/hadiths', 'supervisor.hadiths')->name('hadiths');
