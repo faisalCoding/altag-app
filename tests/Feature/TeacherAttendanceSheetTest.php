@@ -366,3 +366,56 @@ it('renders a blocked cell as something pressable that carries its reason', func
         ->assertSeeHtml('هذا اليوم لم يأتِ بعد، فلا يمكن تحضيره.')
         ->assertSeeHtml('x-text="blockedNote"');
 });
+
+it('still refuses an off-day edit without a reason while the stage asks for one', function () {
+    expect($this->stage->fresh()->require_edit_reason)->toBeTrue();
+
+    Livewire::test(AttendanceSheet::class, ['circleId' => $this->circle->id])
+        ->call('saveChanges', [
+            ['student_id' => $this->studentA->id, 'date' => '2026-07-06', 'status' => 'present'],
+        ], '')
+        ->assertHasErrors('reason');
+});
+
+it('accepts an off-day edit without a reason once the stage stops asking', function () {
+    $this->stage->update(['require_edit_reason' => false]);
+
+    Livewire::test(AttendanceSheet::class, ['circleId' => $this->circle->id])
+        ->call('saveChanges', [
+            ['student_id' => $this->studentA->id, 'date' => '2026-07-06', 'status' => 'present'],
+        ], '')
+        ->assertHasNoErrors();
+
+    expect(AttendanceModel::where('student_id', $this->studentA->id)->whereDate('date', '2026-07-06')->exists())->toBeTrue();
+});
+
+it('keeps recording who changed what even when no reason is asked for', function () {
+    $this->stage->update(['require_edit_reason' => false]);
+
+    Livewire::test(AttendanceSheet::class, ['circleId' => $this->circle->id])
+        ->call('saveChanges', [
+            ['student_id' => $this->studentA->id, 'date' => '2026-07-06', 'status' => 'absent'],
+        ], '');
+
+    // Relaxing the prompt must not quietly relax the audit trail.
+    $revision = AttendanceRevision::where('student_id', $this->studentA->id)->first();
+
+    expect($revision)->not->toBeNull();
+    expect($revision->edited_by_id)->toBe($this->teacher->id);
+    expect($revision->new_status)->toBe('absent');
+    expect($revision->is_off_day_edit)->toBeTruthy();
+});
+
+it('asks for a reason in a stage nobody has configured', function () {
+    // The rule may only ever be relaxed on purpose, so a brand new stage keeps it.
+    // Read back from the database: the default lives on the column, not the factory.
+    $fresh = Stage::factory()->create()->fresh();
+
+    expect($fresh->require_edit_reason)->toBeTrue();
+
+    $circle = Circle::factory()->create(['stage_id' => $fresh->id]);
+    $this->teacher->circles()->attach($circle->id);
+
+    expect(Livewire::test(AttendanceSheet::class, ['circleId' => $circle->id])
+        ->instance()->reasonRequired())->toBeTrue();
+});

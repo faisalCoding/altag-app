@@ -47,6 +47,7 @@ a reason — enforced here for the prompt, and again on the server for real.
         baseline: @js((object) $baseline),
         editable: @js((object) $editableFlat),
         blocked: @js((object) $blockedReasons),
+        reasonRequired: @js($this->reasonRequired),
         blockedNote: '',
         blockedTimer: null,
         rows: @js($students->pluck('id')->values()),
@@ -225,7 +226,7 @@ a reason — enforced here for the prompt, and again on the server for real.
         async save() {
             if (this.saving || this.dirtyCount === 0) return;
 
-            if (this.offDayCount > 0 && this.reason.trim() === '') {
+            if (this.reasonRequired && this.offDayCount > 0 && this.reason.trim() === '') {
                 $flux.modal('sheet-reason').show();
                 return;
             }
@@ -468,7 +469,7 @@ a reason — enforced here for the prompt, and again on the server for real.
                         <span x-text="dirtyCount"></span> تعديل غير محفوظ
                     </div>
                     <div x-show="offDayCount > 0" class="text-[11px] text-amber-600 dark:text-amber-400">
-                        منها <span x-text="offDayCount"></span> في غير يوم الجلسة — يلزم إدخال السبب
+                        منها <span x-text="offDayCount"></span> في غير يوم الجلسة<span x-show="reasonRequired"> — يلزم إدخال السبب</span>
                     </div>
                 </div>
             </div>

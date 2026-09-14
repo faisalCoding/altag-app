@@ -9,11 +9,15 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['name', 'description', 'level'])]
+#[Fillable(['name', 'description', 'level', 'require_edit_reason'])]
 class Stage extends Model
 {
     /** @use HasFactory<StageFactory> */
     use HasFactory;
+
+    protected $casts = [
+        'require_edit_reason' => 'boolean',
+    ];
 
     /** @return HasMany<Circle, $this> */
     public function circles(): HasMany

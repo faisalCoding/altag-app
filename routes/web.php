@@ -182,6 +182,7 @@ Route::middleware(['auth:supervisor', 'approved', 'page.enabled', 'surveys.requi
     Route::view('/academic-calendar', 'supervisor.academic-calendar')->name('academic-calendar');
     Route::view('/yearly-attendance', 'supervisor.yearly-attendance')->name('yearly-attendance');
     Route::view('/tasks', 'supervisor.tasks')->name('tasks');
+    Route::view('/settings', 'supervisor.settings')->name('settings');
     Route::view('/whatsapp-settings', 'supervisor.whatsapp-settings')->name('whatsapp-settings');
     Route::view('/messages', 'supervisor.messages')->name('messages');
 

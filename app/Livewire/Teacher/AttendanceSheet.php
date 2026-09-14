@@ -204,6 +204,20 @@ class AttendanceSheet extends Component
     }
 
     /**
+     * Whether this circle's stage still asks for a reason on an off-day edit.
+     *
+     * A stage with no answer — or a circle attached to no stage — keeps the
+     * requirement, so the rule can only ever be relaxed deliberately.
+     */
+    #[Computed]
+    public function reasonRequired(): bool
+    {
+        $stage = Circle::with('stage')->find($this->circleId)?->stage;
+
+        return $stage?->require_edit_reason ?? true;
+    }
+
+    /**
      * Why a cell cannot be written in, phrased for the teacher looking at it.
      *
      * The grid greys a cell out without saying why, and the reasons are not
@@ -371,7 +385,7 @@ class AttendanceSheet extends Component
 
         $offDay = collect($valid)->filter(fn (array $change) => $change['date'] !== $today);
 
-        if ($offDay->isNotEmpty() && $reason === '') {
+        if ($offDay->isNotEmpty() && $reason === '' && $this->reasonRequired()) {
             $this->addError('reason', 'يجب إدخال سبب التعديل عند التحضير في غير يوم الجلسة.');
 
             return false;
