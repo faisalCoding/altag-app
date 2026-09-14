@@ -12,6 +12,7 @@ use App\Models\Teacher;
 use App\Services\GamificationService;
 use App\Services\GuardianNotificationService;
 use App\Support\HijriDate;
+use App\Support\StudentStatus;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
 use Flux\Flux;
@@ -230,12 +231,6 @@ class AttendanceSheet extends Component
     #[Computed]
     public function blockedReasons(): array
     {
-        $labels = [
-            'left' => 'كان الطالب منقطعاً في هذا اليوم',
-            'suspended' => 'كان الطالب موقوفاً في هذا اليوم',
-            'registering' => 'لم يُعتمد تسجيل الطالب بعد في هذا اليوم',
-        ];
-
         $reasons = [];
 
         foreach ($this->students as $student) {
@@ -260,8 +255,11 @@ class AttendanceSheet extends Component
                 $status = $this->statusOnDate($student, $date);
 
                 if ($status !== 'active') {
-                    $reasons[$student->id.'|'.$date] = ($labels[$status] ?? 'لم يكن الطالب مقيّداً في هذا اليوم')
-                        .$this->returnedOn($student, $date);
+                    // Named as a status rather than described, and in the same words
+                    // the student's own page uses, so the two can be matched up.
+                    $reasons[$student->id.'|'.$date] = 'حالة الطالب في هذا اليوم: '
+                        .StudentStatus::label($status)
+                        .$this->becameActiveOn($student, $date);
                 }
             }
         }
@@ -270,14 +268,14 @@ class AttendanceSheet extends Component
     }
 
     /**
-     * " — عاد في ..." when the student came back after this date.
+     * " — صار مشاركاً في ..." when the student became active after this date.
      *
      * Without it the teacher is told only that the day is closed, and a status
      * that was corrected today reads identically to one never corrected at all —
      * which is exactly the moment someone concludes the sheet is broken. Naming
      * the date says instead that the correction landed, and where it starts.
      */
-    private function returnedOn(Student $student, string $date): string
+    private function becameActiveOn(Student $student, string $date): string
     {
         $return = $student->statusHistories
             ->filter(fn ($row) => $row->status === 'active'
@@ -286,7 +284,7 @@ class AttendanceSheet extends Component
             ->first();
 
         return $return
-            ? ' — عاد في '.HijriDate::full($return->start_date).'.'
+            ? ' — صار مشاركاً في '.HijriDate::full($return->start_date).'.'
             : '.';
     }
 

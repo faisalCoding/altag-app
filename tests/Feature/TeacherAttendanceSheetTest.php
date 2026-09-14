@@ -8,6 +8,7 @@ use App\Models\Stage;
 use App\Models\Student;
 use App\Models\StudentStatusHistory;
 use App\Models\Teacher;
+use App\Support\StudentStatus;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
 
@@ -331,7 +332,7 @@ it('says why a cell is blocked, and says something different for each reason', f
     expect($reasons[$joiner->id.'|2026-07-06'])->toContain('لم يكن الطالب قد التحق');
 
     // Being suspended is not the same fact, and must not read the same.
-    expect($reasons[$suspended->id.'|2026-07-07'])->toContain('موقوفاً');
+    expect($reasons[$suspended->id.'|2026-07-07'])->toContain('موقوف');
 
     // A day that has not happened yet is a third, separate case.
     expect($reasons[$this->studentA->id.'|2026-07-09'])->toContain('لم يأتِ بعد');
@@ -464,8 +465,8 @@ it('names the day a student returned when refusing an earlier one', function () 
         ->instance()->blockedReasons();
 
     expect($reasons[$returner->id.'|2026-07-06'])
-        ->toContain('منقطعاً')
-        ->toContain('عاد في');
+        ->toContain('غادر الحلقات')
+        ->toContain('صار مشاركاً في');
 });
 
 it('still refuses a student who never came back, without inventing a date', function () {
@@ -481,6 +482,33 @@ it('still refuses a student who never came back, without inventing a date', func
         ->instance()->blockedReasons();
 
     expect($reasons[$gone->id.'|2026-07-06'])
-        ->toContain('منقطعاً')
-        ->not->toContain('عاد في');
+        ->toContain('غادر الحلقات')
+        ->not->toContain('صار مشاركاً');
+});
+
+it('names the status in the same words the rest of the app uses', function () {
+    $cases = [
+        'left' => 'غادر الحلقات',
+        'suspended' => 'موقوف',
+        'registering' => 'تحت التسجيل',
+    ];
+
+    foreach ($cases as $status => $label) {
+        $student = Student::factory()->create(['circle_id' => $this->circle->id, 'status' => $status]);
+
+        StudentStatusHistory::create([
+            'student_id' => $student->id,
+            'status' => $status,
+            'start_date' => '2026-06-01',
+        ]);
+
+        $reasons = Livewire::test(AttendanceSheet::class, ['circleId' => $this->circle->id])
+            ->instance()->blockedReasons();
+
+        // The exact label from the student's own page, so the two can be matched.
+        expect($reasons[$student->id.'|2026-07-06'])
+            ->toContain('حالة الطالب في هذا اليوم: '.$label);
+
+        expect($label)->toBe(StudentStatus::LABELS[$status]);
+    }
 });
