@@ -6,6 +6,7 @@ use App\Models\AttendanceRevision;
 use App\Models\Circle;
 use App\Models\Stage;
 use App\Models\Student;
+use App\Models\StudentStatusHistory;
 use App\Models\Teacher;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
@@ -303,4 +304,65 @@ it('stacks only the first two name parts for phone-width rows', function () {
 
 it('keeps a one-word name to a single line', function () {
     expect($this->studentA->shortNameParts())->toBe(['أحمد']);
+});
+
+it('says why a cell is blocked, and says something different for each reason', function () {
+    $joiner = Student::factory()->create([
+        'circle_id' => $this->circle->id,
+        'name' => 'ملتحق حديثاً',
+        'joined_at' => '2026-07-07',
+    ]);
+
+    $suspended = Student::factory()->create([
+        'circle_id' => $this->circle->id,
+        'name' => 'موقوف',
+    ]);
+
+    StudentStatusHistory::create([
+        'student_id' => $suspended->id,
+        'status' => 'suspended',
+        'start_date' => '2026-07-01',
+    ]);
+
+    $reasons = Livewire::test(AttendanceSheet::class, ['circleId' => $this->circle->id])
+        ->instance()->blockedReasons();
+
+    // A day before the student enrolled names the date they did.
+    expect($reasons[$joiner->id.'|2026-07-06'])->toContain('لم يكن الطالب قد التحق');
+
+    // Being suspended is not the same fact, and must not read the same.
+    expect($reasons[$suspended->id.'|2026-07-07'])->toContain('موقوفاً');
+
+    // A day that has not happened yet is a third, separate case.
+    expect($reasons[$this->studentA->id.'|2026-07-09'])->toContain('لم يأتِ بعد');
+
+    // An editable cell carries no reason at all.
+    expect($reasons)->not->toHaveKey($this->studentA->id.'|2026-07-08');
+});
+
+it('offers a reason for every cell the grid refuses to edit', function () {
+    Student::factory()->create([
+        'circle_id' => $this->circle->id,
+        'joined_at' => '2026-07-07',
+    ]);
+
+    $component = Livewire::test(AttendanceSheet::class, ['circleId' => $this->circle->id])->instance();
+
+    $reasons = $component->blockedReasons();
+
+    foreach ($component->students() as $student) {
+        foreach ($component->days() as $day) {
+            $blocked = $day['is_future'] || ! ($component->editable()[$student->id][$day['date']] ?? false);
+
+            expect(array_key_exists($student->id.'|'.$day['date'], $reasons))->toBe($blocked);
+        }
+    }
+});
+
+it('renders a blocked cell as something pressable that carries its reason', function () {
+    Livewire::test(AttendanceSheet::class, ['circleId' => $this->circle->id])
+        // A future day is blocked for everyone, so there is always one to find.
+        ->assertSeeHtml('x-on:click="explain(\''.$this->studentA->id.'|2026-07-09\')"')
+        ->assertSeeHtml('هذا اليوم لم يأتِ بعد، فلا يمكن تحضيره.')
+        ->assertSeeHtml('x-text="blockedNote"');
 });

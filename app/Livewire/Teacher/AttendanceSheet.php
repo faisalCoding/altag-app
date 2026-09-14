@@ -204,6 +204,57 @@ class AttendanceSheet extends Component
     }
 
     /**
+     * Why a cell cannot be written in, phrased for the teacher looking at it.
+     *
+     * The grid greys a cell out without saying why, and the reasons are not
+     * interchangeable: a day before the student enrolled is not the same as a
+     * day they were suspended, and a teacher chasing a gap in the register needs
+     * to know which. Only blocked cells appear here.
+     *
+     * @return array<string, string> "student_id|date" => reason
+     */
+    #[Computed]
+    public function blockedReasons(): array
+    {
+        $labels = [
+            'left' => 'كان الطالب منقطعاً في هذا اليوم',
+            'suspended' => 'كان الطالب موقوفاً في هذا اليوم',
+            'registering' => 'لم يُعتمد تسجيل الطالب بعد في هذا اليوم',
+        ];
+
+        $reasons = [];
+
+        foreach ($this->students as $student) {
+            $joined = $student->joined_at ? Carbon::parse($student->joined_at)->toDateString() : null;
+
+            foreach ($this->days as $day) {
+                $date = $day['date'];
+
+                if ($day['is_future']) {
+                    $reasons[$student->id.'|'.$date] = 'هذا اليوم لم يأتِ بعد، فلا يمكن تحضيره.';
+
+                    continue;
+                }
+
+                if ($joined !== null && $date < $joined) {
+                    $reasons[$student->id.'|'.$date] = 'لم يكن الطالب قد التحق بالمجمع بعد — التحق في '
+                        .HijriDate::full($joined).'.';
+
+                    continue;
+                }
+
+                $status = $this->statusOnDate($student, $date);
+
+                if ($status !== 'active') {
+                    $reasons[$student->id.'|'.$date] = $labels[$status] ?? 'لم يكن الطالب مقيّداً في هذا اليوم';
+                }
+            }
+        }
+
+        return $reasons;
+    }
+
+    /**
      * A student's enrolment status on a date, from their history, falling back
      * to their current status when the history says nothing yet.
      */

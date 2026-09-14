@@ -37,6 +37,8 @@ a reason — enforced here for the prompt, and again on the server for real.
             $editableFlat[$key] = ($editableMap[$student->id][$day['date']] ?? false) && ! $day['is_future'];
         }
     }
+
+    $blockedReasons = $this->blockedReasons;
 @endphp
 
 <div dir="rtl"
@@ -44,6 +46,9 @@ a reason — enforced here for the prompt, and again on the server for real.
         today: @js($today),
         baseline: @js((object) $baseline),
         editable: @js((object) $editableFlat),
+        blocked: @js((object) $blockedReasons),
+        blockedNote: '',
+        blockedTimer: null,
         rows: @js($students->pluck('id')->values()),
         cols: @js(collect($days)->pluck('date')->values()),
         edits: {},
@@ -68,6 +73,16 @@ a reason — enforced here for the prompt, and again on the server for real.
         },
 
         canEdit(row, col) { return this.editable[this.key(row, col)] === true },
+
+        /**
+         * Say why a greyed cell cannot be written in. Client-side so a teacher
+         * tapping across a row of blocked days does not fire a request each time.
+         */
+        explain(key) {
+            this.blockedNote = this.blocked[key] || 'لا يمكن التحضير في هذا اليوم.';
+            clearTimeout(this.blockedTimer);
+            this.blockedTimer = setTimeout(() => { this.blockedNote = ''; }, 6000);
+        },
 
         letter(status) {
             return { present: 'ح', absent: 'غ', late: 'ت', excused: 'ذ' }[status] ?? '';
@@ -316,6 +331,16 @@ a reason — enforced here for the prompt, and again on the server for real.
             <flux:heading size="lg" class="text-zinc-500 dark:text-zinc-400">لا يوجد طلاب معتمدون في هذه الحلقة</flux:heading>
         </div>
     @else
+        {{-- Why the cell the teacher just pressed is greyed out. --}}
+        <div x-cloak x-show="blockedNote" x-transition.opacity
+            class="mb-3 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300">
+            <flux:icon icon="information-circle" class="size-4 mt-0.5 shrink-0" />
+            <span class="flex-1" x-text="blockedNote"></span>
+            <button type="button" x-on:click="blockedNote = ''" class="shrink-0 opacity-60 hover:opacity-100" aria-label="إغلاق">
+                <flux:icon icon="x-mark" class="size-4" />
+            </button>
+        </div>
+
         <div class="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-100 dark:border-zinc-800 shadow-xs overflow-hidden">
             <div class="overflow-auto max-h-[70vh] select-none focus:outline-none" tabindex="0" x-ref="grid">
                 <table class="border-collapse text-sm w-max min-w-full">
@@ -384,10 +409,13 @@ a reason — enforced here for the prompt, and again on the server for real.
                                                 x-text="letter(status({{ $student->id }}, '{{ $day['date'] }}')) || '·'"
                                                 class="w-full h-9 text-center text-sm font-bold cursor-pointer"></button>
                                         @else
-                                            <div class="w-full h-9 flex items-center justify-center bg-zinc-50 dark:bg-zinc-800/50 text-zinc-300 dark:text-zinc-700 text-xs"
-                                                title="{{ $day['is_future'] ? 'يوم لم يأتِ بعد' : 'الطالب غير مقيّد في هذا اليوم' }}">
+                                            @php $blockedKey = $student->id.'|'.$day['date']; @endphp
+                                            <button type="button"
+                                                x-on:click="explain('{{ $blockedKey }}')"
+                                                title="{{ $blockedReasons[$blockedKey] ?? 'لا يمكن التحضير في هذا اليوم' }}"
+                                                class="w-full h-9 flex items-center justify-center bg-zinc-50 dark:bg-zinc-800/50 text-zinc-300 dark:text-zinc-700 text-xs cursor-help hover:bg-zinc-100 dark:hover:bg-zinc-700/50">
                                                 {{ $day['is_future'] ? '' : '—' }}
-                                            </div>
+                                            </button>
                                         @endif
                                     </td>
                                 @endforeach
