@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Manager;
 
+use App\Support\WhatsappGateway;
 use Flux\Flux;
 use Illuminate\Support\Facades\Http;
 use Livewire\Component;
@@ -41,6 +42,23 @@ class WhatsappSettings extends Component
         } catch (\Exception $e) {
             $this->status = 'error';
             $this->message = 'تأكد من تشغيل خادم Node.js الخاص بالواتساب.';
+        }
+    }
+
+    /**
+     * Start the session deliberately. Reading the status no longer launches a
+     * browser, so this is the only way a person brings one up.
+     */
+    public function connect(): void
+    {
+        try {
+            WhatsappGateway::connect($this->clientId);
+            $this->status = 'starting';
+            $this->message = 'جاري تشغيل الجلسة...';
+            $this->qrCode = null;
+        } catch (\Exception $e) {
+            $this->status = 'error';
+            $this->message = 'تعذّر الاتصال بخدمة الواتساب.';
         }
     }
 

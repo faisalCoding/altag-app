@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Support\HijriDate;
+use App\Support\WhatsappGateway;
 use Carbon\Carbon;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -18,6 +19,13 @@ class SendWhatsappTasksJob implements ShouldQueue
      * so it needs far more than the default 60s worker timeout.
      */
     public int $timeout = 1800;
+
+    /**
+     * This job sends to many people in one pass, so it must never be retried
+     * after it has started delivering — the readiness check below happens before
+     * the first message precisely so a retry costs nobody a duplicate.
+     */
+    public int $tries = 3;
 
     public $teachersTasks;
 
@@ -40,6 +48,18 @@ class SendWhatsappTasksJob implements ShouldQueue
      */
     public function handle(): void
     {
+        // Before the first message, not between them: a session closed for idleness
+        // needs a minute to come back, and finding that out half way through the
+        // list would mean either dropping the rest or re-sending to those already
+        // reached when the job is retried.
+        if (! WhatsappGateway::waitUntilReady($this->senderClientId)) {
+            Log::warning("WhatsApp session [{$this->senderClientId}] is not ready; deferring the task broadcast.");
+
+            $this->release(120);
+
+            return;
+        }
+
         foreach ($this->teachersTasks as $data) {
             $assignee = array_key_exists('assignee', $data) ? $data['assignee'] : ($data['teacher'] ?? null);
             $tasks = $data['tasks'] ?? [];

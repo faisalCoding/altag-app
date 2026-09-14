@@ -1,4 +1,4 @@
-<div @if(!in_array($status, ['ready', 'error'])) wire:poll.5s="checkStatus" @endif class="space-y-6">
+<div @if(!in_array($status, ['ready', 'error', 'stopped'])) wire:poll.5s="checkStatus" @endif class="space-y-6">
     <div class="flex items-center gap-3">
         <div class="p-2.5 rounded-xl bg-maroon/10 text-maroon dark:bg-white/10 dark:text-white">
             <flux:icon icon="chat-bubble-left-right" />
@@ -12,11 +12,13 @@
     <flux:card class="max-w-2xl">
         <div class="flex items-center gap-4 mb-6">
             <div class="size-12 rounded-full flex items-center justify-center shrink-0
-                {{ $status === 'ready' ? 'bg-emerald-100 text-emerald-600' : ($status === 'error' ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-600') }}">
+                {{ $status === 'ready' ? 'bg-emerald-100 text-emerald-600' : ($status === 'error' ? 'bg-red-100 text-red-600' : ($status === 'stopped' ? 'bg-zinc-100 text-zinc-500' : 'bg-amber-100 text-amber-600')) }}">
                 @if($status === 'ready')
                     <flux:icon icon="check-circle" variant="solid" class="size-8" />
                 @elseif($status === 'error')
                     <flux:icon icon="exclamation-circle" variant="solid" class="size-8" />
+                @elseif($status === 'stopped')
+                    <flux:icon icon="power" class="size-7" />
                 @else
                     <flux:icon icon="arrow-path" class="size-6 animate-spin" />
                 @endif
@@ -29,6 +31,7 @@
                     @elseif($status === 'loading') جاري مزامنة المحادثات...
                     @elseif($status === 'starting') جاري التهيئة...
                     @elseif($status === 'disconnected') انقطع الاتصال
+                    @elseif($status === 'stopped') الجلسة متوقفة
                     @else خدمة الواتساب غير متصلة @endif
                 </h3>
                 <p class="text-sm text-zinc-500">{{ $message }}</p>
@@ -36,6 +39,11 @@
             </div>
 
             <div class="flex flex-col gap-2 shrink-0">
+                @if(in_array($status, ['stopped', 'disconnected']))
+                    <flux:button wire:click="connect" size="sm" variant="primary" class="w-full">
+                        ربط الواتساب
+                    </flux:button>
+                @endif
                 @if($status === 'ready')
                     <flux:button wire:click="disconnect" size="sm" variant="ghost" class="text-zinc-500 hover:text-zinc-700 w-full text-right">
                         إيقاف الاتصال
