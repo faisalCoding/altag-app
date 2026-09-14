@@ -168,7 +168,7 @@ class AttendanceSheet extends Component
             ->where(function ($query) use ($end) {
                 $query->whereNull('joined_at')->orWhere('joined_at', '<=', $end);
             })
-            ->with(['statusHistories' => fn ($q) => $q->orderBy('start_date')->orderBy('id')])
+            ->with('statusHistories')
             ->orderBy('name')
             ->get();
     }
@@ -260,7 +260,8 @@ class AttendanceSheet extends Component
                 $status = $this->statusOnDate($student, $date);
 
                 if ($status !== 'active') {
-                    $reasons[$student->id.'|'.$date] = $labels[$status] ?? 'لم يكن الطالب مقيّداً في هذا اليوم';
+                    $reasons[$student->id.'|'.$date] = ($labels[$status] ?? 'لم يكن الطالب مقيّداً في هذا اليوم')
+                        .$this->returnedOn($student, $date);
                 }
             }
         }
@@ -269,14 +270,41 @@ class AttendanceSheet extends Component
     }
 
     /**
+     * " — عاد في ..." when the student came back after this date.
+     *
+     * Without it the teacher is told only that the day is closed, and a status
+     * that was corrected today reads identically to one never corrected at all —
+     * which is exactly the moment someone concludes the sheet is broken. Naming
+     * the date says instead that the correction landed, and where it starts.
+     */
+    private function returnedOn(Student $student, string $date): string
+    {
+        $return = $student->statusHistories
+            ->filter(fn ($row) => $row->status === 'active'
+                && Carbon::parse($row->start_date)->toDateString() > $date)
+            ->sortBy([['start_date', 'asc'], ['id', 'asc']])
+            ->first();
+
+        return $return
+            ? ' — عاد في '.HijriDate::full($return->start_date).'.'
+            : '.';
+    }
+
+    /**
      * A student's enrolment status on a date, from their history, falling back
      * to their current status when the history says nothing yet.
      */
     private function statusOnDate(Student $student, string $date): string
     {
+        // Sorted here rather than trusted from the query: the relation itself is
+        // declared newest-first, so an orderBy added to the eager load only
+        // appends a second clause and changes nothing — and this read wants the
+        // newest row at or before the date, the same row the SQL in
+        // Attendance::activeStatusOnDateSql() picks.
         $history = $student->statusHistories
             ->filter(fn ($row) => Carbon::parse($row->start_date)->toDateString() <= $date)
-            ->last();
+            ->sortBy([['start_date', 'desc'], ['id', 'desc']])
+            ->first();
 
         return $history->status ?? $student->status;
     }

@@ -419,3 +419,68 @@ it('asks for a reason in a stage nobody has configured', function () {
     expect(Livewire::test(AttendanceSheet::class, ['circleId' => $circle->id])
         ->instance()->reasonRequired())->toBeTrue();
 });
+
+it('lets a returning student be marked from the day they came back', function () {
+    $returner = Student::factory()->create(['circle_id' => $this->circle->id, 'name' => 'عائد']);
+
+    // Left in the past, then brought back part-way through the visible month.
+    StudentStatusHistory::create([
+        'student_id' => $returner->id,
+        'status' => 'left',
+        'start_date' => '2026-06-01',
+    ]);
+    StudentStatusHistory::create([
+        'student_id' => $returner->id,
+        'status' => 'active',
+        'start_date' => '2026-07-07',
+    ]);
+    $returner->update(['status' => 'active']);
+
+    $sheet = Livewire::test(AttendanceSheet::class, ['circleId' => $this->circle->id])->instance();
+    $editable = $sheet->editable();
+
+    // The relation is declared newest-first, so reading the wrong end of it
+    // pinned this student to "left" forever, whatever the newer row said.
+    expect($editable[$returner->id]['2026-07-06'])->toBeFalse();
+    expect($editable[$returner->id]['2026-07-07'])->toBeTrue();
+    expect($editable[$returner->id]['2026-07-08'])->toBeTrue();
+});
+
+it('names the day a student returned when refusing an earlier one', function () {
+    $returner = Student::factory()->create(['circle_id' => $this->circle->id, 'name' => 'عائد']);
+
+    StudentStatusHistory::create([
+        'student_id' => $returner->id,
+        'status' => 'left',
+        'start_date' => '2026-06-01',
+    ]);
+    StudentStatusHistory::create([
+        'student_id' => $returner->id,
+        'status' => 'active',
+        'start_date' => '2026-07-07',
+    ]);
+
+    $reasons = Livewire::test(AttendanceSheet::class, ['circleId' => $this->circle->id])
+        ->instance()->blockedReasons();
+
+    expect($reasons[$returner->id.'|2026-07-06'])
+        ->toContain('منقطعاً')
+        ->toContain('عاد في');
+});
+
+it('still refuses a student who never came back, without inventing a date', function () {
+    $gone = Student::factory()->create(['circle_id' => $this->circle->id, 'status' => 'left']);
+
+    StudentStatusHistory::create([
+        'student_id' => $gone->id,
+        'status' => 'left',
+        'start_date' => '2026-06-01',
+    ]);
+
+    $reasons = Livewire::test(AttendanceSheet::class, ['circleId' => $this->circle->id])
+        ->instance()->blockedReasons();
+
+    expect($reasons[$gone->id.'|2026-07-06'])
+        ->toContain('منقطعاً')
+        ->not->toContain('عاد في');
+});
