@@ -19,6 +19,22 @@ class Stage extends Model
         'require_edit_reason' => 'boolean',
     ];
 
+    /**
+     * A stage's id also lives inside JSON columns that no foreign key guards —
+     * the stages an attendance period applies to, most of all. Left behind, a
+     * dead id makes the period unsaveable over a stage the form cannot show.
+     */
+    protected static function booted(): void
+    {
+        static::deleted(function (Stage $stage) {
+            foreach (AcademicCalendarEvent::whereJsonContains('stage_ids', $stage->id)->get() as $event) {
+                $event->update([
+                    'stage_ids' => array_values(array_diff($event->stage_ids ?? [], [$stage->id])),
+                ]);
+            }
+        });
+    }
+
     /** @return HasMany<Circle, $this> */
     public function circles(): HasMany
     {
