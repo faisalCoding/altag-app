@@ -9,6 +9,7 @@ use App\Support\StudentStatus;
 use Illuminate\Console\Command;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 /**
  * Set one circle's roll: the named students participate, everyone else has left.
@@ -24,6 +25,10 @@ class SyncCircleParticipants extends Command
                             {--file= : ملف فيه اسم كل مشارك في سطر}
                             {--names= : الأسماء مفصولة بفاصلة، بديلاً عن الملف}
                             {--since= : تاريخ سريان الحالة (Y-m-d). الافتراضي: قبل أسبوع}
+                            {--create : أنشئ حساباً لمن ليس له حساب، وانقل من كان في حلقة أخرى}
+                            {--force : أنشئ حتى لو كان الاسم قريباً من طالب موجود (خطر التكرار)}
+                            {--email-domain=altag.local : نطاق البريد المولَّد للحسابات الجديدة}
+                            {--credentials= : اكتب بيانات الدخول المولَّدة في هذا الملف بدل طباعتها}
                             {--apply : نفّذ فعلاً. بدونه يعرض ما سيحدث ولا يغيّر شيئاً}';
 
     protected $description = 'جعل طلاب قائمة معيّنة مشاركين في حلقة، وكل من سواهم مغادراً';
@@ -58,15 +63,13 @@ class SyncCircleParticipants extends Command
             return self::FAILURE;
         }
 
-        $matched = $this->match($wanted, $roll);
+        $plan = $this->plan($wanted, $roll, $circle);
 
-        if ($matched === null) {
+        if ($plan === null) {
             return self::FAILURE;
         }
 
-        $leaving = $roll->reject(fn (Student $s) => $matched->contains('id', $s->id))->values();
-
-        $this->report($circle, $matched, $leaving, $since);
+        $this->report($circle, $plan, $since);
 
         if (! $this->option('apply')) {
             $this->newLine();
@@ -75,44 +78,90 @@ class SyncCircleParticipants extends Command
             return self::SUCCESS;
         }
 
-        return $this->apply($matched, $leaving, $since);
+        return $this->apply($plan, $circle, $since);
     }
 
     /**
-     * Match every listed name to exactly one student on the roll.
+     * Work out what each listed name means, without doing any of it yet.
      *
-     * Refuses the whole run on the first name it cannot place, rather than
-     * quietly carrying on: a name missed here is a student marked as having left
-     * a circle they attend, and nobody would notice until they could not be
-     * marked present.
+     * A name is one of four things: already on this roll, on the books but in
+     * another circle, nobody the system knows, or too ambiguous to act on. Only
+     * the last stops the run — and it stops all of it, because a name skipped
+     * here marks a present student as gone and nobody finds out until the day
+     * they cannot be marked.
      *
      * @param  Collection<int, string>  $wanted
      * @param  Collection<int, Student>  $roll
-     * @return Collection<int, Student>|null
+     * @return array{staying: Collection<int, Student>, moving: Collection<int, Student>, creating: Collection<int, string>, leaving: Collection<int, Student>}|null
      */
-    private function match(Collection $wanted, Collection $roll): ?Collection
+    private function plan(Collection $wanted, Collection $roll, Circle $circle): ?array
     {
-        $byName = $roll->groupBy(fn (Student $s) => $this->normalise($s->name));
+        $onRoll = $roll->groupBy(fn (Student $s) => $this->normalise($s->name));
 
-        $matched = collect();
+        $others = Student::where(fn ($q) => $q->whereNull('circle_id')->orWhere('circle_id', '!=', $circle->id))
+            ->get()
+            ->groupBy(fn (Student $s) => $this->normalise($s->name));
+
+        $staying = collect();
+        $moving = collect();
+        $creating = collect();
         $problems = [];
 
         foreach ($wanted as $name) {
-            $candidates = $byName->get($this->normalise($name), collect());
+            $key = $this->normalise($name);
 
-            if ($candidates->count() === 1) {
-                $matched->push($candidates->first());
+            $here = $onRoll->get($key, collect());
+
+            if ($here->count() === 1) {
+                $staying->push($here->first());
 
                 continue;
             }
 
-            $problems[] = $candidates->isEmpty()
-                ? "«{$name}» لا يطابق أي طالب في الحلقة.".$this->suggest($name, $roll)
-                : "«{$name}» يطابق أكثر من طالب: ".$candidates->map(fn ($s) => "#{$s->id}")->implode('، ');
+            if ($here->count() > 1) {
+                $problems[] = "«{$name}» يطابق أكثر من طالب في الحلقة: ".$here->map(fn ($s) => "#{$s->id}")->implode('، ');
+
+                continue;
+            }
+
+            $elsewhere = $others->get($key, collect());
+
+            if ($elsewhere->count() > 1) {
+                $problems[] = "«{$name}» يطابق أكثر من طالب خارج الحلقة: ".$elsewhere->map(fn ($s) => "#{$s->id}")->implode('، ');
+
+                continue;
+            }
+
+            if (! $this->option('create')) {
+                $problems[] = $elsewhere->count() === 1
+                    ? "«{$name}» موجود في حلقة أخرى (#{$elsewhere->first()->id}). أضف --create لنقله."
+                    : "«{$name}» لا يطابق أي طالب.".$this->suggest($name, $roll).' أضف --create لإنشاء حساب له.';
+
+                continue;
+            }
+
+            if ($elsewhere->count() === 1) {
+                $moving->push($elsewhere->first());
+
+                continue;
+            }
+
+            // Creating is the one path that cannot be undone by re-running, so a
+            // name one letter away from somebody real is treated as a typo until
+            // the operator says otherwise.
+            $near = $this->closest($name, $roll->merge($others->flatten()));
+
+            if ($near && ! $this->option('force')) {
+                $problems[] = "«{$name}» قريب جداً من «{$near}» — قد يكون خطأ إملائياً. صحّحه، أو أضف --force لإنشائه رغم ذلك.";
+
+                continue;
+            }
+
+            $creating->push(trim($name));
         }
 
         if ($problems !== []) {
-            $this->components->error('تعذّر مطابقة '.count($problems).' اسماً، فلم يُنفَّذ شيء:');
+            $this->components->error('تعذّر حسم '.count($problems).' اسماً، فلم يُنفَّذ شيء:');
 
             foreach ($problems as $problem) {
                 $this->line('  • '.$problem);
@@ -121,7 +170,30 @@ class SyncCircleParticipants extends Command
             return null;
         }
 
-        return $matched;
+        $keep = $staying->pluck('id');
+
+        return [
+            'staying' => $staying,
+            'moving' => $moving,
+            'creating' => $creating,
+            'leaving' => $roll->reject(fn (Student $s) => $keep->contains($s->id))->values(),
+        ];
+    }
+
+    /**
+     * A name close enough to be a misspelling of someone who already exists.
+     *
+     * @param  Collection<int, Student>  $pool
+     */
+    private function closest(string $name, Collection $pool): ?string
+    {
+        $needle = $this->normalise($name);
+
+        return $pool
+            ->map(fn (Student $s) => ['name' => $s->name, 'distance' => levenshtein($needle, $this->normalise($s->name))])
+            ->filter(fn ($row) => $row['distance'] > 0 && $row['distance'] <= 3)
+            ->sortBy('distance')
+            ->first()['name'] ?? null;
     }
 
     /**
@@ -229,31 +301,39 @@ class SyncCircleParticipants extends Command
     }
 
     /**
-     * @param  Collection<int, Student>  $staying
-     * @param  Collection<int, Student>  $leaving
+     * @param  array{staying: Collection, moving: Collection, creating: Collection, leaving: Collection}  $plan
      */
-    private function report(Circle $circle, Collection $staying, Collection $leaving, string $since): void
+    private function report(Circle $circle, array $plan, string $since): void
     {
         $this->newLine();
         $this->components->info("حلقة «{$circle->name}» — تاريخ السريان {$since}");
 
-        $this->components->twoColumnDetail(
-            '<fg=green>سيصيرون «'.StudentStatus::label('active').'»</>',
-            (string) $staying->count().' طالباً',
-        );
+        $this->section('<fg=green>يبقون مشاركين</>', $plan['staying'], fn (Student $s) => 'الآن: '.StudentStatus::label($s->status));
 
-        foreach ($staying as $student) {
-            $this->components->twoColumnDetail("  {$student->name}", 'الآن: '.StudentStatus::label($student->status));
+        $this->section('<fg=cyan>يُنقلون إلى هذه الحلقة</>', $plan['moving'],
+            fn (Student $s) => 'من: '.($s->circle?->name ?? 'بلا حلقة'));
+
+        $this->section('<fg=yellow>حسابات ستُنشأ</>', $plan['creating'], fn (string $name) => 'جديد');
+
+        $this->section('<fg=red>سيصيرون «'.StudentStatus::label('left').'»</>', $plan['leaving'],
+            fn (Student $s) => 'الآن: '.StudentStatus::label($s->status));
+    }
+
+    /**
+     * @param  Collection<int, mixed>  $rows
+     */
+    private function section(string $title, Collection $rows, callable $detail): void
+    {
+        if ($rows->isEmpty()) {
+            return;
         }
 
         $this->newLine();
-        $this->components->twoColumnDetail(
-            '<fg=red>سيصيرون «'.StudentStatus::label('left').'»</>',
-            (string) $leaving->count().' طالباً',
-        );
+        $this->components->twoColumnDetail($title, $rows->count().' طالباً');
 
-        foreach ($leaving as $student) {
-            $this->components->twoColumnDetail("  {$student->name}", 'الآن: '.StudentStatus::label($student->status));
+        foreach ($rows as $row) {
+            $name = $row instanceof Student ? $row->name : (string) $row;
+            $this->components->twoColumnDetail("  {$name}", $detail($row));
         }
     }
 
@@ -261,18 +341,27 @@ class SyncCircleParticipants extends Command
      * All of it or none of it: a half-applied roll is worse than an untouched one,
      * because nobody can tell by looking which half went through.
      *
-     * @param  Collection<int, Student>  $staying
-     * @param  Collection<int, Student>  $leaving
+     * @param  array{staying: Collection, moving: Collection, creating: Collection, leaving: Collection}  $plan
      */
-    private function apply(Collection $staying, Collection $leaving, string $since): int
+    private function apply(array $plan, Circle $circle, string $since): int
     {
+        $credentials = [];
+
         try {
-            DB::transaction(function () use ($staying, $leaving, $since) {
-                foreach ($staying as $student) {
+            DB::transaction(function () use ($plan, $circle, $since, &$credentials) {
+                foreach ($plan['creating'] as $name) {
+                    $credentials[] = $this->createStudent($name, $circle, $since);
+                }
+
+                foreach ($plan['moving'] as $student) {
+                    $student->update(['circle_id' => $circle->id]);
+                }
+
+                foreach ($plan['staying']->merge($plan['moving']) as $student) {
                     StudentStatusService::changeStatus($student, 'active', $since, 'ضبط قائمة المشاركين');
                 }
 
-                foreach ($leaving as $student) {
+                foreach ($plan['leaving'] as $student) {
                     StudentStatusService::changeStatus($student, 'left', $since, 'ضبط قائمة المشاركين');
                 }
             });
@@ -284,8 +373,94 @@ class SyncCircleParticipants extends Command
         }
 
         $this->newLine();
-        $this->components->info("تم: {$staying->count()} مشاركاً و{$leaving->count()} مغادراً، اعتباراً من {$since}.");
+        $this->components->info(sprintf(
+            'تم: %d مشاركاً (منهم %d منقول و%d جديد) و%d مغادراً، اعتباراً من %s.',
+            $plan['staying']->count() + $plan['moving']->count() + $plan['creating']->count(),
+            $plan['moving']->count(),
+            $plan['creating']->count(),
+            $plan['leaving']->count(),
+            $since,
+        ));
+
+        $this->handOverCredentials($credentials);
 
         return self::SUCCESS;
+    }
+
+    /**
+     * A student who exists only as a name on a list.
+     *
+     * Approved on the way in, because an unapproved student does not appear on
+     * the register at all — which would leave the teacher unable to mark the
+     * very people this command was run to add. Joined on the effective date, so
+     * the weeks before it stay closed rather than showing as unmarked absence.
+     *
+     * @return array{name: string, email: string, password: string}
+     */
+    private function createStudent(string $name, Circle $circle, string $since): array
+    {
+        $email = $this->freeEmail();
+        $password = Str::password(12, symbols: false);
+
+        Student::create([
+            'name' => $name,
+            'email' => $email,
+            'password' => $password,
+            'circle_id' => $circle->id,
+            'status' => 'active',
+            'joined_at' => $since,
+            'is_approved' => true,
+        ]);
+
+        return ['name' => $name, 'email' => $email, 'password' => $password];
+    }
+
+    /**
+     * An address nobody is using. Generated rather than derived from the name:
+     * Arabic does not transliterate to something a person would want to type,
+     * and a placeholder that is obviously a placeholder gets corrected sooner.
+     */
+    private function freeEmail(): string
+    {
+        $domain = (string) $this->option('email-domain');
+
+        do {
+            $email = 'student.'.Str::lower(Str::random(8)).'@'.$domain;
+        } while (Student::withoutGlobalScopes()->where('email', $email)->exists());
+
+        return $email;
+    }
+
+    /**
+     * @param  array<int, array{name: string, email: string, password: string}>  $credentials
+     */
+    private function handOverCredentials(array $credentials): void
+    {
+        if ($credentials === []) {
+            return;
+        }
+
+        $rows = collect($credentials)->map(fn ($row) => [$row['name'], $row['email'], $row['password']]);
+
+        if ($path = $this->option('credentials')) {
+            $handle = fopen($path, 'w');
+            fputcsv($handle, ['name', 'email', 'password']);
+
+            foreach ($rows as $row) {
+                fputcsv($handle, $row);
+            }
+
+            fclose($handle);
+            @chmod($path, 0600);
+
+            $this->components->info("بيانات دخول {$rows->count()} حساباً جديداً كُتبت في {$path} — احذفه بعد توزيعها.");
+
+            return;
+        }
+
+        $this->newLine();
+        $this->components->warn('بيانات دخول الحسابات الجديدة — تظهر مرة واحدة فقط:');
+        $this->table(['الاسم', 'البريد', 'كلمة المرور'], $rows->all());
+        $this->components->warn('البريد مولَّد ولا يستقبل رسائل. عدّله من لوحة المدير قبل أن يحتاج الطالب استعادة كلمته.');
     }
 }

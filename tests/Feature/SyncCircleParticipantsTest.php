@@ -3,6 +3,7 @@
 use App\Models\Circle;
 use App\Models\Stage;
 use App\Models\Student;
+use App\Models\StudentStatusHistory;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
 uses(RefreshDatabase::class);
@@ -152,4 +153,158 @@ it('refuses a malformed date', function () {
     ])->assertFailed();
 
     expect($this->alsoStaying->fresh()->status)->toBe('left');
+});
+
+it('refuses an unknown name unless creating is asked for', function () {
+    $this->artisan('circle:participants', [
+        'circle' => 'جامعيين',
+        '--names' => 'وسام عكيش,طالب جديد تماماً',
+        '--apply' => true,
+    ])->assertFailed();
+
+    expect(Student::where('name', 'طالب جديد تماماً')->exists())->toBeFalse();
+});
+
+it('creates an account for a name nobody has', function () {
+    $this->artisan('circle:participants', [
+        'circle' => 'جامعيين',
+        '--names' => 'وسام عكيش,طالب جديد تماماً',
+        '--create' => true,
+        '--apply' => true,
+    ])->assertSuccessful();
+
+    $created = Student::where('name', 'طالب جديد تماماً')->first();
+
+    expect($created)->not->toBeNull();
+    expect($created->circle_id)->toBe($this->circle->id);
+    expect($created->status)->toBe('active');
+    expect($created->joined_at->format('Y-m-d'))->toBe('2026-09-08');
+    expect($created->email)->toEndWith('@altag.local');
+});
+
+it('approves a created student, or the teacher could never mark them', function () {
+    $this->artisan('circle:participants', [
+        'circle' => 'جامعيين',
+        '--names' => 'طالب جديد تماماً',
+        '--create' => true,
+        '--apply' => true,
+    ]);
+
+    $created = Student::whereRoleState(fn ($q) => $q->where('is_approved', true))
+        ->where('name', 'طالب جديد تماماً')
+        ->first();
+
+    expect($created)->not->toBeNull();
+});
+
+it('gives every created student a login that works', function () {
+    $this->artisan('circle:participants', [
+        'circle' => 'جامعيين',
+        '--names' => 'طالب أول جديد,طالب ثان جديد',
+        '--create' => true,
+        '--apply' => true,
+    ]);
+
+    $emails = Student::whereIn('name', ['طالب أول جديد', 'طالب ثان جديد'])->pluck('email');
+
+    expect($emails)->toHaveCount(2);
+    expect($emails->unique())->toHaveCount(2);
+    expect(Student::whereIn('name', ['طالب أول جديد', 'طالب ثان جديد'])->pluck('password')->filter())->toHaveCount(2);
+});
+
+it('writes the new credentials to a file when asked', function () {
+    $path = tempnam(sys_get_temp_dir(), 'creds').'.csv';
+
+    $this->artisan('circle:participants', [
+        'circle' => 'جامعيين',
+        '--names' => 'طالب جديد تماماً',
+        '--create' => true,
+        '--credentials' => $path,
+        '--apply' => true,
+    ])->assertSuccessful();
+
+    $csv = file_get_contents($path);
+
+    expect($csv)->toContain('طالب جديد تماماً')->toContain('@altag.local');
+    expect(substr(sprintf('%o', fileperms($path)), -4))->toBe('0600');
+
+    unlink($path);
+});
+
+it('moves an existing student in rather than creating a second of them', function () {
+    $otherCircle = Circle::factory()->create(['name' => 'حلقة أخرى', 'stage_id' => $this->circle->stage_id]);
+    $wanderer = Student::factory()->create(['circle_id' => $otherCircle->id, 'name' => 'طالب متنقل', 'status' => 'left']);
+
+    $this->artisan('circle:participants', [
+        'circle' => 'جامعيين',
+        '--names' => 'طالب متنقل',
+        '--create' => true,
+        '--apply' => true,
+    ])->assertSuccessful();
+
+    expect(Student::where('name', 'طالب متنقل')->count())->toBe(1);
+    expect($wanderer->fresh()->circle_id)->toBe($this->circle->id);
+    expect($wanderer->fresh()->status)->toBe('active');
+});
+
+it('treats a near-miss as a typo rather than a new person', function () {
+    // One letter away from "وسام عكيش" already on the roll.
+    $this->artisan('circle:participants', [
+        'circle' => 'جامعيين',
+        '--names' => 'وسام عكيشي',
+        '--create' => true,
+        '--apply' => true,
+    ])
+        ->expectsOutputToContain('قريب جداً')
+        ->assertFailed();
+
+    expect(Student::where('name', 'وسام عكيشي')->exists())->toBeFalse();
+});
+
+it('creates a near-miss anyway when told to', function () {
+    $this->artisan('circle:participants', [
+        'circle' => 'جامعيين',
+        '--names' => 'وسام عكيشي',
+        '--create' => true,
+        '--force' => true,
+        '--apply' => true,
+    ])->assertSuccessful();
+
+    expect(Student::where('name', 'وسام عكيشي')->exists())->toBeTrue();
+});
+
+it('creates nothing on a dry run', function () {
+    $this->artisan('circle:participants', [
+        'circle' => 'جامعيين',
+        '--names' => 'طالب جديد تماماً',
+        '--create' => true,
+    ])->assertSuccessful();
+
+    expect(Student::where('name', 'طالب جديد تماماً')->exists())->toBeFalse();
+});
+
+it('rolls the created accounts back if a later step fails', function () {
+    // A status change that cannot be backdated past an earlier one makes the
+    // service throw part way through the transaction.
+    StudentStatusHistory::create([
+        'student_id' => $this->leaving->id,
+        'status' => 'active',
+        'start_date' => '2026-09-01',
+    ]);
+    StudentStatusHistory::create([
+        'student_id' => $this->leaving->id,
+        'status' => 'left',
+        'start_date' => '2026-09-10',
+    ]);
+    $this->leaving->update(['status' => 'left']);
+
+    $this->artisan('circle:participants', [
+        'circle' => 'جامعيين',
+        '--names' => 'طالب جديد تماماً',
+        '--create' => true,
+        '--since' => '2026-08-25',
+        '--apply' => true,
+    ])->assertFailed();
+
+    expect(Student::where('name', 'طالب جديد تماماً')->exists())->toBeFalse();
 });
