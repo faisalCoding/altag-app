@@ -58,8 +58,11 @@ class SyncCircleParticipants extends Command
 
         $roll = Student::where('circle_id', $circle->id)->orderBy('name')->get();
 
-        if ($roll->isEmpty()) {
-            $this->components->error("لا طلاب في حلقة «{$circle->name}».");
+        // An empty circle is a dead end when reconciling one roll against another,
+        // but it is the normal starting point when the list is the roll — a group
+        // that has just arrived, or one cleared out to be re-entered.
+        if ($roll->isEmpty() && ! $this->option('create')) {
+            $this->components->error("لا طلاب في حلقة «{$circle->name}». أضف --create لإنشاء حسابات القائمة فيها.");
 
             return self::FAILURE;
         }

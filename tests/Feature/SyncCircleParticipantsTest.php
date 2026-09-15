@@ -413,3 +413,31 @@ it('leaves a genuinely new name alone when it resembles nobody', function () {
 
     expect(Student::where('name', 'زيد بن حارثة')->exists())->toBeTrue();
 });
+
+it('fills an empty circle from the list alone', function () {
+    // The circle has just been cleared out; the list is the whole roll.
+    Student::where('circle_id', $this->circle->id)->delete();
+
+    $this->artisan('circle:participants', [
+        'circle' => 'جامعيين',
+        '--names' => 'عبدالله أحمد شلبي,وسام عكيش,نايف العسيري',
+        '--create' => true,
+        '--since' => '2026-09-07',
+        '--apply' => true,
+    ])->assertSuccessful();
+
+    $roll = Student::where('circle_id', $this->circle->id)->get();
+
+    expect($roll)->toHaveCount(3);
+    expect($roll->pluck('status')->unique()->all())->toBe(['active']);
+    expect($roll->pluck('joined_at')->map->format('Y-m-d')->unique()->all())->toBe(['2026-09-07']);
+});
+
+it('still refuses an empty circle when it was asked only to reconcile', function () {
+    Student::where('circle_id', $this->circle->id)->delete();
+
+    $this->artisan('circle:participants', [
+        'circle' => 'جامعيين',
+        '--names' => 'وسام عكيش',
+    ])->assertFailed();
+});
