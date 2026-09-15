@@ -423,11 +423,11 @@ class SyncCircleParticipants extends Command
                 });
 
                 foreach ($plan['staying']->merge($plan['moving'])->merge($renamed) as $student) {
-                    StudentStatusService::changeStatus($student, 'active', $since, 'ضبط قائمة المشاركين');
+                    $this->setStatus($student, 'active', $since);
                 }
 
                 foreach ($plan['leaving'] as $student) {
-                    StudentStatusService::changeStatus($student, 'left', $since, 'ضبط قائمة المشاركين');
+                    $this->setStatus($student, 'left', $since);
                 }
             });
         } catch (\Throwable $e) {
@@ -451,6 +451,22 @@ class SyncCircleParticipants extends Command
         $this->handOverCredentials($credentials);
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Change one student's status, saying whose record refused.
+     *
+     * The service's own message names the date in the way and not the person it
+     * belongs to, which on a run of twenty is the difference between a fix and a
+     * hunt.
+     */
+    private function setStatus(Student $student, string $status, string $since): void
+    {
+        try {
+            StudentStatusService::changeStatus($student, $status, $since, 'ضبط قائمة المشاركين');
+        } catch (\InvalidArgumentException $e) {
+            throw new \RuntimeException("«{$student->name}» — ".$e->getMessage(), 0, $e);
+        }
     }
 
     /**

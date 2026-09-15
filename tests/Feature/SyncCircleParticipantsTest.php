@@ -441,3 +441,22 @@ it('still refuses an empty circle when it was asked only to reconcile', function
         '--names' => 'وسام عكيش',
     ])->assertFailed();
 });
+
+it('names the student whose record blocked the run', function () {
+    $blocker = Student::factory()->create(['circle_id' => $this->circle->id, 'name' => 'معرقل', 'status' => 'active']);
+
+    StudentStatusHistory::create([
+        'student_id' => $blocker->id,
+        'status' => 'active',
+        'start_date' => '2026-09-13',
+    ]);
+
+    $this->artisan('circle:participants', [
+        'circle' => 'جامعيين',
+        '--names' => 'وسام عكيش',
+        '--since' => '2026-09-07',
+        '--apply' => true,
+    ])
+        ->expectsOutputToContain('معرقل')
+        ->assertFailed();
+});
