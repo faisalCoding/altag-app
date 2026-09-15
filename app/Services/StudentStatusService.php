@@ -132,7 +132,70 @@ class StudentStatusService
     {
         $student->statusHistories()->whereKey($historyId)->delete();
 
+        self::resyncCachedStatus($student);
+    }
+
+    /**
+     * Correct a recorded period in place.
+     *
+     * The timeline is append-only for *new* decisions, which is right: a status
+     * change is a thing that happened on a day. But a row entered wrongly is not
+     * a thing that happened, and until now the only remedy was to delete it and
+     * lose the rest of its detail — so a mistyped date left the student stuck,
+     * refusing every later correction because the timeline would not run
+     * backwards over it.
+     */
+    public static function editHistoryEntry(Student $student, int $historyId, string $status, string $startDate, ?string $notes = null): void
+    {
+        $entry = $student->statusHistories()->whereKey($historyId)->first();
+
+        if (! $entry) {
+            throw new \InvalidArgumentException('سجل الحالة غير موجود.');
+        }
+
+        if ($startDate > now('Asia/Riyadh')->format('Y-m-d')) {
+            throw new \InvalidArgumentException('تاريخ السريان لا يمكن أن يكون في المستقبل.');
+        }
+
+        $entry->update(array_merge([
+            'status' => $status,
+            'start_date' => $startDate,
+        ], $notes !== null ? ['notes' => $notes] : [], self::changedByMeta()));
+
+        // Periods are bounded by whatever follows them, so moving one row's start
+        // date re-cuts its neighbour rather than leaving the two overlapping.
+        self::reseal($student);
+        self::resyncCachedStatus($student);
+    }
+
+    /**
+     * Make each period end where the next one begins, and leave the last open.
+     */
+    private static function reseal(Student $student): void
+    {
+        // reorder(), not orderBy(): the relation is declared newest-first, and an
+        // added orderBy appends a second clause the first one outranks — which
+        // walks this loop backwards and seals every period against the wrong
+        // neighbour.
+        $rows = $student->statusHistories()
+            ->reorder('start_date')
+            ->orderBy('id')
+            ->get();
+
+        foreach ($rows as $index => $row) {
+            $next = $rows[$index + 1] ?? null;
+
+            $row->update(['end_date' => $next?->start_date?->format('Y-m-d')]);
+        }
+    }
+
+    /**
+     * The cached `status` column follows whichever period covers today.
+     */
+    private static function resyncCachedStatus(Student $student): void
+    {
         $today = now('Asia/Riyadh')->format('Y-m-d');
+
         $effectiveToday = $student->statusHistories()
             ->whereDate('start_date', '<=', $today)
             ->orderByDesc('start_date')

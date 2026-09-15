@@ -198,18 +198,38 @@ class Students extends Component
 
         $students = $this->selectedStudentsQuery()->get();
         $count = 0;
-        $skipped = 0;
+        $skipped = collect();
+
         foreach ($students as $student) {
             try {
                 StudentStatusService::changeStatus($student, $this->bulkStatus, $this->bulkStatusDate ?: null);
                 $count++;
             } catch (\InvalidArgumentException $e) {
-                $skipped++;
+                $skipped->push($student->name);
             }
         }
 
-        if ($skipped > 0) {
-            Flux::toast(__('تم تخطي '.$skipped.' طلاب لأن التاريخ يسبق سجلات حالاتهم الحالية'), variant: 'warning');
+        // Nothing changed, so nothing is closed or cleared: the selection and the
+        // chosen date stay put to be corrected. Reporting success here — which is
+        // what a bare count did — is how "the status does not change" becomes a
+        // thing that happens silently.
+        if ($count === 0 && $skipped->isNotEmpty()) {
+            Flux::toast(
+                __('لم تتغيّر أي حالة. التاريخ المختار يسبق آخر سجل حالة لهؤلاء الطلاب: ')
+                    .$skipped->take(3)->implode('، ')
+                    .($skipped->count() > 3 ? __(' وغيرهم') : '')
+                    .__('. اختر تاريخاً أحدث، أو صحّح سجل الحالة من صفحة الطالب.'),
+                variant: 'danger',
+            );
+
+            return;
+        }
+
+        if ($skipped->isNotEmpty()) {
+            Flux::toast(
+                __('تُخطّي '.$skipped->count().' طالباً لأن التاريخ يسبق آخر سجل حالة لهم: ').$skipped->take(3)->implode('، '),
+                variant: 'warning',
+            );
         }
 
         $this->resetSelection();
@@ -217,7 +237,7 @@ class Students extends Component
         $this->bulkStatusDate = '';
 
         Flux::modal('bulk-status-modal')->close();
-        Flux::toast(__('تم تغيير حالة '.$count.' طلاب بنجاح'), variant: 'success');
+        Flux::toast(__('تم تغيير حالة '.$count.' طالباً بنجاح'), variant: 'success');
     }
 
     public function applyBulkResetMagicLinks(): void
