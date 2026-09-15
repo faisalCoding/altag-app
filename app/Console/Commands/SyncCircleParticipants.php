@@ -26,6 +26,7 @@ class SyncCircleParticipants extends Command
                             {--names= : الأسماء مفصولة بفاصلة، بديلاً عن الملف}
                             {--since= : تاريخ سريان الحالة (Y-m-d). الافتراضي: قبل أسبوع}
                             {--create : أنشئ حساباً لمن ليس له حساب، وانقل من كان في حلقة أخرى}
+                            {--rename-near : اعتبر الاسم القريب هو نفسه، وصحّح تهجئة الطالب الموجود إليه}
                             {--force : أنشئ حتى لو كان الاسم قريباً من طالب موجود (خطر التكرار)}
                             {--email-domain=altag.local : نطاق البريد المولَّد للحسابات الجديدة}
                             {--credentials= : اكتب بيانات الدخول المولَّدة في هذا الملف بدل طباعتها}
@@ -92,7 +93,7 @@ class SyncCircleParticipants extends Command
      *
      * @param  Collection<int, string>  $wanted
      * @param  Collection<int, Student>  $roll
-     * @return array{staying: Collection<int, Student>, moving: Collection<int, Student>, creating: Collection<int, string>, leaving: Collection<int, Student>}|null
+     * @return array{staying: Collection<int, Student>, moving: Collection<int, Student>, renaming: Collection<int, array{student: Student, to: string}>, creating: Collection<int, string>, leaving: Collection<int, Student>}|null
      */
     private function plan(Collection $wanted, Collection $roll, Circle $circle): ?array
     {
@@ -105,6 +106,7 @@ class SyncCircleParticipants extends Command
         $staying = collect();
         $moving = collect();
         $creating = collect();
+        $renaming = collect();
         $problems = [];
 
         foreach ($wanted as $name) {
@@ -147,12 +149,19 @@ class SyncCircleParticipants extends Command
             }
 
             // Creating is the one path that cannot be undone by re-running, so a
-            // name one letter away from somebody real is treated as a typo until
-            // the operator says otherwise.
-            $near = $this->closest($name, $roll->merge($others->flatten()));
+            // name close to somebody real is treated as the same person, spelled
+            // differently, until the operator says otherwise.
+            $near = $this->nearMatches($name, $roll->merge($others->flatten()));
 
-            if ($near && ! $this->option('force')) {
-                $problems[] = "«{$name}» قريب جداً من «{$near}» — قد يكون خطأ إملائياً. صحّحه، أو أضف --force لإنشائه رغم ذلك.";
+            if ($near->count() === 1 && $this->option('rename-near')) {
+                $renaming->push(['student' => $near->first(), 'to' => trim($name)]);
+
+                continue;
+            }
+
+            if ($near->isNotEmpty() && ! $this->option('force')) {
+                $problems[] = "«{$name}» قريب جداً من «".$near->pluck('name')->implode('» و«')
+                    .'» — قد يكون نفس الطالب. أضف --rename-near ليُعتمد ويُصحَّح اسمه، أو --force لإنشاء حساب جديد رغم ذلك.';
 
                 continue;
             }
@@ -160,7 +169,22 @@ class SyncCircleParticipants extends Command
             $creating->push(trim($name));
         }
 
+        $keep = $staying->pluck('id')->merge($renaming->pluck('student.id'));
+
+        $plan = [
+            'staying' => $staying,
+            'moving' => $moving,
+            'renaming' => $renaming,
+            'creating' => $creating,
+            'leaving' => $roll->reject(fn (Student $s) => $keep->contains($s->id))->values(),
+        ];
+
         if ($problems !== []) {
+            // Shown before the refusal, so the unresolved names can be read in the
+            // context of everything else the run had already worked out.
+            $this->report($circle, $plan, '—');
+
+            $this->newLine();
             $this->components->error('تعذّر حسم '.count($problems).' اسماً، فلم يُنفَّذ شيء:');
 
             foreach ($problems as $problem) {
@@ -170,30 +194,56 @@ class SyncCircleParticipants extends Command
             return null;
         }
 
-        $keep = $staying->pluck('id');
-
-        return [
-            'staying' => $staying,
-            'moving' => $moving,
-            'creating' => $creating,
-            'leaving' => $roll->reject(fn (Student $s) => $keep->contains($s->id))->values(),
-        ];
+        return $plan;
     }
 
     /**
-     * A name close enough to be a misspelling of someone who already exists.
+     * Students who are probably the person this name refers to, spelled otherwise.
+     *
+     * Two kinds of near miss, and edit distance only catches one. "عامر" for
+     * "عمر" is a slip of a letter. But a middle name dropped — "عبدالله شلبي"
+     * for "عبدالله أحمد شلبي" — is eight edits apart while being obviously the
+     * same person, so names are also compared as sets of words: when one is
+     * contained in the other and they share at least two, that is a match.
      *
      * @param  Collection<int, Student>  $pool
+     * @return Collection<int, Student>
      */
-    private function closest(string $name, Collection $pool): ?string
+    private function nearMatches(string $name, Collection $pool): Collection
     {
         $needle = $this->normalise($name);
+        $needleWords = $this->words($name);
 
-        return $pool
-            ->map(fn (Student $s) => ['name' => $s->name, 'distance' => levenshtein($needle, $this->normalise($s->name))])
-            ->filter(fn ($row) => $row['distance'] > 0 && $row['distance'] <= 3)
-            ->sortBy('distance')
-            ->first()['name'] ?? null;
+        return $pool->filter(function (Student $student) use ($needle, $needleWords) {
+            $other = $this->normalise($student->name);
+
+            if ($other === $needle) {
+                return false;
+            }
+
+            if (levenshtein($needle, $other) <= 3) {
+                return true;
+            }
+
+            $otherWords = $this->words($student->name);
+            $shared = array_intersect($needleWords, $otherWords);
+
+            return count($shared) >= 2
+                && (count($shared) === count($needleWords) || count($shared) === count($otherWords));
+        })->values();
+    }
+
+    /**
+     * A name as its normalised words, for comparing people rather than strings.
+     *
+     * @return array<int, string>
+     */
+    private function words(string $name): array
+    {
+        $cleaned = preg_replace('/[\x{200E}\x{200F}\x{202A}-\x{202E}\x{2066}-\x{2069}\x{0640}\x{064B}-\x{0652}]/u', '', $name);
+        $cleaned = strtr($cleaned, ['أ' => 'ا', 'إ' => 'ا', 'آ' => 'ا', 'ى' => 'ي', 'ؤ' => 'و', 'ئ' => 'ي']);
+
+        return array_values(array_unique(array_filter(preg_split('/\s+/u', trim($cleaned)))));
     }
 
     /**
@@ -301,7 +351,7 @@ class SyncCircleParticipants extends Command
     }
 
     /**
-     * @param  array{staying: Collection, moving: Collection, creating: Collection, leaving: Collection}  $plan
+     * @param  array{staying: Collection, moving: Collection, renaming: Collection, creating: Collection, leaving: Collection}  $plan
      */
     private function report(Circle $circle, array $plan, string $since): void
     {
@@ -312,6 +362,12 @@ class SyncCircleParticipants extends Command
 
         $this->section('<fg=cyan>يُنقلون إلى هذه الحلقة</>', $plan['moving'],
             fn (Student $s) => 'من: '.($s->circle?->name ?? 'بلا حلقة'));
+
+        $this->section(
+            '<fg=magenta>تُصحَّح أسماؤهم</>',
+            $plan['renaming']->map(fn (array $row) => $row['student']->name.'  ←  '.$row['to']),
+            fn () => 'تصحيح تهجئة',
+        );
 
         $this->section('<fg=yellow>حسابات ستُنشأ</>', $plan['creating'], fn (string $name) => 'جديد');
 
@@ -341,7 +397,7 @@ class SyncCircleParticipants extends Command
      * All of it or none of it: a half-applied roll is worse than an untouched one,
      * because nobody can tell by looking which half went through.
      *
-     * @param  array{staying: Collection, moving: Collection, creating: Collection, leaving: Collection}  $plan
+     * @param  array{staying: Collection, moving: Collection, renaming: Collection, creating: Collection, leaving: Collection}  $plan
      */
     private function apply(array $plan, Circle $circle, string $since): int
     {
@@ -357,7 +413,13 @@ class SyncCircleParticipants extends Command
                     $student->update(['circle_id' => $circle->id]);
                 }
 
-                foreach ($plan['staying']->merge($plan['moving']) as $student) {
+                $renamed = $plan['renaming']->map(function (array $row) use ($circle) {
+                    $row['student']->update(['name' => $row['to'], 'circle_id' => $circle->id]);
+
+                    return $row['student'];
+                });
+
+                foreach ($plan['staying']->merge($plan['moving'])->merge($renamed) as $student) {
                     StudentStatusService::changeStatus($student, 'active', $since, 'ضبط قائمة المشاركين');
                 }
 
@@ -374,9 +436,10 @@ class SyncCircleParticipants extends Command
 
         $this->newLine();
         $this->components->info(sprintf(
-            'تم: %d مشاركاً (منهم %d منقول و%d جديد) و%d مغادراً، اعتباراً من %s.',
-            $plan['staying']->count() + $plan['moving']->count() + $plan['creating']->count(),
+            'تم: %d مشاركاً (منهم %d منقول و%d مصحَّح الاسم و%d جديد) و%d مغادراً، اعتباراً من %s.',
+            $plan['staying']->count() + $plan['moving']->count() + $plan['renaming']->count() + $plan['creating']->count(),
             $plan['moving']->count(),
+            $plan['renaming']->count(),
             $plan['creating']->count(),
             $plan['leaving']->count(),
             $since,

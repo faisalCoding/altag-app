@@ -308,3 +308,108 @@ it('rolls the created accounts back if a later step fails', function () {
 
     expect(Student::where('name', 'طالب جديد تماماً')->exists())->toBeFalse();
 });
+
+it('catches a dropped middle name, which edit distance alone misses', function () {
+    // Six edits apart, yet plainly the same person.
+    Student::factory()->create(['circle_id' => $this->circle->id, 'name' => 'علي الحتو', 'status' => 'left']);
+
+    $this->artisan('circle:participants', [
+        'circle' => 'جامعيين',
+        '--names' => 'علي حسين الحتو',
+        '--create' => true,
+        '--apply' => true,
+    ])
+        ->expectsOutputToContain('قريب جداً')
+        ->assertFailed();
+
+    expect(Student::where('name', 'علي حسين الحتو')->exists())->toBeFalse();
+});
+
+it('adopts the near match and corrects its spelling when told to', function () {
+    $misspelt = Student::factory()->create(['circle_id' => $this->circle->id, 'name' => 'عامر فتحي الزبدة', 'status' => 'left']);
+
+    $this->artisan('circle:participants', [
+        'circle' => 'جامعيين',
+        '--names' => 'عمر فتحي الزبدة',
+        '--create' => true,
+        '--rename-near' => true,
+        '--apply' => true,
+    ])->assertSuccessful();
+
+    expect($misspelt->fresh()->name)->toBe('عمر فتحي الزبدة');
+    expect($misspelt->fresh()->status)->toBe('active');
+
+    // Corrected, not duplicated.
+    expect(Student::where('name', 'like', '%فتحي الزبدة%')->count())->toBe(1);
+});
+
+it('adopts a dropped middle name the same way', function () {
+    $short = Student::factory()->create(['circle_id' => $this->circle->id, 'name' => 'علي الحتو', 'status' => 'left']);
+
+    $this->artisan('circle:participants', [
+        'circle' => 'جامعيين',
+        '--names' => 'علي حسين الحتو',
+        '--create' => true,
+        '--rename-near' => true,
+        '--apply' => true,
+    ])->assertSuccessful();
+
+    expect($short->fresh()->name)->toBe('علي حسين الحتو');
+    expect(Student::where('name', 'like', '%الحتو%')->count())->toBe(1);
+});
+
+it('pulls an adopted student in from another circle', function () {
+    $other = Circle::factory()->create(['name' => 'حلقة بعيدة', 'stage_id' => $this->circle->stage_id]);
+    $misspelt = Student::factory()->create(['circle_id' => $other->id, 'name' => 'عامر فتحي الزبدة', 'status' => 'left']);
+
+    $this->artisan('circle:participants', [
+        'circle' => 'جامعيين',
+        '--names' => 'عمر فتحي الزبدة',
+        '--create' => true,
+        '--rename-near' => true,
+        '--apply' => true,
+    ])->assertSuccessful();
+
+    expect($misspelt->fresh()->circle_id)->toBe($this->circle->id);
+    expect($misspelt->fresh()->name)->toBe('عمر فتحي الزبدة');
+});
+
+it('will not adopt when two students are equally close', function () {
+    Student::factory()->create(['circle_id' => $this->circle->id, 'name' => 'عامر فتحي الزبدة']);
+    Student::factory()->create(['circle_id' => $this->circle->id, 'name' => 'عمار فتحي الزبدة']);
+
+    $this->artisan('circle:participants', [
+        'circle' => 'جامعيين',
+        '--names' => 'عمر فتحي الزبدة',
+        '--create' => true,
+        '--rename-near' => true,
+        '--apply' => true,
+    ])->assertFailed();
+
+    expect(Student::where('name', 'عمر فتحي الزبدة')->exists())->toBeFalse();
+});
+
+it('shows what it did resolve even when it refuses to run', function () {
+    Student::factory()->create(['circle_id' => $this->circle->id, 'name' => 'علي الحتو']);
+
+    $this->artisan('circle:participants', [
+        'circle' => 'جامعيين',
+        '--names' => 'وسام عكيش,علي حسين الحتو',
+        '--create' => true,
+    ])
+        // The name that was fine is still listed, so the refusal can be read in context.
+        ->expectsOutputToContain('وسام عكيش')
+        ->assertFailed();
+});
+
+it('leaves a genuinely new name alone when it resembles nobody', function () {
+    $this->artisan('circle:participants', [
+        'circle' => 'جامعيين',
+        '--names' => 'زيد بن حارثة',
+        '--create' => true,
+        '--rename-near' => true,
+        '--apply' => true,
+    ])->assertSuccessful();
+
+    expect(Student::where('name', 'زيد بن حارثة')->exists())->toBeTrue();
+});
