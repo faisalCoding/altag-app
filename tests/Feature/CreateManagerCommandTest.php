@@ -1,9 +1,12 @@
 <?php
 
+use App\Livewire\Auth\Login;
 use App\Models\Manager;
 use App\Models\Student;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
+use Livewire\Livewire;
 
 uses(RefreshDatabase::class);
 
@@ -61,4 +64,24 @@ it('refuses a password the application would refuse anywhere else', function () 
     ])->assertFailed();
 
     expect(Manager::where('email', 'weak@second.test')->exists())->toBeFalse();
+});
+
+it('produces an account that can actually sign in', function () {
+    // Creating a row is not the deliverable; being able to get in is. The role
+    // row, the approval flag and the guard all have to line up, and each is set
+    // somewhere different.
+    $this->artisan('manager:create', [
+        'name' => 'مدير',
+        'email' => 'signin@second.test',
+        '--password' => 'Str0ng!opening',
+    ]);
+
+    Livewire::test(Login::class)
+        ->set('email', 'signin@second.test')
+        ->set('password', 'Str0ng!opening')
+        ->call('login')
+        ->assertHasNoErrors()
+        ->assertRedirect(route('manager.dashboard'));
+
+    expect(Auth::guard('manager')->check())->toBeTrue();
 });
