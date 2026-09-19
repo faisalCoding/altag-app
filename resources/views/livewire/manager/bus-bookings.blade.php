@@ -16,7 +16,7 @@
     </div>
 
     {{-- ─────────── الروابط ─────────── --}}
-    <div class="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-100 dark:border-zinc-800 shadow-xs p-5 space-y-4">
+    <div class="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-100 dark:border-zinc-800 shadow-xs p-4 sm:p-5 space-y-4">
         <div>
             <flux:heading size="lg">الروابط</flux:heading>
             <flux:subheading>تُفتح بلا تسجيل دخول. من يملك الرابط يستطيع استعماله — جدّده متى تغيّر الشخص.</flux:subheading>
@@ -27,7 +27,7 @@
             ['officer', 'رابط مسؤول الباصات', 'يستلم به ويقرّر', url('/bus-officer/'.$officerToken)],
         ] as [$which, $title, $hint, $url])
             <div wire:key="link-{{ $which }}" class="rounded-xl border border-zinc-200 dark:border-zinc-700 p-3 space-y-2">
-                <div class="flex items-center justify-between gap-3">
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                     <div class="min-w-0">
                         <div class="text-sm font-bold text-zinc-800 dark:text-zinc-100">{{ $title }}</div>
                         <div class="text-xs text-zinc-400">{{ $hint }}</div>
@@ -42,19 +42,19 @@
                             wire:confirm="تجديد الرابط يُبطل القديم فوراً. متأكد؟">تجديد</flux:button>
                     </div>
                 </div>
-                <div class="text-[11px] font-mono text-zinc-400 break-all dir-ltr text-left">{{ $url }}</div>
+                <div class="text-[11px] font-mono text-zinc-400 break-all dir-ltr text-left bg-zinc-50 dark:bg-zinc-800/50 rounded-lg px-2 py-1.5">{{ $url }}</div>
             </div>
         @endforeach
     </div>
 
     {{-- ─────────── الباصات ─────────── --}}
     <div class="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-100 dark:border-zinc-800 shadow-xs overflow-hidden">
-        <div class="px-5 py-4 border-b border-zinc-100 dark:border-zinc-800">
+        <div class="px-4 sm:px-5 py-4 border-b border-zinc-100 dark:border-zinc-800">
             <flux:heading size="lg">الباصات</flux:heading>
             <flux:subheading>المبلغ هو ما تدفعه المرحلة الموضوعة تحت الرسوم المقدَّمة، لكل باص.</flux:subheading>
         </div>
 
-        <form wire:submit="saveBus" class="px-5 py-4 grid grid-cols-1 sm:grid-cols-4 gap-3 items-end border-b border-zinc-100 dark:border-zinc-800">
+        <form wire:submit="saveBus" class="px-4 sm:px-5 py-4 grid grid-cols-1 sm:grid-cols-4 gap-3 items-end border-b border-zinc-100 dark:border-zinc-800">
             <flux:input wire:model="busName" size="sm" label="الاسم" placeholder="هايس ١" />
             <flux:input wire:model="busType" size="sm" label="النوع" placeholder="هايس" />
             <flux:input wire:model="busFee" type="number" min="0" size="sm" label="الرسوم (﷼)" />
@@ -74,7 +74,8 @@
 
         <div class="divide-y divide-zinc-100 dark:divide-zinc-800">
             @forelse ($buses as $bus)
-                <div wire:key="bus-{{ $bus->id }}" class="flex items-center justify-between gap-3 px-5 py-3">
+                <div wire:key="bus-{{ $bus->id }}"
+                    class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-4 sm:px-5 py-3">
                     <div class="min-w-0">
                         <div class="text-sm font-medium text-zinc-800 dark:text-zinc-100 truncate">
                             {{ $bus->name }}
@@ -103,12 +104,12 @@
 
     {{-- ─────────── بنود التسليم ─────────── --}}
     <div class="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-100 dark:border-zinc-800 shadow-xs overflow-hidden">
-        <div class="px-5 py-4 border-b border-zinc-100 dark:border-zinc-800">
+        <div class="px-4 sm:px-5 py-4 border-b border-zinc-100 dark:border-zinc-800">
             <flux:heading size="lg">بنود التسليم</flux:heading>
             <flux:subheading>يقرّ بها المشرف عند الحجز، ويؤشّرها المسؤول عند الاستلام.</flux:subheading>
         </div>
 
-        <form wire:submit="saveItem" class="px-5 py-4 flex gap-2 items-end border-b border-zinc-100 dark:border-zinc-800">
+        <form wire:submit="saveItem" class="px-4 sm:px-5 py-4 flex gap-2 items-end border-b border-zinc-100 dark:border-zinc-800">
             <div class="flex-1">
                 <flux:input wire:model="itemLabel" size="sm" label="نص البند" placeholder="البنزين فل" />
             </div>
@@ -120,8 +121,9 @@
 
         <div class="divide-y divide-zinc-100 dark:divide-zinc-800">
             @forelse ($items as $item)
-                <div wire:key="item-{{ $item->id }}" class="flex items-center justify-between gap-3 px-5 py-2.5">
-                    <div class="text-sm text-zinc-800 dark:text-zinc-100 min-w-0 truncate">
+                <div wire:key="item-{{ $item->id }}"
+                    class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-4 sm:px-5 py-3">
+                    <div class="text-sm text-zinc-800 dark:text-zinc-100 min-w-0">
                         {{ $item->label }}
                         @unless ($item->is_active)
                             <flux:badge size="sm" color="zinc">معطَّل</flux:badge>
@@ -142,7 +144,7 @@
     </div>
 
     {{-- ─────────── الإعدادات ─────────── --}}
-    <form wire:submit="saveSettings" class="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-100 dark:border-zinc-800 shadow-xs p-5 space-y-5">
+    <form wire:submit="saveSettings" class="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-100 dark:border-zinc-800 shadow-xs p-4 sm:p-5 space-y-5">
         <flux:heading size="lg">الإعدادات</flux:heading>
 
         <div>
@@ -179,14 +181,14 @@
 
     {{-- ─────────── الحجوزات القادمة ─────────── --}}
     <div class="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-100 dark:border-zinc-800 shadow-xs overflow-hidden">
-        <div class="px-5 py-4 border-b border-zinc-100 dark:border-zinc-800">
+        <div class="px-4 sm:px-5 py-4 border-b border-zinc-100 dark:border-zinc-800">
             <flux:heading size="lg">الحجوزات القادمة</flux:heading>
             <flux:subheading>للاطّلاع. الاستلام والقرارات من رابط المسؤول.</flux:subheading>
         </div>
 
         <div class="divide-y divide-zinc-100 dark:divide-zinc-800">
             @forelse ($upcoming as $booking)
-                <div wire:key="upcoming-{{ $booking->id }}" class="flex items-center justify-between gap-3 px-5 py-3">
+                <div wire:key="upcoming-{{ $booking->id }}" class="flex items-center justify-between gap-3 px-4 sm:px-5 py-3">
                     <div class="min-w-0">
                         <div class="text-sm font-medium text-zinc-800 dark:text-zinc-100 truncate">
                             {{ $booking->stage?->name ?? '—' }}

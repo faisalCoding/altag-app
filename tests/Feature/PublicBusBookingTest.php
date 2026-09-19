@@ -90,8 +90,9 @@ it('tells a prepaying stage what it owes before it confirms', function () {
         ->call('chooseDate')
         ->set('busIds', [$this->hiace->id, $this->coaster->id])
         ->call('chooseBuses')
-        // 100 + 150, each bus counted.
-        ->assertSee('250')
+        // 100 + 150, each bus counted — shown in Arabic-Indic digits, as the
+        // Hijri dates beside it are.
+        ->assertSee('٢٥٠')
         ->set('agreed', true)
         ->call('confirm');
 

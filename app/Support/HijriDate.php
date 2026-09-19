@@ -94,6 +94,20 @@ class HijriDate
      * Format against any ICU pattern. An empty date reads as an empty string,
      * so a view never has to guard a missing one.
      */
+    /**
+     * Latin digits rendered as Arabic-Indic ones.
+     *
+     * The dates on these pages already read ٨ ربيع الآخر ١٤٤٨; a plain 1 beside
+     * them looks like a different language rather than the same sentence.
+     */
+    public static function arabicDigits(int|string $value): string
+    {
+        return strtr((string) $value, [
+            '0' => '٠', '1' => '١', '2' => '٢', '3' => '٣', '4' => '٤',
+            '5' => '٥', '6' => '٦', '7' => '٧', '8' => '٨', '9' => '٩',
+        ]);
+    }
+
     public static function format(DateTimeInterface|string|int|null $date, string $pattern): string
     {
         $timestamp = self::timestamp($date);

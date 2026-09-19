@@ -1,33 +1,37 @@
 @php
     $weekdayNames = [1 => 'الأحد', 2 => 'الاثنين', 3 => 'الثلاثاء', 4 => 'الأربعاء', 5 => 'الخميس', 6 => 'الجمعة', 7 => 'السبت'];
     $steps = [1 => 'المرحلة', 2 => 'الحالة', 3 => 'اليوم', 4 => 'الباصات', 5 => 'التأكيد'];
+    // The dates here read ٨ ربيع الآخر ١٤٤٨; a Latin 150 beside them looks like a
+    // different language rather than the same sentence.
+    $ar = fn ($n) => App\Support\HijriDate::arabicDigits($n);
 @endphp
 
-<div class="min-h-screen bg-zinc-50 dark:bg-zinc-950 py-8 px-4">
-    <div class="max-w-2xl mx-auto space-y-6">
+<div class="min-h-screen bg-zinc-50 dark:bg-zinc-950 py-6 px-4 sm:py-8">
+    <div class="max-w-2xl mx-auto space-y-5">
 
         <div class="text-center">
             <flux:heading size="xl" class="font-bold">حجز باصات المجمع</flux:heading>
             <flux:subheading>{{ $stage?->name ?? 'اختر مرحلتك للبدء' }}</flux:subheading>
         </div>
 
-        {{-- ─────────── شريط الخطوات ─────────── --}}
-        <div class="flex items-center justify-between gap-1">
-            @foreach ($steps as $number => $label)
-                <button type="button" wire:click="toStep({{ $number }})"
-                    @class([
-                        'flex-1 text-center py-2 rounded-lg text-xs transition',
-                        'bg-maroon text-white font-bold' => $step === $number,
-                        'bg-white dark:bg-zinc-900 text-zinc-400 border border-zinc-200 dark:border-zinc-800' => $step !== $number,
-                        'cursor-pointer hover:text-zinc-600' => $number < $step,
-                        'cursor-default' => $number >= $step,
-                    ])>
-                    {{ $label }}
-                </button>
-            @endforeach
+        {{-- ─────────── التقدّم ─────────── --}}
+        {{-- A bar and a sentence rather than five chips: at phone width the chips
+             wrapped their own labels and read as clutter instead of progress.
+             Going back is what the «رجوع» button in each step is for. --}}
+        <div>
+            <div class="flex items-baseline justify-between mb-2">
+                <span class="text-sm font-bold text-zinc-800 dark:text-zinc-100">{{ $steps[$step] }}</span>
+                <span class="text-xs text-zinc-400">
+                    الخطوة {{ $ar($step) }} من {{ $ar(count($steps)) }}
+                </span>
+            </div>
+            <div class="h-1.5 w-full rounded-full bg-zinc-200 dark:bg-zinc-800 overflow-hidden">
+                <div class="h-full rounded-full bg-maroon transition-all duration-300"
+                    style="width: {{ ($step / count($steps)) * 100 }}%"></div>
+            </div>
         </div>
 
-        <div class="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-100 dark:border-zinc-800 shadow-xs p-6">
+        <div class="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-100 dark:border-zinc-800 shadow-xs p-4 sm:p-6">
 
             {{-- ═════════ ١ · المرحلة ═════════ --}}
             @if ($step === 1)
@@ -36,7 +40,7 @@
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     @forelse ($stages as $one)
                         <flux:button wire:key="stage-{{ $one->id }}" variant="filled"
-                            wire:click="chooseStage({{ $one->id }})" class="justify-start">
+                            wire:click="chooseStage({{ $one->id }})" class="!h-12 text-base">
                             {{ $one->name }}
                         </flux:button>
                     @empty
@@ -102,7 +106,7 @@
                                             </div>
                                             <div class="text-xs text-zinc-400 truncate">
                                                 {{ $booking->buses->pluck('name')->implode('، ') }}
-                                                @if ($booking->isPending()) · بانتظار دفع {{ $booking->fee_total }} ﷼ @endif
+                                                @if ($booking->isPending()) · بانتظار دفع {{ $ar($booking->fee_total) }} ﷼ @endif
                                             </div>
                                         </div>
                                         @if ($booking->isCancellableBySupervisor())
@@ -118,7 +122,7 @@
                         @endif
 
                         <div class="flex justify-end">
-                            <flux:button variant="primary" wire:click="startDate">التالي — اختيار اليوم</flux:button>
+                            <flux:button variant="primary" class="w-full sm:w-auto !h-12" wire:click="startDate">التالي — اختيار اليوم</flux:button>
                         </div>
                     </div>
                 @endif
@@ -140,9 +144,9 @@
 
                 @error('date') <p class="text-sm text-red-600 mt-2">{{ $message }}</p> @enderror
 
-                <div class="flex justify-between mt-6">
-                    <flux:button variant="ghost" wire:click="toStep(2)">رجوع</flux:button>
-                    <flux:button variant="primary" wire:click="chooseDate">التالي — الباصات</flux:button>
+                <div class="flex flex-col-reverse sm:flex-row sm:justify-between gap-2 mt-6">
+                    <flux:button variant="ghost" class="w-full sm:w-auto" wire:click="toStep(2)">رجوع</flux:button>
+                    <flux:button variant="primary" class="w-full sm:w-auto !h-12" wire:click="chooseDate">التالي — الباصات</flux:button>
                 </div>
 
             {{-- ═════════ ٤ · الباصات ═════════ --}}
@@ -153,14 +157,14 @@
                 <div class="space-y-2">
                     @forelse ($buses as $bus)
                         <label wire:key="bus-{{ $bus->id }}"
-                            class="flex items-center gap-3 p-3 rounded-xl border border-zinc-200 dark:border-zinc-700 cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
+                            class="flex items-center gap-3 p-4 rounded-xl border border-zinc-200 dark:border-zinc-700 cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/50 has-[:checked]:border-maroon has-[:checked]:bg-maroon/5">
                             <input type="checkbox" wire:model="busIds" value="{{ $bus->id }}"
-                                class="rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500">
+                                class="size-5 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500">
                             <div class="min-w-0 flex-1">
                                 <div class="text-sm font-medium text-zinc-800 dark:text-zinc-100">{{ $bus->name }}</div>
                                 <div class="text-xs text-zinc-400">
                                     {{ $bus->type ?: 'باص' }}
-                                    @if ($standing === 'prepay') · الرسوم {{ $bus->fee_amount }} ﷼ @endif
+                                    @if ($standing === 'prepay') · الرسوم {{ $ar($bus->fee_amount) }} ﷼ @endif
                                 </div>
                             </div>
                             @if ($bus->pending_elsewhere ?? false)
@@ -174,9 +178,9 @@
 
                 @error('busIds') <p class="text-sm text-red-600 mt-2">{{ $message }}</p> @enderror
 
-                <div class="flex justify-between mt-6">
-                    <flux:button variant="ghost" wire:click="toStep(3)">رجوع</flux:button>
-                    <flux:button variant="primary" wire:click="chooseBuses">التالي — البنود</flux:button>
+                <div class="flex flex-col-reverse sm:flex-row sm:justify-between gap-2 mt-6">
+                    <flux:button variant="ghost" class="w-full sm:w-auto" wire:click="toStep(3)">رجوع</flux:button>
+                    <flux:button variant="primary" class="w-full sm:w-auto !h-12" wire:click="chooseBuses">التالي — البنود</flux:button>
                 </div>
 
             {{-- ═════════ ٥ · التأكيد ═════════ --}}
@@ -190,7 +194,7 @@
                     @if ($this->feeTotal() > 0)
                         <div class="text-amber-700 dark:text-amber-400 pt-1">
                             <span class="text-zinc-400">الرسوم:</span>
-                            <strong>{{ $this->feeTotal() }} ﷼</strong> — تُدفع للمسؤول ليُؤكَّد الحجز
+                            <strong>{{ $ar($this->feeTotal()) }} ﷼</strong> — تُدفع للمسؤول ليُؤكَّد الحجز
                         </div>
                     @endif
                 </div>
@@ -221,23 +225,23 @@
                         $lockDays === 0 => 'حتى يوم الموعد',
                         $lockDays === 1 => 'قبل الموعد بيوم',
                         $lockDays === 2 => 'قبل الموعد بيومين',
-                        default => 'قبل الموعد بـ'.$lockDays.' أيام',
+                        default => 'قبل الموعد بـ'.$ar($lockDays).' أيام',
                     };
                 @endphp
                 <div class="text-xs text-zinc-400 mb-4">
                     يمكنك إلغاء الحجز {{ $window }} — وبعدها يثبت ولا يُلغى إلا عبر المسؤول.
                 </div>
 
-                <label class="flex items-start gap-2 p-3 rounded-xl border border-zinc-200 dark:border-zinc-700 cursor-pointer">
-                    <input type="checkbox" wire:model="agreed" class="mt-0.5 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500">
+                <label class="flex items-start gap-3 p-4 rounded-xl border border-zinc-200 dark:border-zinc-700 cursor-pointer has-[:checked]:border-maroon has-[:checked]:bg-maroon/5">
+                    <input type="checkbox" wire:model="agreed" class="mt-0.5 size-5 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500">
                     <span class="text-sm text-zinc-700 dark:text-zinc-200">أقرّ نيابة عن المرحلة بالالتزام بالبنود أعلاه.</span>
                 </label>
 
                 @error('agreed') <p class="text-sm text-red-600 mt-2">{{ $message }}</p> @enderror
 
-                <div class="flex justify-between mt-6">
-                    <flux:button variant="ghost" wire:click="toStep(4)">رجوع</flux:button>
-                    <flux:button variant="primary" wire:click="confirm">تأكيد الحجز</flux:button>
+                <div class="flex flex-col-reverse sm:flex-row sm:justify-between gap-2 mt-6">
+                    <flux:button variant="ghost" class="w-full sm:w-auto" wire:click="toStep(4)">رجوع</flux:button>
+                    <flux:button variant="primary" class="w-full sm:w-auto !h-12" wire:click="confirm">تأكيد الحجز</flux:button>
                 </div>
             @endif
         </div>
