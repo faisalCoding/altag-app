@@ -138,8 +138,20 @@
                     @endif
                 </flux:subheading>
 
+                @if ($windowTo)
+                    <div class="flex items-start gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800 dark:border-sky-900/50 dark:bg-sky-950/30 dark:text-sky-300 mb-4">
+                        <flux:icon icon="information-circle" class="size-4 mt-0.5 shrink-0" />
+                        <span>الحجز هذا الأسبوع فقط — حتى {{ $this->hijri($windowTo) }}. ويُفتح حجز الأسبوع القادم يوم السبت.</span>
+                    </div>
+                @endif
+
+                <div class="text-xs text-zinc-400 mb-3">الأيام المتاحة مميّزة بالأخضر في التقويم.</div>
+
                 <div class="max-w-xs">
-                    <livewire:shared.hijri-datepicker wire:model="date" label="تاريخ الرحلة" />
+                    {{-- The picker is given the same rule the service enforces, so a
+                         day it offers is never a day the next step refuses. --}}
+                    <livewire:shared.hijri-datepicker wire:model="date" label="تاريخ الرحلة"
+                        :allowed-weekdays="$weekdays" :min-date="$windowFrom" :max-date="$windowTo" />
                 </div>
 
                 @error('date') <p class="text-sm text-red-600 mt-2">{{ $message }}</p> @enderror

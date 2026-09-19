@@ -146,3 +146,18 @@ it('retires the old link when one is regenerated', function () {
     // The officer's link is a separate key and must not move with it.
     expect(BusBookingSettings::officerToken())->not->toBe($after);
 });
+
+it('turns the same-week limit on and off', function () {
+    Livewire::test(Screen::class)
+        ->set('sameWeekOnly', true)
+        ->call('saveSettings')
+        ->assertHasNoErrors();
+
+    expect(BusBookingSettings::sameWeekOnly())->toBeTrue();
+
+    Livewire::test(Screen::class)
+        ->set('sameWeekOnly', false)
+        ->call('saveSettings');
+
+    expect(BusBookingSettings::sameWeekOnly())->toBeFalse();
+});

@@ -207,3 +207,38 @@ it('refuses to cancel another stage booking', function () {
 
     expect($booking->fresh()->status)->toBe(BusBooking::CONFIRMED);
 });
+
+it('hands the picker the same rule the service enforces', function () {
+    BusBookingSettings::setWeekdays([1, 3]);
+    Setting::setVal(BusBookingSettings::SAME_WEEK_ONLY, 1);
+
+    // Thursday: the window runs to Friday and no further.
+    Livewire::test(Wizard::class, ['token' => $this->token])
+        ->call('chooseStage', $this->stage->id)
+        ->call('startDate')
+        ->assertViewHas('windowFrom', '2026-09-17')
+        ->assertViewHas('windowTo', '2026-09-18')
+        ->assertViewHas('weekdays', [1, 3])
+        ->assertSee('الحجز هذا الأسبوع فقط');
+});
+
+it('says nothing about a week when booking is not confined to one', function () {
+    Livewire::test(Wizard::class, ['token' => $this->token])
+        ->call('chooseStage', $this->stage->id)
+        ->call('startDate')
+        ->assertViewHas('windowTo', null)
+        ->assertDontSee('الحجز هذا الأسبوع فقط');
+});
+
+it('still refuses a day outside the week if one is submitted anyway', function () {
+    Setting::setVal(BusBookingSettings::SAME_WEEK_ONLY, 1);
+
+    Livewire::test(Wizard::class, ['token' => $this->token])
+        ->call('chooseStage', $this->stage->id)
+        ->call('startDate')
+        // The picker would not offer it; the step refuses it regardless.
+        ->set('date', '2026-10-05')
+        ->call('chooseDate')
+        ->assertHasErrors('date')
+        ->assertSet('step', 3);
+});

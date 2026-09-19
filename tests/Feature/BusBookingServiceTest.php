@@ -167,3 +167,49 @@ it('frees the bus again when a booking is cancelled', function () {
 
     expect($this->service->availableBuses($this->date)->pluck('id'))->toContain($this->hiace->id);
 });
+
+it('opens the whole future when the week is not the limit', function () {
+    Setting::setVal(BusBookingSettings::SAME_WEEK_ONLY, 0);
+
+    [$from, $to] = $this->service->bookingWindow();
+
+    expect($from)->toBe('2026-09-17');
+    expect($to)->toBeNull();
+    expect($this->service->isBookableDate('2027-01-01'))->toBeTrue();
+});
+
+it('confines booking to the week in progress, which turns over on Saturday', function () {
+    Setting::setVal(BusBookingSettings::SAME_WEEK_ONLY, 1);
+
+    // 2026-09-17 is a Thursday; its week began on Saturday the 12th and the
+    // Saturday already gone cannot be booked, so the window opens today.
+    [$from, $to] = $this->service->bookingWindow();
+
+    expect($from)->toBe('2026-09-17');
+    expect($to)->toBe('2026-09-18');
+
+    expect($this->service->isBookableDate('2026-09-18'))->toBeTrue();
+    // The Saturday that opens the next week is out of reach until it arrives.
+    expect($this->service->isBookableDate('2026-09-19'))->toBeFalse();
+});
+
+it('gives a full week once Saturday comes', function () {
+    Carbon\Carbon::setTestNow('2026-09-19 08:00:00'); // Saturday
+    Setting::setVal(BusBookingSettings::SAME_WEEK_ONLY, 1);
+
+    [$from, $to] = $this->service->bookingWindow();
+
+    expect($from)->toBe('2026-09-19');
+    expect($to)->toBe('2026-09-25');
+    expect($this->service->isBookableDate('2026-09-25'))->toBeTrue();
+    expect($this->service->isBookableDate('2026-09-26'))->toBeFalse();
+});
+
+it('refuses a booking outside the week even when the weekday is allowed', function () {
+    Carbon\Carbon::setTestNow('2026-09-19 08:00:00');
+    Setting::setVal(BusBookingSettings::SAME_WEEK_ONLY, 1);
+    BusBookingSettings::setWeekdays([]);
+
+    expect(fn () => $this->service->book($this->stage, '2026-09-30', [$this->hiace->id]))
+        ->toThrow(RuntimeException::class);
+});

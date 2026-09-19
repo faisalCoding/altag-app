@@ -22,6 +22,8 @@ class BusBookingSettings
 
     public const OFFICER_PHONE = 'bus.officer_phone';
 
+    public const SAME_WEEK_ONLY = 'bus.same_week_only';
+
     public const SUPERVISOR_TOKEN = 'bus.supervisor_token';
 
     public const OFFICER_TOKEN = 'bus.officer_token';
@@ -59,6 +61,18 @@ class BusBookingSettings
     public static function lockDays(): int
     {
         return max(0, (int) Setting::getVal(self::LOCK_DAYS, 1));
+    }
+
+    /**
+     * Whether booking is confined to the week in progress.
+     *
+     * The academy's week turns over on Saturday, so switching this on means a
+     * supervisor can only book days between this Saturday and the Friday that
+     * follows — and next week opens when Saturday comes, not before.
+     */
+    public static function sameWeekOnly(): bool
+    {
+        return (bool) Setting::getVal(self::SAME_WEEK_ONLY, false);
     }
 
     public static function officerPhone(): string

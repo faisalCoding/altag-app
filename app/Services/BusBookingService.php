@@ -8,6 +8,7 @@ use App\Models\BusBookingSettings;
 use App\Models\BusHandoverItem;
 use App\Models\Stage;
 use App\Models\StageBusStanding;
+use Carbon\CarbonInterface;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -37,13 +38,41 @@ class BusBookingService
     }
 
     /**
-     * Whether a trip may fall on this day: an allowed weekday, and not already past.
+     * The span a trip may fall in: from today to whenever booking closes.
+     *
+     * Unbounded at the far end unless the academy confines booking to the week
+     * in progress, in which case the week turns over on Saturday and next week
+     * opens when Saturday comes.
+     *
+     * @return array{0: string, 1: string|null}
+     */
+    public function bookingWindow(): array
+    {
+        $today = now('Asia/Riyadh');
+
+        if (! BusBookingSettings::sameWeekOnly()) {
+            return [$today->format('Y-m-d'), null];
+        }
+
+        $saturday = $today->copy()->startOfWeek(CarbonInterface::SATURDAY);
+
+        return [
+            max($today->format('Y-m-d'), $saturday->format('Y-m-d')),
+            $saturday->copy()->addDays(6)->format('Y-m-d'),
+        ];
+    }
+
+    /**
+     * Whether a trip may fall on this day: an allowed weekday, inside the window,
+     * and not already past.
      */
     public function isBookableDate(string $date): bool
     {
         $day = Carbon::parse($date, 'Asia/Riyadh')->startOfDay();
+        [$from, $to] = $this->bookingWindow();
 
-        if ($day->lt(now('Asia/Riyadh')->startOfDay())) {
+        // Compared as calendar dates: the window is made of days, not instants.
+        if ($day->format('Y-m-d') < $from || ($to !== null && $day->format('Y-m-d') > $to)) {
             return false;
         }
 

@@ -26,6 +26,8 @@ class BusBookings extends Component
 
     public string $officerPhone = '';
 
+    public bool $sameWeekOnly = false;
+
     // ── bus being added or edited ───────────────────────────────────────────
     public ?int $editingBusId = null;
 
@@ -46,6 +48,7 @@ class BusBookings extends Component
         $this->penaltyText = BusBookingSettings::penaltyText();
         $this->lockDays = BusBookingSettings::lockDays();
         $this->officerPhone = BusBookingSettings::officerPhone();
+        $this->sameWeekOnly = BusBookingSettings::sameWeekOnly();
     }
 
     public function saveSettings(): void
@@ -56,6 +59,7 @@ class BusBookings extends Component
             'penaltyText' => 'nullable|string|max:5000',
             'lockDays' => 'integer|min:0|max:30',
             'officerPhone' => 'nullable|string|max:20',
+            'sameWeekOnly' => 'boolean',
         ], [
             'lockDays.min' => 'المهلة لا تكون سالبة.',
         ]);
@@ -64,6 +68,7 @@ class BusBookings extends Component
         Setting::setVal(BusBookingSettings::PENALTY_TEXT, $this->penaltyText);
         Setting::setVal(BusBookingSettings::LOCK_DAYS, $this->lockDays);
         Setting::setVal(BusBookingSettings::OFFICER_PHONE, $this->digitsOnly($this->officerPhone));
+        Setting::setVal(BusBookingSettings::SAME_WEEK_ONLY, $this->sameWeekOnly ? 1 : 0);
 
         Flux::toast(__('حُفظت الإعدادات'), variant: 'success');
     }

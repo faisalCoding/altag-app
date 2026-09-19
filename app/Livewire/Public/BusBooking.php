@@ -169,6 +169,8 @@ class BusBooking extends Component
             'ruling' => $stage ? $bookings->latestRulingFor($stage) : null,
             'officerPhone' => BusBookingSettings::officerPhone(),
             'weekdays' => BusBookingSettings::weekdays(),
+            'windowFrom' => $bookings->bookingWindow()[0],
+            'windowTo' => $bookings->bookingWindow()[1],
             'lockDays' => BusBookingSettings::lockDays(),
             'penaltyText' => BusBookingSettings::penaltyText(),
             'items' => BusHandoverItem::active()->get(),

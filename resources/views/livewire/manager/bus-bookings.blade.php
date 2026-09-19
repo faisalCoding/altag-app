@@ -169,6 +169,17 @@
                 description="يفتحه زر «تواصل مع المسؤول» للمرحلة المحرومة." />
         </div>
 
+        <label class="flex items-start gap-3 p-4 rounded-xl border border-zinc-200 dark:border-zinc-700 cursor-pointer has-[:checked]:border-maroon has-[:checked]:bg-maroon/5">
+            <input type="checkbox" wire:model="sameWeekOnly"
+                class="mt-0.5 size-5 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500">
+            <span class="text-sm">
+                <span class="font-bold text-zinc-800 dark:text-zinc-100">الحجز في نفس الأسبوع فقط</span>
+                <span class="block text-zinc-500 dark:text-zinc-400 mt-0.5">
+                    لا يحجز المشرف إلا أياماً من الأسبوع الجاري، ويُفتح حجز الأسبوع القادم يوم السبت.
+                </span>
+            </span>
+        </label>
+
         <flux:textarea wire:model="penaltyText" rows="6" label="نصّ العقوبات"
             description="يُعرض للمشرف عند الحجز. تحذير يُقرأ، لا بند يُؤشَّر." />
 
