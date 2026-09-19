@@ -5,6 +5,7 @@ use App\Http\Controllers\Student\StudentPlanPrintController;
 use App\Http\Controllers\Teacher\TasmeehDataController;
 use App\Livewire\Auth\Student\Register;
 use App\Livewire\Manager\PendingApprovals;
+use App\Livewire\Public\BusBooking;
 use App\Livewire\Public\CircleReport as PublicCircleReport;
 use App\Livewire\Public\CoinRedemption as PublicCoinRedemption;
 use App\Livewire\Public\FormReport;
@@ -396,6 +397,10 @@ Route::get('/quran-json', function () {
 Route::get('/test', function () {})->name('test');
 
 Route::get('/f/{slug}', FormSubmit::class)->name('forms.submit');
+
+// حجز الباصات: صفحتان عامتان يصل إليهما المشرفون والمسؤول بالرابط وحده، بلا
+// حساب. الرمز يُفحص داخل المكوّن، ومن يملكه يستعمل الصفحة.
+Route::get('/bus-booking/{token}', BusBooking::class)->name('bus.book');
 Route::get('/f/{slug}/{token}', FormReport::class)->name('forms.report');
 
 // Where the survey gate sends anyone who owes a blocking survey. Reachable from
