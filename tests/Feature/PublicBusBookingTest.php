@@ -219,7 +219,7 @@ it('hands the picker the same rule the service enforces', function () {
         ->assertViewHas('windowFrom', '2026-09-17')
         ->assertViewHas('windowTo', '2026-09-19')
         ->assertViewHas('weekdays', [1, 3])
-        ->assertSee('الحجز متاح حتى');
+        ->assertSee('الحجز متاح من');
 });
 
 it('says nothing about a week when booking is not confined to one', function () {
@@ -227,7 +227,7 @@ it('says nothing about a week when booking is not confined to one', function () 
         ->call('chooseStage', $this->stage->id)
         ->call('startDate')
         ->assertViewHas('windowTo', null)
-        ->assertDontSee('الحجز متاح حتى');
+        ->assertDontSee('الحجز متاح من');
 });
 
 it('still refuses a day outside the week if one is submitted anyway', function () {

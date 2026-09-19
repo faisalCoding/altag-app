@@ -42,8 +42,9 @@ class BusBookingService
      *
      * Unbounded at the far end unless the academy confines booking to the week
      * in progress. That week opens on a Saturday and reaches the Saturday after
-     * it — eight days, both ends included — so a trip on the turning day can be
-     * arranged a week ahead rather than only on the morning itself.
+     * it. The opening Saturday is itself out: booking opens that morning for the
+     * days to come, not for the day it opens on — a bus for today had to be
+     * arranged before today.
      *
      * @return array{0: string, 1: string|null}
      */
@@ -58,7 +59,7 @@ class BusBookingService
         $saturday = $today->copy()->startOfWeek(CarbonInterface::SATURDAY);
 
         return [
-            max($today->format('Y-m-d'), $saturday->format('Y-m-d')),
+            max($today->format('Y-m-d'), $saturday->copy()->addDay()->format('Y-m-d')),
             $saturday->copy()->addDays(7)->format('Y-m-d'),
         ];
     }

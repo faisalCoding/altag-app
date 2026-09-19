@@ -30,28 +30,29 @@ function openPicker(array $params): string
     return Livewire::test('shared.hijri-datepicker', $params)->set('open', true)->html();
 }
 
-it('offers every day of an eight-day Saturday-to-Saturday window', function () {
+it('offers every day of the week the Saturday opens', function () {
     $html = openPicker([
         'allowedWeekdays' => [1, 2, 3, 4, 5, 6, 7],
-        'minDate' => '2026-09-19',
+        'minDate' => '2026-09-20',
         'maxDate' => '2026-09-26',
     ]);
 
-    foreach (['2026-09-19', '2026-09-22', '2026-09-25', '2026-09-26'] as $date) {
+    foreach (['2026-09-20', '2026-09-22', '2026-09-25', '2026-09-26'] as $date) {
         expect(dayCell($html, $date))
             ->not->toContain('disabled', "{$date} is inside the window and must be tappable");
     }
 
-    // The Sunday after the closing Saturday belongs to the week that has not opened.
+    // The Saturday booking opened on is not itself on offer.
+    expect(dayCell($html, '2026-09-19'))->toContain('disabled');
+    // Neither is the Sunday past the closing Saturday, nor anything before today.
     expect(dayCell($html, '2026-09-27'))->toContain('disabled');
-    // As does the Friday before the window opened.
     expect(dayCell($html, '2026-09-18'))->toContain('disabled');
 });
 
 it('still bars a weekday the manager closed, even inside the window', function () {
     $html = openPicker([
         'allowedWeekdays' => [1, 4], // Sunday and Wednesday
-        'minDate' => '2026-09-19',
+        'minDate' => '2026-09-20',
         'maxDate' => '2026-09-26',
     ]);
 

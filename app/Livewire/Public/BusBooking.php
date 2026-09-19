@@ -205,4 +205,15 @@ class BusBooking extends Component
     {
         return HijriDate::withWeekday(Carbon::parse($date));
     }
+
+    /**
+     * Weekday and day-month without the year — short enough that both ends of a
+     * range fit on a phone, and the year adds nothing inside a single week.
+     */
+    public function hijriShort(string $date): string
+    {
+        $carbon = Carbon::parse($date);
+
+        return HijriDate::weekday($carbon).' '.HijriDate::dayMonth($carbon);
+    }
 }

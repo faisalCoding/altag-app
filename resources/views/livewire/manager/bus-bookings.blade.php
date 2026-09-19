@@ -175,7 +175,7 @@
             <span class="text-sm">
                 <span class="font-bold text-zinc-800 dark:text-zinc-100">الحجز في نفس الأسبوع فقط</span>
                 <span class="block text-zinc-500 dark:text-zinc-400 mt-0.5">
-                    لا يحجز المشرف إلا من السبت إلى السبت الذي يليه، ويُفتح ما بعده حين يأتي السبت.
+                    يُفتح الحجز صباح السبت لما بعده إلى السبت التالي، فلا يحجز المشرف يوم فتح الحجز نفسه.
                 </span>
             </span>
         </label>
