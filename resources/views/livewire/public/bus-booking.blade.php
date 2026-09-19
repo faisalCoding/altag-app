@@ -18,18 +18,20 @@
         {{-- A bar and a sentence rather than five chips: at phone width the chips
              wrapped their own labels and read as clutter instead of progress.
              Going back is what the «رجوع» button in each step is for. --}}
-        <div>
-            <div class="flex items-baseline justify-between mb-2">
-                <span class="text-sm font-bold text-zinc-800 dark:text-zinc-100">{{ $steps[$step] }}</span>
-                <span class="text-xs text-zinc-400">
-                    الخطوة {{ $ar($step) }} من {{ $ar(count($steps)) }}
-                </span>
+        @if ($step <= count($steps))
+            <div>
+                <div class="flex items-baseline justify-between mb-2">
+                    <span class="text-sm font-bold text-zinc-800 dark:text-zinc-100">{{ $steps[$step] }}</span>
+                    <span class="text-xs text-zinc-400">
+                        الخطوة {{ $ar($step) }} من {{ $ar(count($steps)) }}
+                    </span>
+                </div>
+                <div class="h-1.5 w-full rounded-full bg-zinc-200 dark:bg-zinc-800 overflow-hidden">
+                    <div class="h-full rounded-full bg-maroon transition-all duration-300"
+                        style="width: {{ ($step / count($steps)) * 100 }}%"></div>
+                </div>
             </div>
-            <div class="h-1.5 w-full rounded-full bg-zinc-200 dark:bg-zinc-800 overflow-hidden">
-                <div class="h-full rounded-full bg-maroon transition-all duration-300"
-                    style="width: {{ ($step / count($steps)) * 100 }}%"></div>
-            </div>
-        </div>
+        @endif
 
         <div class="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-100 dark:border-zinc-800 shadow-xs p-4 sm:p-6">
 
@@ -83,7 +85,8 @@
                                     <div class="font-bold">الحجز لهذه المرحلة برسوم تُدفع مقدماً</div>
                                     <div class="mt-1">
                                         @if ($ruling?->reason) السبب: {{ $ruling->reason }}. @endif
-                                        يُسجَّل الحجز، ولا يصير مؤكَّداً حتى تُسلّم الرسوم للمسؤول.
+                                        يحجز لكم الباصات فور تسجيله، فلا تحجزها مرحلة أخرى —
+                                        وإن لم تصل الرسوم للمسؤول في موعدها أُلغي الحجز وعادت الباصات للجميع.
                                     </div>
                                 </div>
                             </div>
@@ -106,8 +109,19 @@
                                             </div>
                                             <div class="text-xs text-zinc-400 truncate">
                                                 {{ $booking->buses->pluck('name')->implode('، ') }}
-                                                @if ($booking->isPending()) · بانتظار دفع {{ $ar($booking->fee_total) }} ﷼ @endif
                                             </div>
+                                            @if ($booking->isPending() && $booking->fee_due_on)
+                                                @if ($booking->hasLapsed())
+                                                    <div class="text-xs text-red-600 dark:text-red-400">
+                                                        انقضى موعد الدفع — لم تعد الباصات محجوزة لكم
+                                                    </div>
+                                                @else
+                                                    <div class="text-xs text-amber-600 dark:text-amber-400">
+                                                        بانتظار {{ $ar($booking->fee_total) }} ﷼ — قبل
+                                                        {{ $this->hijriShort($booking->fee_due_on->format('Y-m-d')) }}
+                                                    </div>
+                                                @endif
+                                            @endif
                                         </div>
                                         @if ($booking->isCancellableBySupervisor())
                                             <flux:button size="xs" variant="ghost" class="text-red-500 hover:text-red-600 shrink-0"
@@ -179,9 +193,6 @@
                                     @if ($standing === 'prepay') · الرسوم {{ $ar($bus->fee_amount) }} ﷼ @endif
                                 </div>
                             </div>
-                            @if ($bus->pending_elsewhere ?? false)
-                                <flux:badge size="sm" color="amber" class="shrink-0">عليه حجز معلّق</flux:badge>
-                            @endif
                         </label>
                     @empty
                         <div class="p-8 text-center text-sm text-zinc-400">لا باصات متاحة في هذا اليوم.</div>
@@ -206,7 +217,8 @@
                     @if ($this->feeTotal() > 0)
                         <div class="text-amber-700 dark:text-amber-400 pt-1">
                             <span class="text-zinc-400">الرسوم:</span>
-                            <strong>{{ $ar($this->feeTotal()) }} ﷼</strong> — تُدفع للمسؤول ليُؤكَّد الحجز
+                            <strong>{{ $ar($this->feeTotal()) }} ﷼</strong>
+                            @if ($feeDueOn) — تُسلَّم للمسؤول قبل {{ $this->hijriShort($feeDueOn) }} @endif
                         </div>
                     @endif
                 </div>
@@ -244,6 +256,16 @@
                     يمكنك إلغاء الحجز {{ $window }} — وبعدها يثبت ولا يُلغى إلا عبر المسؤول.
                 </div>
 
+                @if ($this->feeTotal() > 0 && $feeDueOn)
+                    <div class="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300 mb-4">
+                        <flux:icon icon="banknotes" class="size-4 mt-0.5 shrink-0" />
+                        <span>
+                            تُحجز الباصات لكم من الآن. وإن لم تصل الرسوم للمسؤول قبل نهاية
+                            <strong>{{ $this->hijriShort($feeDueOn) }}</strong> أُلغي الحجز تلقائياً.
+                        </span>
+                    </div>
+                @endif
+
                 <label class="flex items-start gap-3 p-4 rounded-xl border border-zinc-200 dark:border-zinc-700 cursor-pointer has-[:checked]:border-maroon has-[:checked]:bg-maroon/5">
                     <input type="checkbox" wire:model="agreed" class="mt-0.5 size-5 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500">
                     <span class="text-sm text-zinc-700 dark:text-zinc-200">أقرّ نيابة عن المرحلة بالالتزام بالبنود أعلاه.</span>
@@ -255,6 +277,55 @@
                     <flux:button variant="ghost" class="w-full sm:w-auto" wire:click="toStep(4)">رجوع</flux:button>
                     <flux:button variant="primary" class="w-full sm:w-auto !h-12" wire:click="confirm">تأكيد الحجز</flux:button>
                 </div>
+
+            {{-- ═════════ ٦ · تمّ ═════════ --}}
+            {{-- Reached only after the booking has been read back and its buses
+                 checked against every other stage's, so this screen is a report
+                 of something verified rather than an acknowledgement of a tap. --}}
+            @elseif ($step === 6 && $booked)
+                <div class="text-center space-y-4">
+                    <div class="inline-flex p-4 rounded-full bg-emerald-50 dark:bg-emerald-950/30">
+                        <flux:icon icon="check-circle" class="size-12 text-emerald-500" />
+                    </div>
+
+                    <div>
+                        <flux:heading size="lg" class="text-emerald-600 dark:text-emerald-400">
+                            {{ $booked->isPending() ? 'حُجزت الباصات لمرحلتكم' : 'تم تأكيد الحجز' }}
+                        </flux:heading>
+                        <flux:subheading class="mt-1">
+                            لا تعارض مع أي مرحلة أخرى في هذا اليوم.
+                        </flux:subheading>
+                    </div>
+                </div>
+
+                <div class="rounded-xl bg-zinc-50 dark:bg-zinc-800/50 p-4 text-sm space-y-1.5 mt-5 text-start">
+                    <div><span class="text-zinc-400">المرحلة:</span> <strong>{{ $booked->stage?->name ?? $stage?->name }}</strong></div>
+                    <div><span class="text-zinc-400">اليوم:</span> <strong>{{ $this->hijri($booked->date->format('Y-m-d')) }}</strong></div>
+                    <div><span class="text-zinc-400">الباصات:</span> <strong>{{ $booked->buses->pluck('name')->implode('، ') }}</strong></div>
+                    <div><span class="text-zinc-400">رقم الحجز:</span> <strong>{{ $ar($booked->id) }}</strong></div>
+                </div>
+
+                @if ($booked->isPending() && $booked->fee_due_on)
+                    <div class="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300 mt-4">
+                        <flux:icon icon="banknotes" class="size-4 mt-0.5 shrink-0" />
+                        <span>
+                            تبقّى تسليم <strong>{{ $ar($booked->fee_total) }} ﷼</strong> للمسؤول قبل نهاية
+                            <strong>{{ $this->hijriShort($booked->fee_due_on->format('Y-m-d')) }}</strong>،
+                            وإلا أُلغي الحجز وعادت الباصات للجميع.
+                        </span>
+                    </div>
+
+                    @if ($officerPhone)
+                        <flux:button variant="filled" icon="chat-bubble-left-right" class="w-full mt-3"
+                            href="https://wa.me/{{ $officerPhone }}" target="_blank">
+                            تواصل مع المسؤول
+                        </flux:button>
+                    @endif
+                @endif
+
+                <flux:button variant="primary" class="w-full !h-12 mt-6" wire:click="backToStatus">
+                    العودة إلى حالة المرحلة
+                </flux:button>
             @endif
         </div>
     </div>

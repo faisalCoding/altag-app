@@ -24,6 +24,8 @@ class BusBookingSettings
 
     public const SAME_WEEK_ONLY = 'bus.same_week_only';
 
+    public const FEE_DEADLINE_WEEKDAY = 'bus.fee_deadline_weekday';
+
     public const SUPERVISOR_TOKEN = 'bus.supervisor_token';
 
     public const OFFICER_TOKEN = 'bus.officer_token';
@@ -67,12 +69,26 @@ class BusBookingSettings
      * Whether booking is confined to the week in progress.
      *
      * The academy's week turns over on Saturday, so switching this on means a
-     * supervisor can only book days between this Saturday and the Friday that
-     * follows — and next week opens when Saturday comes, not before.
+     * supervisor can only book the days after that Saturday up to the next one
+     * — and the week after opens when Saturday comes, not before.
      */
     public static function sameWeekOnly(): bool
     {
         return (bool) Setting::getVal(self::SAME_WEEK_ONLY, false);
+    }
+
+    /**
+     * The weekday a prepaying stage's fee is due, as 1=Sunday … 7=Saturday.
+     *
+     * Wednesday by default: late enough in the week that a stage has had time to
+     * gather the money, early enough that a bus it lets go can still be taken by
+     * somebody else before the weekend.
+     */
+    public static function feeDeadlineWeekday(): int
+    {
+        $day = (int) Setting::getVal(self::FEE_DEADLINE_WEEKDAY, 4);
+
+        return $day >= 1 && $day <= 7 ? $day : 4;
     }
 
     public static function officerPhone(): string

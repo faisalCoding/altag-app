@@ -156,14 +156,32 @@ it('confirms a booking once the fee is in hand', function () {
     expect($booking->fresh()->fee_paid_at)->not->toBeNull();
 });
 
-it('will not confirm a payment for a bus somebody else now holds', function () {
+it('will not take a payment after the deadline has gone by', function () {
     $this->service->rule($this->stage, StageBusStanding::PREPAY);
-    $pending = $this->service->book($this->stage, '2026-09-20', [$this->bus->id]);
-    $this->service->book(Stage::factory()->create(), '2026-09-20', [$this->bus->id]);
+    $pending = $this->service->book($this->stage, '2026-09-26', [$this->bus->id]);
 
-    Livewire::test(Officer::class, ['token' => $this->token])->call('markPaid', $pending->id);
+    // The day after the Wednesday it was due.
+    Carbon\Carbon::setTestNow('2026-09-24 09:00:00');
+
+    // The trip has not come yet, so it sits under «القادمة» rather than the
+    // default list of buses waiting to be received.
+    Livewire::test(Officer::class, ['token' => $this->token])
+        ->call('setFilter', 'upcoming')
+        ->assertSee('انقضى موعد الدفع')
+        ->call('markPaid', $pending->id);
 
     expect($pending->fresh()->status)->toBe(BusBooking::PENDING);
+    expect($pending->fresh()->holdsBuses())->toBeFalse();
+});
+
+it('shows the officer when each unpaid booking falls due', function () {
+    $this->service->rule($this->stage, StageBusStanding::PREPAY);
+    $this->service->book($this->stage, '2026-09-26', [$this->bus->id]);
+
+    Livewire::test(Officer::class, ['token' => $this->token])
+        ->call('setFilter', 'all')
+        ->assertSee('موعد الدفع')
+        ->assertSee('الأربعاء');
 });
 
 it('cancels a booking the supervisor no longer can', function () {

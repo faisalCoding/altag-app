@@ -161,3 +161,52 @@ it('turns the same-week limit on and off', function () {
 
     expect(BusBookingSettings::sameWeekOnly())->toBeFalse();
 });
+
+it('sets the weekday a prepaying stage must pay by', function () {
+    // Wednesday until the manager says otherwise.
+    expect(BusBookingSettings::feeDeadlineWeekday())->toBe(4);
+
+    Livewire::test(Screen::class)
+        ->set('feeDeadlineWeekday', 2)
+        ->call('saveSettings')
+        ->assertHasNoErrors();
+
+    expect(BusBookingSettings::feeDeadlineWeekday())->toBe(2);
+});
+
+it('refuses a weekday that is not one', function () {
+    Livewire::test(Screen::class)
+        ->set('feeDeadlineWeekday', 9)
+        ->call('saveSettings')
+        ->assertHasErrors('feeDeadlineWeekday');
+});
+
+it('says nothing about conflicts while there are none', function () {
+    $stage = Stage::factory()->create(['name' => 'الرواد']);
+    $bus = Bus::create(['name' => 'هايس ١', 'fee_amount' => 0]);
+    (new BusBookingService)->book($stage, '2026-09-20', [$bus->id]);
+
+    Livewire::test(Screen::class)->assertDontSee('تعارض في الباصات');
+});
+
+it('puts a bus two stages hold on the same day in front of the manager', function () {
+    $service = new BusBookingService;
+    $mine = Stage::factory()->create(['name' => 'الرواد']);
+    $theirs = Stage::factory()->create(['name' => 'السنابل']);
+
+    $hiace = Bus::create(['name' => 'هايس ١', 'fee_amount' => 0]);
+    $coaster = Bus::create(['name' => 'كوستر ١', 'fee_amount' => 0]);
+
+    $service->book($mine, '2026-09-20', [$hiace->id]);
+    $other = $service->book($theirs, '2026-09-20', [$coaster->id]);
+
+    // Only reachable by writing past the service, which is the point: the panel
+    // exists for a clash the guards were supposed to have made impossible.
+    $other->buses()->attach($hiace->id, ['fee_amount' => 0]);
+
+    Livewire::test(Screen::class)
+        ->assertSee('تعارض في الباصات')
+        ->assertSee('هايس ١')
+        ->assertSee('الرواد')
+        ->assertSee('السنابل');
+});

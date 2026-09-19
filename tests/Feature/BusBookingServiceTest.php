@@ -68,14 +68,17 @@ it('keeps the fee a stage was quoted even after the price changes', function () 
     expect($booking->buses()->first()->pivot->fee_amount)->toBe(100);
 });
 
-it('leaves a bus on offer while somebody is waiting to pay for it', function () {
+it('holds the bus for a prepaying stage from the moment it books', function () {
     $this->service->rule($this->stage, StageBusStanding::PREPAY);
-    $this->service->book($this->stage, $this->date, [$this->hiace->id]);
+    $booking = $this->service->book($this->stage, $this->date, [$this->hiace->id]);
 
-    $available = $this->service->availableBuses($this->date);
+    expect($booking->status)->toBe(BusBooking::PENDING);
+    expect($booking->holdsBuses())->toBeTrue();
+    expect($this->service->availableBuses($this->date)->pluck('id'))->not->toContain($this->hiace->id);
 
-    expect($available->pluck('id'))->toContain($this->hiace->id);
-    expect($available->firstWhere('id', $this->hiace->id)->pending_elsewhere)->toBeTrue();
+    // And it is the holding that matters, not the paying: nobody may book over it.
+    expect(fn () => $this->service->book($this->other, $this->date, [$this->hiace->id]))
+        ->toThrow(RuntimeException::class);
 });
 
 it('takes a bus off the list once a booking is confirmed', function () {
@@ -91,17 +94,93 @@ it('refuses to book a bus another stage already holds', function () {
         ->toThrow(RuntimeException::class);
 });
 
-it('tells the officer who took the bus when a payment arrives too late', function () {
-    $this->service->rule($this->stage, StageBusStanding::PREPAY);
-    $pending = $this->service->book($this->stage, $this->date, [$this->hiace->id]);
+it('dates the fee to the managers weekday inside the week of the trip', function () {
+    // Wednesday by default. 2026-09-26 is the Saturday closing the week that
+    // opened on the 19th, so its Wednesday is the 23rd.
+    expect($this->service->paymentDeadline('2026-09-26'))->toBe('2026-09-23');
 
-    // A stage with nothing against it books the same bus meanwhile.
-    $this->service->book($this->other, $this->date, [$this->hiace->id]);
+    // A trip earlier than that Wednesday is its own deadline — no fee falls due
+    // after the bus has already gone out.
+    expect($this->service->paymentDeadline('2026-09-20'))->toBe('2026-09-20');
+
+    // The manager may move the day.
+    Setting::setVal(BusBookingSettings::FEE_DEADLINE_WEEKDAY, 2); // الاثنين
+    expect($this->service->paymentDeadline('2026-09-26'))->toBe('2026-09-21');
+});
+
+it('stamps the deadline on the booking so moving the setting cannot move it', function () {
+    $this->service->rule($this->stage, StageBusStanding::PREPAY);
+    $booking = $this->service->book($this->stage, '2026-09-26', [$this->hiace->id]);
+
+    expect($booking->fee_due_on->format('Y-m-d'))->toBe('2026-09-23');
+
+    Setting::setVal(BusBookingSettings::FEE_DEADLINE_WEEKDAY, 1); // الأحد
+
+    expect($booking->fresh()->fee_due_on->format('Y-m-d'))->toBe('2026-09-23');
+});
+
+it('frees the bus again when the deadline goes by unpaid', function () {
+    $this->service->rule($this->stage, StageBusStanding::PREPAY);
+    $pending = $this->service->book($this->stage, '2026-09-26', [$this->hiace->id]);
+
+    // The Thursday after the Wednesday it was due.
+    Carbon\Carbon::setTestNow('2026-09-24 09:00:00');
+
+    expect($pending->fresh()->hasLapsed())->toBeTrue();
+    expect($pending->fresh()->holdsBuses())->toBeFalse();
+    expect($this->service->availableBuses('2026-09-26')->pluck('id'))->toContain($this->hiace->id);
+
+    // Another stage takes it, and the late payment is refused.
+    $this->service->book($this->other, '2026-09-26', [$this->hiace->id]);
 
     expect(fn () => $this->service->confirmPayment($pending->fresh()))
-        ->toThrow(RuntimeException::class, 'هايس ١');
+        ->toThrow(RuntimeException::class, 'انقضى موعد دفع هذا الحجز');
+});
 
-    expect($pending->fresh()->status)->toBe(BusBooking::PENDING);
+it('cancels what lapsed and leaves alone what has not', function () {
+    $this->service->rule($this->stage, StageBusStanding::PREPAY);
+    $this->service->rule($this->other, StageBusStanding::PREPAY);
+
+    $lapsing = $this->service->book($this->stage, '2026-09-26', [$this->hiace->id]);   // due the 23rd
+    $living = $this->service->book($this->other, '2026-09-26', [$this->coaster->id]);
+
+    Carbon\Carbon::setTestNow('2026-09-23 09:00:00'); // the day it is due, not past it
+    expect($this->service->expireUnpaid())->toBe(0);
+
+    $this->service->confirmPayment($living->fresh());
+
+    Carbon\Carbon::setTestNow('2026-09-24 09:00:00');
+    expect($this->service->expireUnpaid())->toBe(1);
+
+    expect($lapsing->fresh()->status)->toBe(BusBooking::CANCELLED);
+    expect($lapsing->fresh()->cancelled_by)->toBe('system');
+    expect($living->fresh()->status)->toBe(BusBooking::CONFIRMED);
+});
+
+it('finds nothing to report when every bus is held once', function () {
+    $this->service->book($this->stage, $this->date, [$this->hiace->id]);
+    $this->service->book($this->other, $this->date, [$this->coaster->id]);
+
+    expect($this->service->allConflicts())->toBeEmpty();
+});
+
+it('reports a bus two stages ended up holding on the same day', function () {
+    $mine = $this->service->book($this->stage, $this->date, [$this->hiace->id]);
+    $theirs = $this->service->book($this->other, $this->date, [$this->coaster->id]);
+
+    // Forced past the guards, the way a clash could only ever arise: by writing
+    // straight to the pivot rather than through the service.
+    $theirs->buses()->attach($this->hiace->id, ['fee_amount' => 0]);
+
+    $conflicts = $this->service->allConflicts();
+
+    expect($conflicts)->toHaveCount(1);
+    expect($conflicts->first()['bus']->id)->toBe($this->hiace->id);
+    expect($conflicts->first()['date'])->toBe($this->date);
+    expect($conflicts->first()['bookings']->pluck('id'))->toContain($mine->id, $theirs->id);
+
+    // And the booking itself knows it is not alone.
+    expect($this->service->conflictsFor($mine->fresh())->pluck('id'))->toContain($this->hiace->id);
 });
 
 it('confirms a payment when the bus is still free', function () {
@@ -216,4 +295,17 @@ it('refuses a booking outside the week even when the weekday is allowed', functi
 
     expect(fn () => $this->service->book($this->stage, '2026-09-30', [$this->hiace->id]))
         ->toThrow(RuntimeException::class);
+});
+
+it('has a command the scheduler runs to close out what lapsed', function () {
+    $this->service->rule($this->stage, StageBusStanding::PREPAY);
+    $lapsing = $this->service->book($this->stage, '2026-09-26', [$this->hiace->id]);
+
+    Carbon\Carbon::setTestNow('2026-09-24 09:00:00');
+
+    $this->artisan('bus:expire-unpaid')
+        ->expectsOutputToContain('أُلغي')
+        ->assertSuccessful();
+
+    expect($lapsing->fresh()->status)->toBe(BusBooking::CANCELLED);
 });

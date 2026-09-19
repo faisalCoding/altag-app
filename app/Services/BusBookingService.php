@@ -65,6 +65,30 @@ class BusBookingService
     }
 
     /**
+     * The day the fee for a trip on this date is due.
+     *
+     * The manager names a weekday; the deadline is that weekday inside the week
+     * the trip belongs to — one date for every booking in that week, which is how
+     * an officer collecting money actually thinks about it. A trip that falls
+     * before that weekday is its own deadline: no fee is due after the bus has
+     * already gone out.
+     */
+    public function paymentDeadline(string $tripDate): string
+    {
+        $trip = Carbon::parse($tripDate, 'Asia/Riyadh')->startOfDay();
+
+        // Stepping back a day first: on a Saturday trip, that Saturday closes the
+        // week rather than opening it, and its deadline belongs to the week gone.
+        $opening = $trip->copy()->subDay()->startOfWeek(CarbonInterface::SATURDAY);
+
+        // 1=Sunday … 7=Saturday, and the week's days are opening+1 … opening+7,
+        // so the offset is the weekday number itself.
+        $due = $opening->addDays(BusBookingSettings::feeDeadlineWeekday());
+
+        return min($due->format('Y-m-d'), $trip->format('Y-m-d'));
+    }
+
+    /**
      * Whether a trip may fall on this day: an allowed weekday, inside the window,
      * and not already past.
      */
@@ -86,11 +110,10 @@ class BusBookingService
     }
 
     /**
-     * Buses a stage could ask for that day.
+     * Buses a stage could ask for that day — the ones nobody is holding.
      *
-     * A pending booking holds nothing, so a bus somebody is waiting to pay for
-     * is still offered — with `pending_elsewhere` set, so the page can say so
-     * rather than let two stages discover the clash on the morning itself.
+     * A booking awaiting its fee holds its buses too, so what this returns is
+     * genuinely free rather than free-for-now.
      *
      * @return Collection<int, Bus>
      */
@@ -100,21 +123,15 @@ class BusBookingService
             ->orderBy('name')
             ->get()
             ->reject(fn (Bus $bus) => $bus->isTakenOn($date, $ignoreBookingId))
-            ->each(function (Bus $bus) use ($date, $ignoreBookingId) {
-                $bus->pending_elsewhere = $bus->bookings()
-                    ->whereDate('bus_bookings.date', $date)
-                    ->where('bus_bookings.status', BusBooking::PENDING)
-                    ->when($ignoreBookingId, fn ($q) => $q->where('bus_bookings.id', '!=', $ignoreBookingId))
-                    ->exists();
-            })
             ->values();
     }
 
     /**
      * Record a booking.
      *
-     * A stage on prepayment gets a pending booking that holds nothing: the fee
-     * has to reach the officer before the buses are actually theirs.
+     * A stage on prepayment holds its buses from this moment like anybody else.
+     * What it does not get is forever: the fee has a day it is due, and the hold
+     * dies with it.
      *
      * @param  array<int, int>  $busIds
      */
@@ -130,26 +147,33 @@ class BusBookingService
             throw new \RuntimeException('لا يمكن الحجز في هذا اليوم.');
         }
 
-        $buses = Bus::where('is_active', true)->whereIn('id', $busIds)->get();
-
-        if ($buses->isEmpty()) {
-            throw new \RuntimeException('اختر باصاً واحداً على الأقل.');
-        }
-
-        $taken = $buses->filter(fn (Bus $bus) => $bus->isTakenOn($date));
-
-        if ($taken->isNotEmpty()) {
-            throw new \RuntimeException('حُجز قبل قليل: '.$taken->pluck('name')->implode('، '));
-        }
-
         $prepaying = $standing === StageBusStanding::PREPAY;
 
-        return DB::transaction(function () use ($stage, $date, $buses, $prepaying) {
+        return DB::transaction(function () use ($stage, $date, $busIds, $prepaying) {
+            // Locked before they are read: two supervisors tapping «تأكيد» in the
+            // same second would otherwise both find the bus free and both take it.
+            // On SQLite this is a no-op, but SQLite serialises writers anyway.
+            $buses = Bus::where('is_active', true)
+                ->whereIn('id', $busIds)
+                ->lockForUpdate()
+                ->get();
+
+            if ($buses->isEmpty()) {
+                throw new \RuntimeException('اختر باصاً واحداً على الأقل.');
+            }
+
+            $taken = $buses->filter(fn (Bus $bus) => $bus->isTakenOn($date));
+
+            if ($taken->isNotEmpty()) {
+                throw new \RuntimeException('حُجز قبل قليل: '.$taken->pluck('name')->implode('، '));
+            }
+
             $booking = BusBooking::create([
                 'stage_id' => $stage->id,
                 'date' => $date,
                 'status' => $prepaying ? BusBooking::PENDING : BusBooking::CONFIRMED,
                 'fee_total' => $prepaying ? $buses->sum('fee_amount') : 0,
+                'fee_due_on' => $prepaying ? $this->paymentDeadline($date) : null,
                 'confirmed_at' => $prepaying ? null : now(),
             ]);
 
@@ -157,21 +181,125 @@ class BusBookingService
                 $booking->buses()->attach($bus->id, ['fee_amount' => $prepaying ? $bus->fee_amount : 0]);
             }
 
+            // Read back after the write, inside the same transaction: the check
+            // above looked at the world before this booking existed, and only a
+            // look afterwards can prove nothing else slipped in beside it.
+            $clash = $this->conflictsFor($booking);
+
+            if ($clash->isNotEmpty()) {
+                throw new \RuntimeException('حُجز قبل قليل: '.$clash->pluck('name')->implode('، '));
+            }
+
             return $booking;
         });
     }
 
     /**
-     * The officer has the fee in hand: the booking becomes real.
+     * Buses this booking holds that somebody else is holding too.
      *
-     * The buses are checked again here, because a pending booking held none of
-     * them and somebody else may have taken one in the meantime. The officer is
-     * told which, and settles it himself — that was his call to make.
+     * Nothing should ever come back from this. It runs all the same, before a
+     * supervisor is told his booking went through, because "the write did not
+     * throw" and "the bus is his" are not the same claim.
+     *
+     * @return Collection<int, Bus>
+     */
+    public function conflictsFor(BusBooking $booking): Collection
+    {
+        if (! $booking->holdsBuses()) {
+            return collect();
+        }
+
+        $date = $booking->date->format('Y-m-d');
+
+        return $booking->buses->filter(fn (Bus $bus) => $bus->isTakenOn($date, $booking->id))->values();
+    }
+
+    /**
+     * Every clash across the whole calendar, for the manager to see and settle.
+     *
+     * @return Collection<int, array{bus: Bus, date: string, bookings: Collection<int, BusBooking>}>
+     */
+    public function allConflicts(?string $from = null): Collection
+    {
+        $from ??= now('Asia/Riyadh')->format('Y-m-d');
+
+        // Narrowed in SQL first. A day where one bus appears twice is the only
+        // thing that could be a clash, and on a healthy calendar there are none
+        // — so the work below almost always runs over an empty list.
+        $suspects = DB::table('bus_booking_bus')
+            ->join('bus_bookings', 'bus_bookings.id', '=', 'bus_booking_bus.bus_booking_id')
+            ->whereDate('bus_bookings.date', '>=', $from)
+            ->groupBy('bus_booking_bus.bus_id', 'bus_bookings.date')
+            ->havingRaw('count(*) > 1')
+            ->select('bus_booking_bus.bus_id', 'bus_bookings.date')
+            ->get();
+
+        if ($suspects->isEmpty()) {
+            return collect();
+        }
+
+        $buses = Bus::whereIn('id', $suspects->pluck('bus_id')->unique())->get()->keyBy('id');
+
+        return $suspects
+            ->map(function ($row) use ($buses) {
+                $bus = $buses->get((int) $row->bus_id);
+                $date = Carbon::parse($row->date)->format('Y-m-d');
+
+                // Two rows are not two holds: one of them may be cancelled, or a
+                // prepayment whose deadline went by.
+                return $bus ? ['bus' => $bus, 'date' => $date, 'bookings' => $bus->holdersOn($date)] : null;
+            })
+            ->filter(fn (?array $row) => $row && $row['bookings']->count() > 1)
+            ->sortBy('date')
+            ->values();
+    }
+
+    /**
+     * Cancel the bookings whose fee never came, freeing their buses.
+     *
+     * The hold is already gone by the time this runs — holdsBuses() reads the
+     * deadline directly — so this writes down what is true rather than deciding
+     * it. That keeps the buses right even on a morning the scheduler did not run.
+     *
+     * @return int how many lapsed
+     */
+    public function expireUnpaid(): int
+    {
+        $today = now('Asia/Riyadh')->format('Y-m-d');
+
+        $lapsed = BusBooking::where('status', BusBooking::PENDING)
+            ->whereNotNull('fee_due_on')
+            ->whereDate('fee_due_on', '<', $today)
+            ->get();
+
+        foreach ($lapsed as $booking) {
+            $booking->update([
+                'status' => BusBooking::CANCELLED,
+                'cancelled_at' => now(),
+                'cancelled_by' => 'system',
+            ]);
+        }
+
+        return $lapsed->count();
+    }
+
+    /**
+     * The officer has the fee in hand: the booking is settled for good.
+     *
+     * The buses are checked once more, because a booking whose deadline ran out
+     * stopped holding them and somebody else may have taken one since. The
+     * officer is told which, and settles it himself — that was his call to make.
      */
     public function confirmPayment(BusBooking $booking): void
     {
         if (! $booking->isPending()) {
             throw new \RuntimeException('هذا الحجز ليس بانتظار الدفع.');
+        }
+
+        // Refused here as well as by the nightly sweep, so the answer does not
+        // depend on whether the sweep has run yet this morning.
+        if ($booking->hasLapsed()) {
+            throw new \RuntimeException('انقضى موعد دفع هذا الحجز، ولم يعد قائماً.');
         }
 
         $date = $booking->date->format('Y-m-d');

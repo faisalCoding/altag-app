@@ -56,13 +56,86 @@ it('walks a clear stage all the way to a booking', function () {
         ->call('chooseBuses')
         ->assertSet('step', 5)
         ->set('agreed', true)
-        ->call('confirm');
+        ->call('confirm')
+        ->assertSet('step', 6)
+        ->assertSee('تم تأكيد الحجز')
+        ->assertSee('لا تعارض مع أي مرحلة أخرى في هذا اليوم.')
+        ->assertSee('هايس ١')
+        ->assertSee('العودة إلى حالة المرحلة');
 
     $booking = BusBooking::first();
 
     expect($booking->stage_id)->toBe($this->stage->id);
     expect($booking->status)->toBe(BusBooking::CONFIRMED);
     expect($booking->buses)->toHaveCount(1);
+});
+
+it('returns from the success screen to the stages standing', function () {
+    Livewire::test(Wizard::class, ['token' => $this->token])
+        ->call('chooseStage', $this->stage->id)
+        ->call('startDate')
+        ->set('date', $this->date)
+        ->call('chooseDate')
+        ->set('busIds', [$this->hiace->id])
+        ->call('chooseBuses')
+        ->set('agreed', true)
+        ->call('confirm')
+        ->call('backToStatus')
+        ->assertSet('step', 2)
+        ->assertSet('bookedId', null)
+        ->assertSet('date', '')
+        ->assertSet('agreed', false)
+        // The booking it just made is listed there.
+        ->assertSee('حجوزات هذه المرحلة');
+});
+
+it('shows a prepaying stage that the buses are held and when the fee is due', function () {
+    $this->service->rule($this->stage, StageBusStanding::PREPAY);
+
+    Livewire::test(Wizard::class, ['token' => $this->token])
+        ->call('chooseStage', $this->stage->id)
+        ->call('startDate')
+        ->set('date', '2026-09-26')
+        ->call('chooseDate')
+        ->set('busIds', [$this->hiace->id])
+        ->call('chooseBuses')
+        // Spelled out before agreeing, not after.
+        ->assertSee('أُلغي الحجز تلقائياً')
+        ->set('agreed', true)
+        ->call('confirm')
+        ->assertSet('step', 6)
+        ->assertSee('حُجزت الباصات لمرحلتكم')
+        ->assertSee('وإلا أُلغي الحجز وعادت الباصات للجميع.');
+
+    $booking = BusBooking::first();
+
+    expect($booking->status)->toBe(BusBooking::PENDING);
+    expect($booking->holdsBuses())->toBeTrue();
+    expect($booking->fee_due_on->format('Y-m-d'))->toBe('2026-09-23');
+});
+
+it('refuses to call a booking done when its buses are held elsewhere', function () {
+    $other = Stage::factory()->create(['name' => 'السنابل']);
+
+    $page = Livewire::test(Wizard::class, ['token' => $this->token])
+        ->call('chooseStage', $this->stage->id)
+        ->call('startDate')
+        ->set('date', $this->date)
+        ->call('chooseDate')
+        ->set('busIds', [$this->hiace->id])
+        ->call('chooseBuses')
+        ->set('agreed', true);
+
+    // Taken between the last step opening and the tap on «تأكيد».
+    $this->service->book($other, $this->date, [$this->hiace->id]);
+
+    $page->call('confirm')
+        ->assertSet('step', 3)
+        ->assertSet('bookedId', null)
+        ->assertDontSee('تم تأكيد الحجز');
+
+    // And nothing of this stage's was written.
+    expect(BusBooking::where('stage_id', $this->stage->id)->count())->toBe(0);
 });
 
 it('stops a banned stage at the second step and offers the officer', function () {
@@ -162,7 +235,7 @@ it('catches a bus taken while the steps were open', function () {
     expect(BusBooking::where('stage_id', $this->stage->id)->count())->toBe(0);
 });
 
-it('marks a bus somebody is waiting to pay for', function () {
+it('does not offer a bus a prepaying stage is holding', function () {
     $prepaying = Stage::factory()->create(['name' => 'السنابل']);
     $this->service->rule($prepaying, StageBusStanding::PREPAY);
     $this->service->book($prepaying, $this->date, [$this->hiace->id]);
@@ -172,9 +245,9 @@ it('marks a bus somebody is waiting to pay for', function () {
         ->call('startDate')
         ->set('date', $this->date)
         ->call('chooseDate')
-        // Still offered, but honestly labelled.
-        ->assertSee('هايس ١')
-        ->assertSee('عليه حجز معلّق');
+        // Theirs until their deadline, so it is not on the list at all.
+        ->assertDontSee('هايس ١')
+        ->assertSee('كوستر ١');
 });
 
 it('lets a stage call off its own booking while the lock allows', function () {
@@ -241,4 +314,21 @@ it('still refuses a day outside the week if one is submitted anyway', function (
         ->call('chooseDate')
         ->assertHasErrors('date')
         ->assertSet('step', 3);
+});
+
+it('tells the stage when its own unpaid booking has lapsed', function () {
+    $this->service->rule($this->stage, StageBusStanding::PREPAY);
+    $this->service->book($this->stage, '2026-09-26', [$this->hiace->id]);
+
+    Livewire::test(Wizard::class, ['token' => $this->token])
+        ->call('chooseStage', $this->stage->id)
+        ->assertSee('بانتظار');
+
+    // Past the Wednesday it was due, and before the nightly sweep has run.
+    Carbon\Carbon::setTestNow('2026-09-24 09:00:00');
+
+    Livewire::test(Wizard::class, ['token' => $this->token])
+        ->call('chooseStage', $this->stage->id)
+        ->assertSee('انقضى موعد الدفع')
+        ->assertDontSee('بانتظار');
 });

@@ -112,6 +112,16 @@
                                 <div class="text-sm text-zinc-600 dark:text-zinc-300 mt-1 truncate">
                                     {{ $booking->buses->pluck('name')->implode('، ') }}
                                 </div>
+                                @if ($booking->isPending() && $booking->fee_due_on)
+                                    <div class="text-xs mt-1 {{ $booking->hasLapsed() ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400' }}">
+                                        @if ($booking->hasLapsed())
+                                            انقضى موعد الدفع — لم يعد يحجز الباصات
+                                        @else
+                                            موعد الدفع: {{ App\Support\HijriDate::weekday($booking->fee_due_on) }}
+                                            {{ App\Support\HijriDate::dayMonth($booking->fee_due_on) }}
+                                        @endif
+                                    </div>
+                                @endif
                             </div>
 
                             <flux:badge size="sm" :color="$statusColors[$booking->status] ?? 'zinc'" class="shrink-0">

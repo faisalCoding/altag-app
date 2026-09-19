@@ -15,6 +15,34 @@
         </div>
     </div>
 
+    {{-- ─────────── تعارض ─────────── --}}
+    {{-- Absent on every healthy day, which is why it sits above everything else
+         rather than in a report somebody remembers to open. --}}
+    @if ($conflicts->isNotEmpty())
+        <div class="rounded-2xl border border-red-200 bg-red-50 dark:border-red-900/50 dark:bg-red-950/30 p-4 sm:p-5 space-y-3">
+            <div class="flex items-center gap-2">
+                <flux:icon icon="exclamation-triangle" class="size-5 text-red-500 shrink-0" />
+                <flux:heading size="lg" class="text-red-700 dark:text-red-400">تعارض في الباصات</flux:heading>
+            </div>
+            <p class="text-sm text-red-700 dark:text-red-300">
+                باص واحد محجوز لأكثر من مرحلة في اليوم نفسه. يُحلّ بإلغاء أحد الحجزين من رابط المسؤول.
+            </p>
+            <div class="space-y-2">
+                @foreach ($conflicts as $clash)
+                    <div wire:key="clash-{{ $clash['bus']->id }}-{{ $clash['date'] }}"
+                        class="rounded-xl bg-white dark:bg-zinc-900 px-4 py-3 text-sm">
+                        <div class="font-bold text-zinc-800 dark:text-zinc-100">
+                            {{ $clash['bus']->name }} — {{ App\Support\HijriDate::withWeekday($clash['date']) }}
+                        </div>
+                        <div class="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+                            {{ $clash['bookings']->map(fn ($b) => $b->stage?->name ?? '—')->implode(' · ') }}
+                        </div>
+                    </div>
+                @endforeach
+            </div>
+        </div>
+    @endif
+
     {{-- ─────────── الروابط ─────────── --}}
     <div class="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-100 dark:border-zinc-800 shadow-xs p-4 sm:p-5 space-y-4">
         <div>
@@ -167,6 +195,19 @@
 
             <flux:input wire:model="officerPhone" label="واتساب مسؤول الباصات" placeholder="9665xxxxxxxx"
                 description="يفتحه زر «تواصل مع المسؤول» للمرحلة المحرومة." />
+        </div>
+
+        <div>
+            <flux:label>آخر يوم لدفع رسوم المراحل المطالَبة بالدفع</flux:label>
+            <flux:select wire:model="feeDeadlineWeekday" class="mt-2 max-w-xs">
+                @foreach ($weekdayNames as $value => $label)
+                    <flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>
+                @endforeach
+            </flux:select>
+            <p class="text-xs text-zinc-400 mt-2">
+                حجز المرحلة المطالَبة بالدفع يحجز الباصات فوراً، فإن لم تصل الرسوم حتى نهاية هذا اليوم من
+                أسبوع الرحلة أُلغي الحجز وعادت الباصات للجميع. والرحلة التي تسبق هذا اليوم موعدها يومها نفسه.
+            </p>
         </div>
 
         <label class="flex items-start gap-3 p-4 rounded-xl border border-zinc-200 dark:border-zinc-700 cursor-pointer has-[:checked]:border-maroon has-[:checked]:bg-maroon/5">

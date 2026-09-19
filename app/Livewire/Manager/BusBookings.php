@@ -7,6 +7,7 @@ use App\Models\BusBooking;
 use App\Models\BusBookingSettings;
 use App\Models\BusHandoverItem;
 use App\Models\Setting;
+use App\Services\BusBookingService;
 use Flux\Flux;
 use Livewire\Component;
 
@@ -27,6 +28,8 @@ class BusBookings extends Component
     public string $officerPhone = '';
 
     public bool $sameWeekOnly = false;
+
+    public int $feeDeadlineWeekday = 4;
 
     // ── bus being added or edited ───────────────────────────────────────────
     public ?int $editingBusId = null;
@@ -49,6 +52,7 @@ class BusBookings extends Component
         $this->lockDays = BusBookingSettings::lockDays();
         $this->officerPhone = BusBookingSettings::officerPhone();
         $this->sameWeekOnly = BusBookingSettings::sameWeekOnly();
+        $this->feeDeadlineWeekday = BusBookingSettings::feeDeadlineWeekday();
     }
 
     public function saveSettings(): void
@@ -60,6 +64,7 @@ class BusBookings extends Component
             'lockDays' => 'integer|min:0|max:30',
             'officerPhone' => 'nullable|string|max:20',
             'sameWeekOnly' => 'boolean',
+            'feeDeadlineWeekday' => 'integer|between:1,7',
         ], [
             'lockDays.min' => 'المهلة لا تكون سالبة.',
         ]);
@@ -69,6 +74,7 @@ class BusBookings extends Component
         Setting::setVal(BusBookingSettings::LOCK_DAYS, $this->lockDays);
         Setting::setVal(BusBookingSettings::OFFICER_PHONE, $this->digitsOnly($this->officerPhone));
         Setting::setVal(BusBookingSettings::SAME_WEEK_ONLY, $this->sameWeekOnly ? 1 : 0);
+        Setting::setVal(BusBookingSettings::FEE_DEADLINE_WEEKDAY, $this->feeDeadlineWeekday);
 
         Flux::toast(__('حُفظت الإعدادات'), variant: 'success');
     }
@@ -238,9 +244,13 @@ class BusBookings extends Component
         return preg_replace('/\D+/', '', $phone) ?? '';
     }
 
-    public function render()
+    public function render(BusBookingService $bookings)
     {
         return view('livewire.manager.bus-bookings', [
+            // Nothing should ever be in here. It is shown anyway, because a clash
+            // nobody is told about is settled on the morning of the trip, in the
+            // car park, by whoever shouts loudest.
+            'conflicts' => $bookings->allConflicts(),
             'buses' => Bus::withCount('bookings')->orderBy('name')->get(),
             'items' => BusHandoverItem::orderBy('position')->orderBy('id')->get(),
             'supervisorToken' => BusBookingSettings::supervisorToken(),

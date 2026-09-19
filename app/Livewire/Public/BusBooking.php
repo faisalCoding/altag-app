@@ -37,6 +37,9 @@ class BusBooking extends Component
 
     public bool $agreed = false;
 
+    /** The booking just made, while its success screen is up. */
+    public ?int $bookedId = null;
+
     public function mount(string $token, BusBookingService $bookings): void
     {
         abort_unless(hash_equals(BusBookingSettings::supervisorToken(), $token), 404);
@@ -50,7 +53,7 @@ class BusBooking extends Component
 
         $this->stageId = $stageId;
         $this->step = 2;
-        $this->reset(['date', 'busIds', 'agreed']);
+        $this->reset(['date', 'busIds', 'agreed', 'bookedId']);
     }
 
     public function toStep(int $step): void
@@ -59,7 +62,17 @@ class BusBooking extends Component
         // Forward jumps are refused so the guards below cannot be stepped over.
         if ($step < $this->step) {
             $this->step = max(1, $step);
+            $this->bookedId = null;
         }
+    }
+
+    /**
+     * From the success screen back to where the stage's bookings are listed.
+     */
+    public function backToStatus(): void
+    {
+        $this->reset(['date', 'busIds', 'agreed', 'bookedId']);
+        $this->step = 2;
     }
 
     public function startDate(BusBookingService $bookings): void
@@ -121,15 +134,24 @@ class BusBooking extends Component
             return;
         }
 
-        $this->reset(['date', 'busIds', 'agreed']);
-        $this->step = 2;
+        // Nobody is shown a success screen on the strength of a write that did
+        // not throw. The booking is read back from the database and its buses
+        // checked against everyone else's before the word «تم» appears.
+        $booking = Booking::with('buses')->find($booking->id);
 
-        Flux::toast(
-            $booking->isPending()
-                ? __('سُجّل الحجز، ويصير مؤكَّداً بعد دفع الرسوم للمسؤول.')
-                : __('تم الحجز.'),
-            variant: 'success',
-        );
+        if (! $booking || ! $booking->holdsBuses() || $bookings->conflictsFor($booking)->isNotEmpty()) {
+            if ($booking) {
+                $bookings->cancel($booking, 'system');
+            }
+
+            Flux::toast(__('تعذّر إتمام الحجز — تعارض في الباصات. جرّب يوماً أو باصاً آخر.'), variant: 'danger');
+            $this->step = 3;
+
+            return;
+        }
+
+        $this->bookedId = $booking->id;
+        $this->step = 6;
     }
 
     /**
@@ -174,8 +196,10 @@ class BusBooking extends Component
             'lockDays' => BusBookingSettings::lockDays(),
             'penaltyText' => BusBookingSettings::penaltyText(),
             'items' => BusHandoverItem::active()->get(),
-            'buses' => $this->step >= 4 && $this->date ? $bookings->availableBuses($this->date) : collect(),
-            'chosen' => $this->step >= 5 ? Bus::whereIn('id', $this->busIds)->get() : collect(),
+            'booked' => $this->bookedId ? Booking::with('buses:id,name')->find($this->bookedId) : null,
+            'buses' => $this->step === 4 && $this->date ? $bookings->availableBuses($this->date) : collect(),
+            'chosen' => $this->step === 5 ? Bus::whereIn('id', $this->busIds)->get() : collect(),
+            'feeDueOn' => $this->date !== '' ? $bookings->paymentDeadline($this->date) : null,
             'upcoming' => $stage
                 ? Booking::with('buses:id,name')
                     ->where('stage_id', $stage->id)
