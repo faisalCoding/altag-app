@@ -41,8 +41,9 @@ class BusBookingService
      * The span a trip may fall in: from today to whenever booking closes.
      *
      * Unbounded at the far end unless the academy confines booking to the week
-     * in progress, in which case the week turns over on Saturday and next week
-     * opens when Saturday comes.
+     * in progress. That week opens on a Saturday and reaches the Saturday after
+     * it — eight days, both ends included — so a trip on the turning day can be
+     * arranged a week ahead rather than only on the morning itself.
      *
      * @return array{0: string, 1: string|null}
      */
@@ -58,7 +59,7 @@ class BusBookingService
 
         return [
             max($today->format('Y-m-d'), $saturday->format('Y-m-d')),
-            $saturday->copy()->addDays(6)->format('Y-m-d'),
+            $saturday->copy()->addDays(7)->format('Y-m-d'),
         ];
     }
 

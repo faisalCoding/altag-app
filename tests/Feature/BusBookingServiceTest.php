@@ -181,28 +181,30 @@ it('opens the whole future when the week is not the limit', function () {
 it('confines booking to the week in progress, which turns over on Saturday', function () {
     Setting::setVal(BusBookingSettings::SAME_WEEK_ONLY, 1);
 
-    // 2026-09-17 is a Thursday; its week began on Saturday the 12th and the
-    // Saturday already gone cannot be booked, so the window opens today.
+    // 2026-09-17 is a Thursday; its week began on Saturday the 12th and reaches
+    // Saturday the 19th. The days already gone cannot be booked, so it opens today.
     [$from, $to] = $this->service->bookingWindow();
 
     expect($from)->toBe('2026-09-17');
-    expect($to)->toBe('2026-09-18');
+    expect($to)->toBe('2026-09-19');
 
     expect($this->service->isBookableDate('2026-09-18'))->toBeTrue();
-    // The Saturday that opens the next week is out of reach until it arrives.
-    expect($this->service->isBookableDate('2026-09-19'))->toBeFalse();
+    // The Saturday the week closes on is itself bookable.
+    expect($this->service->isBookableDate('2026-09-19'))->toBeTrue();
+    expect($this->service->isBookableDate('2026-09-20'))->toBeFalse();
 });
 
-it('gives a full week once Saturday comes', function () {
+it('gives Saturday to Saturday once the week opens', function () {
     Carbon\Carbon::setTestNow('2026-09-19 08:00:00'); // Saturday
     Setting::setVal(BusBookingSettings::SAME_WEEK_ONLY, 1);
 
     [$from, $to] = $this->service->bookingWindow();
 
+    // Eight days, both Saturdays included.
     expect($from)->toBe('2026-09-19');
-    expect($to)->toBe('2026-09-25');
-    expect($this->service->isBookableDate('2026-09-25'))->toBeTrue();
-    expect($this->service->isBookableDate('2026-09-26'))->toBeFalse();
+    expect($to)->toBe('2026-09-26');
+    expect($this->service->isBookableDate('2026-09-26'))->toBeTrue();
+    expect($this->service->isBookableDate('2026-09-27'))->toBeFalse();
 });
 
 it('refuses a booking outside the week even when the weekday is allowed', function () {

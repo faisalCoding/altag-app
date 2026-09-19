@@ -141,7 +141,7 @@
                 @if ($windowTo)
                     <div class="flex items-start gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800 dark:border-sky-900/50 dark:bg-sky-950/30 dark:text-sky-300 mb-4">
                         <flux:icon icon="information-circle" class="size-4 mt-0.5 shrink-0" />
-                        <span>الحجز هذا الأسبوع فقط — حتى {{ $this->hijri($windowTo) }}. ويُفتح حجز الأسبوع القادم يوم السبت.</span>
+                        <span>الحجز متاح حتى {{ $this->hijri($windowTo) }}، ويُفتح ما بعده صباح السبت.</span>
                     </div>
                 @endif
 

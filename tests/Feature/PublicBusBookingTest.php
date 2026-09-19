@@ -212,14 +212,14 @@ it('hands the picker the same rule the service enforces', function () {
     BusBookingSettings::setWeekdays([1, 3]);
     Setting::setVal(BusBookingSettings::SAME_WEEK_ONLY, 1);
 
-    // Thursday: the window runs to Friday and no further.
+    // Thursday: the week it belongs to closes on Saturday the 19th.
     Livewire::test(Wizard::class, ['token' => $this->token])
         ->call('chooseStage', $this->stage->id)
         ->call('startDate')
         ->assertViewHas('windowFrom', '2026-09-17')
-        ->assertViewHas('windowTo', '2026-09-18')
+        ->assertViewHas('windowTo', '2026-09-19')
         ->assertViewHas('weekdays', [1, 3])
-        ->assertSee('الحجز هذا الأسبوع فقط');
+        ->assertSee('الحجز متاح حتى');
 });
 
 it('says nothing about a week when booking is not confined to one', function () {
@@ -227,7 +227,7 @@ it('says nothing about a week when booking is not confined to one', function () 
         ->call('chooseStage', $this->stage->id)
         ->call('startDate')
         ->assertViewHas('windowTo', null)
-        ->assertDontSee('الحجز هذا الأسبوع فقط');
+        ->assertDontSee('الحجز متاح حتى');
 });
 
 it('still refuses a day outside the week if one is submitted anyway', function () {
