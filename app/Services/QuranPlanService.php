@@ -9,6 +9,12 @@ use Illuminate\Support\Facades\Cache;
 
 class QuranPlanService
 {
+    /** Cached surah rows, rehydrated into models on read. */
+    public const SURAHS_KEY = 'quran.surahs.rows';
+
+    /** Cached juz→surah map and per-surah verse layout for the plan wizard. */
+    public const REFERENCE_KEY = 'quran.plan.reference_data';
+
     /*
      * ─── Hot-path memoization ──────────────────────────────────────────────
      * getAyahSize() and getTemporalNextAyah() live inside while-loops and
@@ -49,17 +55,30 @@ class QuranPlanService
      * Plain arrays are cached rather than the Eloquent collection itself: a
      * serializing cache store (file/redis/database) cannot always reconstruct
      * cached model objects and hands back an __PHP_Incomplete_Class instead.
-     * Run `php artisan cache:clear` after reseeding surahs.
      *
      * @return Collection<int, Surah>
      */
     public function getAllSurahs(): Collection
     {
-        $rows = Cache::rememberForever('quran.surahs.rows', function () {
+        $rows = Cache::rememberForever(self::SURAHS_KEY, function () {
             return Surah::orderBy('id')->get()->map->getAttributes()->all();
         });
 
         return Surah::hydrate($rows);
+    }
+
+    /**
+     * Drop the cached reference data.
+     *
+     * Forever means forever: an empty table read once — a fresh install where
+     * somebody opened the plan wizard before the surahs were synced — is cached
+     * as an empty list and never reconsidered. The sync calls this when it
+     * finishes, which is the only moment the underlying data can have changed.
+     */
+    public function forgetReferenceData(): void
+    {
+        Cache::forget(self::SURAHS_KEY);
+        Cache::forget(self::REFERENCE_KEY);
     }
 
     /**
@@ -72,7 +91,7 @@ class QuranPlanService
      */
     public function getPlanReferenceData(): array
     {
-        return Cache::rememberForever('quran.plan.reference_data', function () {
+        return Cache::rememberForever(self::REFERENCE_KEY, function () {
             $ayahs = Ayah::orderBy('surah_id')->orderBy('verse_number')->get(['surah_id', 'verse_number', 'page_number', 'line_number_start', 'line_number_end', 'juz_number']);
 
             $juzSurahs = [];

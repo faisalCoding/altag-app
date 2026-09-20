@@ -100,3 +100,42 @@ it('caches the surah list as primitive rows and rehydrates models (queried once)
         ->and($cached[0])->toBeArray()
         ->and(unserialize(serialize($cached)))->toEqual($cached);
 });
+
+it('drops both cached payloads on demand', function () {
+    $service = new QuranPlanService;
+
+    $service->getAllSurahs();
+    $service->getPlanReferenceData();
+
+    expect(Cache::has(QuranPlanService::SURAHS_KEY))->toBeTrue()
+        ->and(Cache::has(QuranPlanService::REFERENCE_KEY))->toBeTrue();
+
+    $service->forgetReferenceData();
+
+    expect(Cache::has(QuranPlanService::SURAHS_KEY))->toBeFalse()
+        ->and(Cache::has(QuranPlanService::REFERENCE_KEY))->toBeFalse();
+});
+
+it('serves surahs synced after an empty list was already cached', function () {
+    // The shape of the bug on a fresh copy of the app: the plan wizard is opened
+    // before the quran is synced, so "no surahs" is what gets cached forever.
+    Surah::query()->delete();
+    Ayah::query()->delete();
+
+    $service = new QuranPlanService;
+    expect($service->getAllSurahs())->toBeEmpty();
+
+    Surah::create([
+        'id' => 114, 'number' => 114, 'name_arabic' => 'الناس', 'name_simple' => 'An-Nas',
+        'revelation_place' => 'makkah', 'revelation_order' => 21, 'verses_count' => 6,
+        'start_page' => 604, 'end_page' => 604,
+    ]);
+
+    // Without the sync clearing up after itself, the wizard reads the empty list
+    // for as long as the cache lives — which is forever.
+    expect($service->getAllSurahs())->toBeEmpty();
+
+    $service->forgetReferenceData();
+
+    expect($service->getAllSurahs()->pluck('id')->all())->toBe([114]);
+});

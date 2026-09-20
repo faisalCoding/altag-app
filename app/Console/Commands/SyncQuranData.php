@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Models\Ayah;
 use App\Models\Surah;
+use App\Services\QuranPlanService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Http;
 
@@ -13,7 +14,7 @@ class SyncQuranData extends Command
 
     protected $description = 'Sync Quran Surahs and Ayahs from Quran.com API';
 
-    public function handle()
+    public function handle(QuranPlanService $plans): int
     {
         $this->info('Starting Quran Data Sync...');
 
@@ -22,9 +23,12 @@ class SyncQuranData extends Command
         $response = Http::get('https://api.quran.com/api/v4/chapters?language=ar');
 
         if (! $response->successful()) {
-            $this->error('Failed to fetch surahs from API.');
+            $this->error('Failed to fetch surahs from API. الخادم لم يصل إلى api.quran.com.');
 
-            return;
+            // Reported as a failure, not merely printed: a deploy script that
+            // reads the exit code must not take a sync that fetched nothing for
+            // a sync that worked.
+            return self::FAILURE;
         }
 
         $chapters = $response->json()['chapters'];
@@ -54,9 +58,17 @@ class SyncQuranData extends Command
         }
 
         $bar->finish();
-
         $this->newLine();
-        $this->info('Quran Data Sync Completed Successfully!');
+
+        // The plan wizard reads its surah list through a forever-cache. Without
+        // this, a copy of the app where somebody opened the wizard before the
+        // first sync keeps serving the empty list it cached then — the data is
+        // in the database and the page stays blank.
+        $plans->forgetReferenceData();
+
+        $this->info('Quran Data Sync Completed Successfully! ('.Surah::count().' سورة، '.Ayah::count().' آية)');
+
+        return self::SUCCESS;
     }
 
     private function syncAyahs(Surah $surah)
