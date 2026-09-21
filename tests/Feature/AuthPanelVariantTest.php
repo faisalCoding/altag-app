@@ -1,9 +1,12 @@
 <?php
 
-it('gives the register page a dark maroon decorative panel', function () {
+it('gives the register page a dark decorative panel in the academy colour', function () {
+    // Named shades rather than written-out hexes: the two ends used to be fixed
+    // maroons around a middle that followed the setting, so an academy in blue
+    // got blue between two maroons.
     $this->get(route('register'))
         ->assertSuccessful()
-        ->assertSee('bg-gradient-to-b from-[#3f1a19] via-maroon to-[#5c231f]', false);
+        ->assertSee('bg-gradient-to-b from-accent-dark via-maroon to-burgundy', false);
 });
 
 it('gives the login page a light cream decorative panel', function () {

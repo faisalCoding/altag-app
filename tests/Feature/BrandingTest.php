@@ -265,3 +265,55 @@ it('takes the name back to the shipped one on reset', function () {
 
     expect(Branding::siteName())->toBe(Branding::DEFAULT_NAME);
 });
+
+it('carries the colour into every page that loads the stylesheet', function () {
+    // Enumerated rather than listed: a view that pulls in app.css draws its own
+    // head, and a new one that forgets the style tag keeps the old colour
+    // silently — which is exactly how the front page was missed.
+    $missing = collect(File::allFiles(resource_path('views')))
+        ->filter(fn ($f) => str_contains($f->getContents(), '@vite'))
+        ->reject(fn ($f) => str_contains($f->getContents(), '<x-branding-styles />'))
+        ->map(fn ($f) => $f->getRelativePathname())
+        ->values();
+
+    expect($missing)->toBeEmpty("these load app.css without the colour: {$missing->implode(', ')}");
+});
+
+it('paints the front page in the chosen colour', function () {
+    Branding::setColor('#1b5e20');
+    Branding::setSiteName('مجمع مبارك القرآني');
+
+    $html = $this->get('/')->assertOk()->getContent();
+
+    expect($html)->toContain('--color-maroon:#1b5e20')
+        ->toContain('مجمع مبارك القرآني')
+        ->not->toContain('مجمع التاج القرآني');
+});
+
+it('shows the uploaded logo on the front page too', function () {
+    Livewire::test(Settings::class)
+        ->set('uploadedLogo', UploadedFile::fake()->image('shiny.png'))
+        ->call('saveLogo');
+
+    $html = $this->get('/')->assertOk()->getContent();
+
+    expect($html)->toContain(Branding::logoUrl())->not->toContain('altag_logo.png');
+});
+
+it('leaves no brand colour written by hand in a gradient', function () {
+    // The hero panel ran from-[#3f1a19] via-maroon to-[#5c231f]: the middle
+    // stop followed the setting and the two ends did not, so a blue academy
+    // got blue between two maroons.
+    $shipped = ['#7a2727', '#521f1e', '#9d2e33', '#3f1a19', '#5c231f'];
+
+    // Only arbitrary values are hunted — «-[#7a2727]» is paint Tailwind cannot
+    // follow, while the same hex as a placeholder is just an example of one.
+    $carriers = collect(File::allFiles(resource_path('views')))
+        ->filter(fn ($f) => collect($shipped)->contains(
+            fn ($hex) => str_contains(strtolower($f->getContents()), '-['.$hex.']')
+        ))
+        ->map(fn ($f) => $f->getRelativePathname())
+        ->values();
+
+    expect($carriers)->toBeEmpty("these paint with a brand colour Tailwind cannot follow: {$carriers->implode(', ')}");
+});

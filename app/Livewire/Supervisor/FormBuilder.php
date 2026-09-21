@@ -9,6 +9,7 @@ use App\Models\Stage;
 use App\Models\User;
 use App\Services\SurveyAssignmentService;
 use App\Services\SurveyTextParser;
+use App\Support\Branding;
 use App\Support\SurveyFieldTypes;
 use Flux\Flux;
 use Illuminate\Support\Facades\Storage;
@@ -32,7 +33,8 @@ class FormBuilder extends Component
 
     public ?string $description = null;
 
-    public string $color = '#7a2727';
+    /** A new form starts in the academy's own colour. */
+    public string $color = '';
 
     public string $slug = '';
 
@@ -71,6 +73,8 @@ class FormBuilder extends Component
 
     public function mount(?int $formId = null): void
     {
+        $this->color = Branding::color();
+
         if ($formId) {
             $this->formId = $formId;
             $this->isEditing = true;
