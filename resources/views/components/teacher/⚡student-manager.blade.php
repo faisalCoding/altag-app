@@ -505,23 +505,34 @@ new class extends Component {
              written down somewhere, and typing them one at a time — then fixing
              each one's status and join date — was thirty acts for ten students. --}}
         <form wire:submit="createStudent" class="space-y-4">
+            @php
+                // Built here rather than written inline: a double-quoted string
+                // inside a double-quoted attribute closes it, and the placeholder
+                // rendered as the literal «{{ __(» with the rest of it leaking
+                // into the DOM as stray attributes.
+                $namesPlaceholder = "محمد أحمد الغامدي\nعبدالله سعد القحطاني، 0555123456";
+            @endphp
             <flux:textarea wire:model.live.debounce.400ms="names" rows="5"
                 label="{{ __('أسماء الطلاب — اسم في كل سطر') }}"
-                placeholder="{{ __("محمد أحمد الغامدي
-عبدالله سعد القحطاني، 0555123456") }}"
+                :placeholder="$namesPlaceholder"
                 description="{{ __('يمكنك لصق القائمة كما هي. ولإضافة رقم الهاتف اكتبه بعد الاسم وبينهما فاصلة.') }}" />
 
             <div class="flex flex-col sm:flex-row sm:items-end gap-4">
-                <div class="w-full sm:w-56">
-                    <flux:input wire:model="joinedAt" type="date" label="{{ __('تاريخ الالتحاق') }}"
-                        description="{{ __('للجميع في هذه الدفعة.') }}" />
+                <div class="w-full sm:w-64">
+                    {{-- The app's own picker rather than <input type="date">: the
+                         native one shows Gregorian dates, and under dir="rtl" it
+                         draws its own hint backwards — «سنة/شهر/يوم» came out
+                         «موي/رهش/ةنس» — while the rest of the app reads Hijri. --}}
+                    <livewire:shared.hijri-datepicker wire:model="joinedAt"
+                        :label="__('تاريخ الالتحاق — للجميع في هذه الدفعة')"
+                        :max-date="now('Asia/Riyadh')->format('Y-m-d')" />
                 </div>
 
                 @php
                     $pending = count($this->parsedNames());
                 @endphp
                 <flux:button type="submit" variant="primary" icon="user-plus" class="min-w-fit w-full sm:w-auto">
-                    {{ $pending > 1 ? __('إنشاء :count طلاب', ['count' => $pending]) : __('إنشاء طالب') }}
+                    {{ $pending > 1 ? __('إنشاء :count طلاب', ['count' => App\Support\HijriDate::arabicDigits($pending)]) : __('إنشاء طالب') }}
                 </flux:button>
             </div>
 
@@ -549,7 +560,7 @@ new class extends Component {
             @if (count($selected) > 0)
                 <div class="flex flex-wrap items-center gap-2">
                     <span class="text-sm text-zinc-500 dark:text-zinc-400">
-                        {{ __('محدَّد: :count', ['count' => count($selected)]) }}
+                        {{ __('محدَّد: :count', ['count' => App\Support\HijriDate::arabicDigits(count($selected))]) }}
                     </span>
 
                     @if ($canChangeStatus)
@@ -588,7 +599,7 @@ new class extends Component {
             </flux:table.columns>
 
             <flux:table.rows>
-                @foreach ($students as $student)
+                @forelse ($students as $student)
                     <flux:table.row wire:key="student-row-{{ $student->id }}"
                         class="cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors"
                         x-on:click="$flux.modal('student-details').show(); $wire.viewStudent({{ $student->id }})">
@@ -612,8 +623,8 @@ new class extends Component {
                                 <span class="text-zinc-400 text-xs">-</span>
                             @endif
                         </flux:table.cell>
-                        <flux:table.cell class="first:ps-3" >
-                            {{ $student->joined_at ? $student->joined_at->format('Y-m-d') : '-' }}
+                        <flux:table.cell class="first:ps-3 whitespace-nowrap">
+                            {{ $student->joined_at ? App\Support\HijriDate::dayMonth($student->joined_at) : '—' }}
                         </flux:table.cell>
                         <flux:table.cell class="first:ps-3" >
                             @php
@@ -674,7 +685,21 @@ new class extends Component {
                             </div>
                         </flux:table.cell>
                     </flux:table.row>
-                @endforeach
+                @empty
+                    <flux:table.row>
+                        <flux:table.cell colspan="8">
+                            <div class="py-10 text-center space-y-1">
+                                <flux:icon icon="user-group" class="size-8 mx-auto text-zinc-300 dark:text-zinc-700" />
+                                <div class="text-sm text-zinc-500 dark:text-zinc-400">
+                                    {{ $search !== '' ? __('لا طالب بهذا الاسم.') : __('لا طلاب في حلقتك بعد.') }}
+                                </div>
+                                @if ($search === '')
+                                    <div class="text-xs text-zinc-400">{{ __('اكتب أسماءهم في الأعلى — سطراً لكل اسم.') }}</div>
+                                @endif
+                            </div>
+                        </flux:table.cell>
+                    </flux:table.row>
+                @endforelse
             </flux:table.rows>
         </flux:table>
 
@@ -972,7 +997,7 @@ new class extends Component {
         <form wire:submit="applyBulkStatus" class="space-y-5">
             <div>
                 <flux:heading size="lg">{{ __('تغيير حالة المحدَّدين') }}</flux:heading>
-                <flux:subheading>{{ __(':count طالباً', ['count' => count($selected)]) }}</flux:subheading>
+                <flux:subheading>{{ __(':count طالباً', ['count' => App\Support\HijriDate::arabicDigits(count($selected))]) }}</flux:subheading>
             </div>
 
             <flux:select wire:model="bulkStatus" label="{{ __('الحالة الجديدة') }}">
@@ -982,8 +1007,10 @@ new class extends Component {
                 <flux:select.option value="left">{{ __('غادر الحلقات') }}</flux:select.option>
             </flux:select>
 
-            <flux:input wire:model="bulkStatusDate" type="date" label="{{ __('تاريخ السريان') }}"
-                description="{{ __('من هذا اليوم فصاعداً تُحسب الحالة الجديدة في سجل الحضور.') }}" />
+            <livewire:shared.hijri-datepicker wire:model="bulkStatusDate"
+                :label="__('تاريخ السريان')"
+                :max-date="now('Asia/Riyadh')->format('Y-m-d')" />
+            <flux:subheading class="-mt-3">{{ __('من هذا اليوم فصاعداً تُحسب الحالة الجديدة في سجل الحضور.') }}</flux:subheading>
 
             <flux:error name="bulkStatusDate" />
 
@@ -1000,11 +1027,13 @@ new class extends Component {
         <form wire:submit="applyBulkJoinedAt" class="space-y-5">
             <div>
                 <flux:heading size="lg">{{ __('تاريخ التحاق المحدَّدين') }}</flux:heading>
-                <flux:subheading>{{ __(':count طالباً', ['count' => count($selected)]) }}</flux:subheading>
+                <flux:subheading>{{ __(':count طالباً', ['count' => App\Support\HijriDate::arabicDigits(count($selected))]) }}</flux:subheading>
             </div>
 
-            <flux:input wire:model="bulkJoinedAt" type="date" label="{{ __('تاريخ الالتحاق') }}"
-                description="{{ __('لا يمكن تحضير الطالب قبل هذا اليوم.') }}" />
+            <livewire:shared.hijri-datepicker wire:model="bulkJoinedAt"
+                :label="__('تاريخ الالتحاق')"
+                :max-date="now('Asia/Riyadh')->format('Y-m-d')" />
+            <flux:subheading class="-mt-3">{{ __('لا يمكن تحضير الطالب قبل هذا اليوم.') }}</flux:subheading>
 
             <flux:error name="bulkJoinedAt" />
 
