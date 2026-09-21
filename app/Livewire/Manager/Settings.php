@@ -25,6 +25,8 @@ class Settings extends Component
     public $uploadedBackup;
 
     // ── هوية المجمع ─────────────────────────────────────────────────────────
+    public string $siteName = Branding::DEFAULT_NAME;
+
     public string $primaryColor = Branding::DEFAULT_COLOR;
 
     public $uploadedLogo;
@@ -35,6 +37,26 @@ class Settings extends Component
         $this->latenessLimit = Setting::getVal('lateness_limit', 5);
         $this->calculationPeriodDays = Setting::getVal('calculation_period_days', 30);
         $this->primaryColor = Branding::color();
+        $this->siteName = Branding::siteName();
+    }
+
+    /**
+     * The name in the sidebar, the page titles and the front page.
+     */
+    public function saveName(): void
+    {
+        $this->validate([
+            'siteName' => 'required|string|min:2|max:120',
+        ], [
+            'siteName.required' => 'اسم المجمع لا يكون فارغاً.',
+            'siteName.max' => 'الاسم لا يتجاوز ١٢٠ حرفاً.',
+        ]);
+
+        Branding::setSiteName($this->siteName);
+        $this->siteName = Branding::siteName();
+
+        Flux::toast('حُفظ الاسم.', variant: 'success');
+        $this->js('setTimeout(() => window.location.reload(), 600)');
     }
 
     /**
@@ -78,9 +100,10 @@ class Settings extends Component
 
     public function resetBranding(): void
     {
-        Branding::setColor(Branding::DEFAULT_COLOR);
-        Branding::setLogoPath(null);
-        $this->primaryColor = Branding::DEFAULT_COLOR;
+        Branding::reset();
+
+        $this->primaryColor = Branding::color();
+        $this->siteName = Branding::siteName();
         $this->uploadedLogo = null;
 
         Flux::toast('أُعيدت الهوية إلى الأصل.', variant: 'success');
@@ -269,6 +292,7 @@ class Settings extends Component
             'manualBackups' => $manualBackups,
             'uploadedBackups' => $uploadedBackups,
             'logoUrl' => Branding::logoUrl(),
+            'defaultName' => Branding::DEFAULT_NAME,
             'hasCustomLogo' => Branding::hasCustomLogo(),
             'defaultColor' => Branding::DEFAULT_COLOR,
         ]);

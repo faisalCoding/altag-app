@@ -27,8 +27,8 @@
 
     {{-- الشعار --}}
     <a href="{{ route('home') }}" class="relative z-10 flex flex-col items-center text-center" wire:navigate>
-        <img src="{{ asset('images/altag_logo.png') }}" alt="مجمع التاج القرآني" class="h-14 object-contain mb-2 drop-shadow-sm" />
-        <span class="font-extrabold text-lg {{ $isDark ? 'text-white' : 'text-maroon' }}">مجمع التاج القرآني</span>
+        <img src="{{ App\Support\Branding::logoUrl() }}" alt="{{ App\Support\Branding::siteName() }}" class="h-14 object-contain mb-2 drop-shadow-sm" />
+        <span class="font-extrabold text-lg {{ $isDark ? 'text-white' : 'text-maroon' }}">{{ App\Support\Branding::siteName() }}</span>
         <span class="text-xs font-medium mt-0.5 {{ $isDark ? 'text-white/70' : 'text-neutral-grey' }}">منصة رقمية متكاملة لتحفيظ القرآن الكريم</span>
     </a>
 

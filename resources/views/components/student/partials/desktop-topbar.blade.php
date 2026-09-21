@@ -11,9 +11,9 @@
 
 <div class="hidden lg:flex items-center gap-4 px-6 py-3 border-b border-zinc-100 dark:border-zinc-800 bg-white dark:bg-zinc-900" dir="rtl">
     <div class="flex items-center gap-2.5 shrink-0">
-        <img src="{{ asset('images/altag_logo.png') }}" alt="مجمع التاج القرآني" class="h-9 object-contain" />
+        <img src="{{ App\Support\Branding::logoUrl() }}" alt="{{ App\Support\Branding::siteName() }}" class="h-9 object-contain" />
         <div class="text-end">
-            <div class="font-extrabold text-maroon dark:text-red-secondary text-sm leading-tight">{{ __('مجمع التاج القرآني') }}</div>
+            <div class="font-extrabold text-maroon dark:text-red-secondary text-sm leading-tight">{{ App\Support\Branding::siteName() }}</div>
             <div class="text-[10px] text-zinc-400">{{ __('منصة رقمية متكاملة لحفظ ومراجعة القرآن الكريم') }}</div>
         </div>
     </div>

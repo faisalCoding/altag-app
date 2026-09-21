@@ -8,6 +8,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
 
@@ -190,4 +191,77 @@ it('puts the colour into every page, signed in or not', function () {
     }
 
     expect(Blade::render('<x-branding-styles />'))->toContain('--color-maroon:#1b5e20');
+});
+
+it('wears the shipped name until told otherwise', function () {
+    expect(Branding::siteName())->toBe(Branding::DEFAULT_NAME);
+});
+
+it('saves a name the manager chose', function () {
+    Livewire::test(Settings::class)
+        ->assertSet('siteName', Branding::DEFAULT_NAME)
+        ->set('siteName', '  مجمع مبارك القرآني  ')
+        ->call('saveName')
+        ->assertHasNoErrors();
+
+    expect(Branding::siteName())->toBe('مجمع مبارك القرآني');
+});
+
+it('will not take an empty name', function () {
+    Livewire::test(Settings::class)
+        ->set('siteName', '   ')
+        ->call('saveName')
+        ->assertHasErrors('siteName');
+
+    expect(Branding::siteName())->toBe(Branding::DEFAULT_NAME);
+    expect(fn () => Branding::setSiteName(' '))->toThrow(InvalidArgumentException::class);
+});
+
+it('puts the chosen name everywhere the old one was written by hand', function () {
+    Branding::setSiteName('مجمع مبارك القرآني');
+
+    // Not a search for the string: the point is that no view still carries the
+    // first academy's name in its source.
+    $carriers = collect(File::allFiles(resource_path('views')))
+        ->filter(fn ($f) => str_contains($f->getContents(), 'مجمع التاج القرآني'))
+        ->map(fn ($f) => $f->getRelativePathname());
+
+    expect($carriers)->toBeEmpty();
+
+    expect(Blade::render('<x-app-logo />'))->toContain('مجمع مبارك القرآني');
+});
+
+it('serves the uploaded logo to the pages that were bypassing the setting', function () {
+    Livewire::test(Settings::class)
+        ->set('uploadedLogo', UploadedFile::fake()->image('shiny.png'))
+        ->call('saveLogo');
+
+    // Eight views reached for images/altag_logo.png directly and kept showing
+    // the shipped logo however the setting was changed.
+    $carriers = collect(File::allFiles(resource_path('views')))
+        ->filter(fn ($f) => str_contains($f->getContents(), 'altag_logo.png'))
+        ->map(fn ($f) => $f->getRelativePathname());
+
+    expect($carriers)->toBeEmpty();
+    expect(Blade::render('<x-app-logo />'))->not->toContain('altag_logo.png');
+});
+
+it('hands the pdf renderer a file rather than a url', function () {
+    // dompdf has no browser to fetch with, so a url would render as nothing.
+    expect(Branding::logoFilePath())->toEndWith('.png')->toStartWith('/');
+    expect(file_exists(Branding::logoFilePath()))->toBeTrue();
+
+    Livewire::test(Settings::class)
+        ->set('uploadedLogo', UploadedFile::fake()->image('shiny.png'))
+        ->call('saveLogo');
+
+    expect(Branding::logoFilePath())->toContain('branding/');
+});
+
+it('takes the name back to the shipped one on reset', function () {
+    Branding::setSiteName('مجمع مبارك القرآني');
+
+    Livewire::test(Settings::class)->call('resetBranding');
+
+    expect(Branding::siteName())->toBe(Branding::DEFAULT_NAME);
 });

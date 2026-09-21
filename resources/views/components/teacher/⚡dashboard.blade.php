@@ -261,7 +261,7 @@ new class extends Component {
             {{ __('لوحة تحكم التعليم') }}
         </flux:heading>
         <flux:subheading class="text-zinc-500 dark:text-zinc-400">
-            {{ __('مرحباً بك مجدداً في نظام إدارة مجمع التاج القرآني') }}
+            {{ __('مرحباً بك مجدداً في نظام إدارة :name', ['name' => App\Support\Branding::siteName()]) }}
         </flux:subheading>
     </div>
 

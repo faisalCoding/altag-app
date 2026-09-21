@@ -16,6 +16,20 @@
             <flux:subheading>الشعار واللون اللذان يظهران في كل صفحات التطبيق.</flux:subheading>
         </div>
 
+        {{-- الاسم --}}
+        <form wire:submit="saveName" class="space-y-3">
+            <div class="flex flex-col sm:flex-row sm:items-end gap-3">
+                <div class="flex-1 min-w-0">
+                    <flux:input wire:model="siteName" label="اسم المجمع"
+                        description="يظهر في الشريط الجانبي وعنوان الصفحة والواجهة العامة." />
+                </div>
+                <flux:button type="submit" variant="primary" class="shrink-0">حفظ الاسم</flux:button>
+            </div>
+            <flux:error name="siteName" />
+        </form>
+
+        <flux:separator />
+
         {{-- الشعار --}}
         <form wire:submit="saveLogo" class="space-y-3">
             <flux:label>الشعار</flux:label>

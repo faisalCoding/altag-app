@@ -64,7 +64,7 @@
         <div class="flex justify-between gap-2 text-xs font-semibold container mx-auto">
             <div class="flex justify-center items-end border border-zinc-200 rounded-4xl p-5 pt-3">
                 <div class="flex justify-start items-end w-26">
-                    <img src="{{ asset('images/altag_logo.png') }}" alt="Logo" class="h-26 object-contain" />
+                    <img src="{{ App\Support\Branding::logoUrl() }}" alt="Logo" class="h-26 object-contain" />
                 </div>
                 <div class="flex flex-col items-start">
                     <h1 class="text-lg  mb-2">

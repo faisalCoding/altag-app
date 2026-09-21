@@ -97,7 +97,7 @@
 
 <body>
     <div class="header">
-        <img src="{{ public_path('images/altag_logo.png') }}" alt="Logo">
+        <img src="{{ App\Support\Branding::logoFilePath() }}" alt="Logo">
         <h1>تقرير الحضور والغياب للحلقات</h1>
         @php
             @endphp

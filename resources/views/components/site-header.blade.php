@@ -30,10 +30,10 @@
 
         <a href="{{ $home }}" wire:navigate class="flex items-center gap-2.5 shrink-0">
             <div class="text-end hidden sm:block">
-                <div class="font-extrabold text-white text-sm leading-tight">مجمع التاج القرآني</div>
+                <div class="font-extrabold text-white text-sm leading-tight">{{ App\Support\Branding::siteName() }}</div>
                 <div class="text-[10px] text-white/70">منصة رقمية متكاملة لتحفيظ القرآن الكريم</div>
             </div>
-            <img src="{{ asset('images/altag_logo.png') }}" alt="مجمع التاج القرآني" class="h-9 object-contain" />
+            <img src="{{ App\Support\Branding::logoUrl() }}" alt="{{ App\Support\Branding::siteName() }}" class="h-9 object-contain" />
         </a>
     </div>
 </header>

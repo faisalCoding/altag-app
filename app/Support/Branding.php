@@ -24,11 +24,16 @@ class Branding
 
     public const LOGO = 'branding.logo_path';
 
+    public const NAME = 'branding.site_name';
+
     /** The colour the application ships in, and what "reset" returns to. */
     public const DEFAULT_COLOR = '#7a2727';
 
     /** The logo the application ships with. */
     public const DEFAULT_LOGO = 'images/altag_logo.png';
+
+    /** The academy the application was first written for. */
+    public const DEFAULT_NAME = 'مجمع التاج القرآني';
 
     private const CACHE_KEY = 'branding.resolved';
 
@@ -43,6 +48,27 @@ class Branding
     }
 
     /**
+     * What the academy calls itself, in the sidebar, the page titles and the
+     * sentences on the front page.
+     */
+    public static function siteName(): string
+    {
+        return self::resolved()['name'];
+    }
+
+    public static function setSiteName(string $name): void
+    {
+        $name = trim($name);
+
+        if ($name === '') {
+            throw new \InvalidArgumentException('الاسم لا يكون فارغاً.');
+        }
+
+        Setting::setVal(self::NAME, $name);
+        self::forget();
+    }
+
+    /**
      * A url for the logo — the uploaded one if there is one, else the shipped one.
      */
     public static function logoUrl(): string
@@ -50,6 +76,21 @@ class Branding
         $path = self::resolved()['logo'];
 
         return $path !== null ? Storage::disk('public')->url($path) : asset(self::DEFAULT_LOGO);
+    }
+
+    /**
+     * Where the logo sits on disk.
+     *
+     * The PDFs need this rather than a url: they are rendered without a browser
+     * and cannot fetch anything, so the image has to be read off the filesystem.
+     */
+    public static function logoFilePath(): string
+    {
+        $path = self::resolved()['logo'];
+
+        return $path !== null
+            ? Storage::disk('public')->path($path)
+            : public_path(self::DEFAULT_LOGO);
     }
 
     /** The stored path of an uploaded logo, or null while the shipped one is in use. */
@@ -118,23 +159,36 @@ class Branding
         }
     }
 
+    /**
+     * Back to the face the application ships with.
+     */
+    public static function reset(): void
+    {
+        self::setColor(self::DEFAULT_COLOR);
+        self::setLogoPath(null);
+        Setting::setVal(self::NAME, '');
+        self::forget();
+    }
+
     public static function forget(): void
     {
         Cache::forget(self::CACHE_KEY);
     }
 
     /**
-     * @return array{color: string, logo: string|null}
+     * @return array{color: string, logo: string|null, name: string}
      */
     private static function resolved(): array
     {
         return Cache::rememberForever(self::CACHE_KEY, function () {
             $color = self::normalize((string) Setting::getVal(self::COLOR, ''));
             $logo = (string) Setting::getVal(self::LOGO, '');
+            $name = trim((string) Setting::getVal(self::NAME, ''));
 
             return [
                 'color' => $color ?? self::DEFAULT_COLOR,
                 'logo' => $logo !== '' && Storage::disk('public')->exists($logo) ? $logo : null,
+                'name' => $name !== '' ? $name : self::DEFAULT_NAME,
             ];
         });
     }

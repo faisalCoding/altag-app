@@ -4,7 +4,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>بوابة مجمع التاج القرآني الرقمية</title>
+    <title>بوابة {{ App\Support\Branding::siteName() }} الرقمية</title>
 
     <link rel="icon" href="/favicon.ico" sizes="any">
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -87,12 +87,12 @@
         <div class="relative max-w-6xl mx-auto">
             {{-- الشعار والترحيب --}}
             <div class="animate-fade-in-up max-w-xl mx-auto text-center">
-                <img src="{{ asset('images/altag_logo.png') }}" alt="مجمع التاج القرآني" class="h-16 md:h-20 object-contain mx-auto mb-3 drop-shadow-sm" />
-                <h1 class="text-xl md:text-2xl font-extrabold text-maroon dark:text-white">مجمع التاج القرآني</h1>
+                <img src="{{ App\Support\Branding::logoUrl() }}" alt="{{ App\Support\Branding::siteName() }}" class="h-16 md:h-20 object-contain mx-auto mb-3 drop-shadow-sm" />
+                <h1 class="text-xl md:text-2xl font-extrabold text-maroon dark:text-white">{{ App\Support\Branding::siteName() }}</h1>
                 <p class="text-xs md:text-sm text-neutral-grey dark:text-zinc-400 font-medium mt-1">منصة رقمية متكاملة لتحفيظ القرآن الكريم</p>
 
                 <h2 class="text-2xl md:text-3xl font-bold text-zinc-900 dark:text-white leading-relaxed mt-6">
-                    أهلاً بكم في بوابة <span class="text-maroon dark:text-red-secondary">مجمع التاج القرآني</span>
+                    أهلاً بكم في بوابة <span class="text-maroon dark:text-red-secondary">{{ App\Support\Branding::siteName() }}</span>
                 </h2>
                 <p class="text-xs md:text-sm text-neutral-grey dark:text-zinc-400 mt-2">سجّل دخولك ببريدك وكلمة المرور، وهيتعرّف النظام تلقائياً على نوع حسابك ويوجّهك لصفحتك الخاصة</p>
 
@@ -140,9 +140,9 @@
     <div id="about" class="bg-white dark:bg-zinc-950 px-5 pt-16 md:pt-20">
         <div class="max-w-3xl mx-auto text-center animate-fade-in-up">
             <span class="text-xs md:text-sm text-maroon dark:text-red-secondary font-bold tracking-widest uppercase">من نحن</span>
-            <h3 class="text-2xl md:text-3xl font-bold mt-2 mb-4">مجمع التاج القرآني</h3>
+            <h3 class="text-2xl md:text-3xl font-bold mt-2 mb-4">{{ App\Support\Branding::siteName() }}</h3>
             <p class="text-sm md:text-base text-neutral-grey dark:text-zinc-400 leading-relaxed">
-                مجمع التاج القرآني منصة رقمية متكاملة لتحفيظ القرآن الكريم، بتخدم الطلاب والمعلمين والمشرفين وأولياء الأمور في مكان واحد —
+                {{ App\Support\Branding::siteName() }} منصة رقمية متكاملة لتحفيظ القرآن الكريم، بتخدم الطلاب والمعلمين والمشرفين وأولياء الأمور في مكان واحد —
                 من متابعة خطط الحفظ والمراجعة يومياً، لإدارة الحلقات والحضور، لحد تقارير الإنجاز الفورية للأسرة.
             </p>
         </div>
@@ -152,7 +152,7 @@
     <div id="features" class="bg-white dark:bg-zinc-950 px-5 py-16 md:py-20">
         <div class="max-w-5xl mx-auto">
             <div class="animate-fade-in-up text-center mb-10">
-                <span class="text-xs md:text-sm text-maroon dark:text-red-secondary font-bold tracking-widest uppercase">لماذا مجمع التاج</span>
+                <span class="text-xs md:text-sm text-maroon dark:text-red-secondary font-bold tracking-widest uppercase">لماذا {{ App\Support\Branding::siteName() }}</span>
                 <h3 class="text-2xl md:text-3xl font-bold mt-2">منصة متكاملة لرحلة الحفظ</h3>
             </div>
 
@@ -179,7 +179,7 @@
             <div class="animate-fade-in-up delay-150 mt-14 p-6 md:p-8 rounded-3xl bg-maroon/[0.03] dark:bg-white/[0.02] border border-maroon/10 dark:border-white/5 shadow-sm max-w-3xl mx-auto">
                 <div class="text-center mb-6">
                     <span class="text-xs md:text-sm text-maroon dark:text-red-secondary font-bold tracking-widest uppercase">نبض الإنجاز الفعلي للمجمع</span>
-                    <h3 class="text-lg md:text-xl font-bold mt-1">إحصاءات حية لإنجاز مجمع التاج</h3>
+                    <h3 class="text-lg md:text-xl font-bold mt-1">إحصاءات حية لإنجاز {{ App\Support\Branding::siteName() }}</h3>
                 </div>
 
                 <div class="grid grid-cols-3 gap-4 text-center divide-x divide-x-reverse divide-zinc-200/50 dark:divide-zinc-800/40">
@@ -255,7 +255,7 @@
     {{-- تذييل الصفحة --}}
     <footer class="w-full bg-maroon dark:bg-accent-dark py-5 text-center">
         <p class="text-xs md:text-sm text-white/80 font-medium">
-            &copy; {{ date('Y') }} مجمع التاج القرآني. جميع الحقوق محفوظة.
+            &copy; {{ date('Y') }} {{ App\Support\Branding::siteName() }}. جميع الحقوق محفوظة.
         </p>
     </footer>
 

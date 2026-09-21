@@ -13,7 +13,7 @@
             <div class="w-full flex items-center justify-center p-6 md:p-10">
                 <div class="mx-auto flex w-full flex-col justify-center gap-6 sm:w-[380px]">
                     <a href="{{ route('home') }}" class="z-20 flex flex-col items-center gap-2 font-medium lg:hidden" wire:navigate>
-                        <img src="{{ asset('images/altag_logo.png') }}" alt="مجمع التاج القرآني" class="h-12 object-contain" />
+                        <img src="{{ App\Support\Branding::logoUrl() }}" alt="{{ App\Support\Branding::siteName() }}" class="h-12 object-contain" />
                         <span class="sr-only">{{ config('app.name', 'Laravel') }}</span>
                     </a>
                     {{ $slot }}
