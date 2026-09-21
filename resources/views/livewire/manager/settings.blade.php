@@ -9,6 +9,97 @@
         </div>
     </div>
 
+    {{-- ─────────── هوية المجمع ─────────── --}}
+    <div class="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-100 dark:border-zinc-800 shadow-xs p-4 sm:p-6 max-w-2xl space-y-6">
+        <div>
+            <flux:heading size="lg">هوية المجمع</flux:heading>
+            <flux:subheading>الشعار واللون اللذان يظهران في كل صفحات التطبيق.</flux:subheading>
+        </div>
+
+        {{-- الشعار --}}
+        <form wire:submit="saveLogo" class="space-y-3">
+            <flux:label>الشعار</flux:label>
+
+            <div class="flex flex-col sm:flex-row sm:items-center gap-4">
+                <div class="flex items-center justify-center h-20 w-32 shrink-0 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50 p-2">
+                    <img src="{{ $logoUrl }}" alt="شعار المجمع" class="max-h-full max-w-full object-contain">
+                </div>
+
+                <div class="flex-1 min-w-0 space-y-2">
+                    <flux:input type="file" wire:model="uploadedLogo"
+                        accept="image/png,image/jpeg,image/webp,image/svg+xml" />
+                    <p class="text-xs text-zinc-400">
+                        PNG أو SVG بخلفية شفافة أوضح ما يظهر. الحدّ الأعلى ميغابايت واحد.
+                    </p>
+                    <flux:error name="uploadedLogo" />
+                </div>
+            </div>
+
+            <div class="flex flex-wrap gap-2">
+                <flux:button type="submit" variant="primary" size="sm" icon="arrow-up-tray"
+                    wire:loading.attr="disabled" wire:target="uploadedLogo,saveLogo">
+                    <span wire:loading.remove wire:target="uploadedLogo">حفظ الشعار</span>
+                    <span wire:loading wire:target="uploadedLogo">جارٍ الرفع…</span>
+                </flux:button>
+            </div>
+        </form>
+
+        <flux:separator />
+
+        {{-- اللون --}}
+        <form wire:submit="saveColor" class="space-y-3">
+            <flux:label>اللون الرئيسي</flux:label>
+
+            @php
+                // Half a written colour is not a colour, so the current one stands
+                // in until what is being typed is whole.
+                $preview = App\Support\Branding::normalize($primaryColor) ?? App\Support\Branding::color();
+            @endphp
+
+            <div class="flex items-center gap-3">
+                {{-- The swatch and the field write to the same property, so
+                     picking and typing stay in step whichever the manager uses. --}}
+                {{-- value is written out as well as bound: a native colour input
+                     with no value falls back to black, and the swatch would read
+                     as the chosen colour only after Livewire had booted. --}}
+                <input type="color" wire:model.live="primaryColor" value="{{ $preview }}"
+                    class="h-11 w-14 shrink-0 cursor-pointer rounded-lg border border-zinc-200 dark:border-zinc-700 bg-transparent p-1"
+                    aria-label="اختيار اللون الرئيسي">
+
+                <div class="w-40">
+                    <flux:input wire:model="primaryColor" placeholder="#7a2727" dir="ltr" class="text-center" />
+                </div>
+
+                <flux:button type="submit" variant="primary">حفظ اللون</flux:button>
+            </div>
+
+            <flux:error name="primaryColor" />
+
+            {{-- ما سيبدو عليه، قبل الحفظ لا بعده --}}
+            <div class="flex flex-wrap items-center gap-2 pt-1">
+                <span class="text-xs text-zinc-400">معاينة:</span>
+                <span class="inline-flex items-center rounded-lg px-3 py-1.5 text-sm font-bold text-white"
+                    style="background-color: {{ $preview }}">زرّ رئيسي</span>
+                <span class="inline-flex items-center rounded-lg px-3 py-1.5 text-sm font-bold"
+                    style="color: {{ $preview }}; background-color: {{ $preview }}1a">نصّ ملوّن</span>
+                <span class="inline-flex items-center rounded-lg px-3 py-1.5 text-sm font-bold text-white"
+                    style="background-color: {{ App\Support\Branding::shade($preview, 0.70) }}">درجة أغمق</span>
+            </div>
+        </form>
+
+        <flux:separator />
+
+        <div class="flex items-center justify-between gap-3">
+            <p class="text-xs text-zinc-400">
+                إعادة الشعار واللون إلى ما يأتي به التطبيق أصلاً.
+            </p>
+            <flux:button size="sm" variant="ghost" class="shrink-0 text-red-500 hover:text-red-600"
+                wire:click="resetBranding" wire:confirm="إعادة الهوية إلى الأصل؟">
+                إعادة للأصل
+            </flux:button>
+        </div>
+    </div>
+
     <div
         class="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-100 dark:border-zinc-800 shadow-xs p-6 max-w-2xl">
         <form wire:submit="save" class="space-y-6">
