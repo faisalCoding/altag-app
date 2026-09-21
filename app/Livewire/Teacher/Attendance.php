@@ -41,7 +41,9 @@ class Attendance extends Component
 
         $this->students = collect();
         if (empty($this->date)) {
-            $this->date = now()->format('Y-m-d');
+            // Riyadh, not app.timezone: on UTC the register would open on
+            // yesterday's column for the first three hours of every day.
+            $this->date = now('Asia/Riyadh')->format('Y-m-d');
         }
 
         $teacher = auth()->guard('teacher')->user();
@@ -78,9 +80,12 @@ class Attendance extends Component
 
         $studentsQuery = Student::where('circle_id', $this->selectedCircle)
             ->whereRoleState(fn ($q) => $q->where('is_approved', true))
+            // whereDate, not a bare comparison: the column carries a time of
+            // midnight, and "2026-09-21 00:00:00" <= "2026-09-21" is false as a
+            // string — which hid every student on the very day they enrolled.
             ->where(function ($query) {
                 $query->whereNull('joined_at')
-                    ->orWhere('joined_at', '<=', $this->date);
+                    ->orWhereDate('joined_at', '<=', $this->date);
             })
             ->with([
                 'circle',

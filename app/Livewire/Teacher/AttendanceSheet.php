@@ -167,7 +167,9 @@ class AttendanceSheet extends Component
         return Student::where('circle_id', $this->circleId)
             ->whereRoleState(fn ($q) => $q->where('is_approved', true))
             ->where(function ($query) use ($end) {
-                $query->whereNull('joined_at')->orWhere('joined_at', '<=', $end);
+                // whereDate: the stored value carries a midnight time, so a
+                // string comparison drops anyone who joined on the last day.
+                $query->whereNull('joined_at')->orWhereDate('joined_at', '<=', $end);
             })
             ->with('statusHistories')
             ->orderBy('name')

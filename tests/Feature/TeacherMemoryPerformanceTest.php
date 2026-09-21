@@ -202,8 +202,7 @@ test('teacher student-manager dispatches student-list-updated event on student c
     $teacher->save();
 
     Livewire::test('teacher.⚡student-manager')
-        ->set('name', 'New Student')
-        ->set('phone', '0500000000')
+        ->set('names', 'New Student، 0500000000')
         ->call('createStudent')
         ->assertDispatched('student-list-updated');
 });

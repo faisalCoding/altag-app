@@ -65,7 +65,7 @@ class AttendanceController extends Controller
                 ->whereRoleState(fn ($q) => $q->where('is_approved', true))
                 ->where(function ($query) use ($date) {
                     $query->whereNull('joined_at')
-                        ->orWhere('joined_at', '<=', $date);
+                        ->orWhereDate('joined_at', '<=', $date);
                 })
                 ->with([
                     'circle',
