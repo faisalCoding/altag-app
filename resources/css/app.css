@@ -2,6 +2,56 @@
 @import 'tailwindcss';
 @import '../../vendor/livewire/flux/dist/flux.css';
 
+/* خط الواجهة، مستضاف على هذا النطاق. تُشحن الأوزان التي تستعملها الواجهة
+   وحدها — كل وزن ملف يُنزَّل — ولا تُشحن المائلة: لا مكان لها في نص عربي. */
+@font-face {
+    font-family: 'Lama Sans';
+    src: url('/fonts/lama-sans/lama-sans-300.woff2') format('woff2');
+    font-weight: 300;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Lama Sans';
+    src: url('/fonts/lama-sans/lama-sans-400.woff2') format('woff2');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Lama Sans';
+    src: url('/fonts/lama-sans/lama-sans-500.woff2') format('woff2');
+    font-weight: 500;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Lama Sans';
+    src: url('/fonts/lama-sans/lama-sans-600.woff2') format('woff2');
+    font-weight: 600;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Lama Sans';
+    src: url('/fonts/lama-sans/lama-sans-700.woff2') format('woff2');
+    font-weight: 700;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Lama Sans';
+    src: url('/fonts/lama-sans/lama-sans-800.woff2') format('woff2');
+    font-weight: 800;
+    font-style: normal;
+    font-display: swap;
+}
+
 @font-face {
     font-family: 'Zain Mobile Swashes';
     src: url('/fonts/ZainMobileSwashes.ttf') format('truetype');
@@ -25,7 +75,7 @@
 }
 
 @theme {
-    --font-sans: 'DIN Next Arabic', 'Tajawal', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+    --font-sans: 'Lama Sans', 'DIN Next Arabic', 'Tajawal', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
     --font-zain: 'Zain Mobile Swashes', sans-serif;
 
     /* Brand Colors (ui.json) */
