@@ -220,3 +220,37 @@ it('selects and clears the whole page with one tick', function () {
 
     expect($page->get('selected'))->toBe([]);
 });
+
+it('gives a phone cards instead of a table it cannot read', function () {
+    Student::factory()->create(['circle_id' => $this->circle->id, 'name' => 'عبدالله محمد']);
+
+    $html = Livewire::test('teacher.student-manager')->html();
+
+    // Eight columns were 743px wide inside a 356px box, so the status a teacher
+    // opens this page for sat off-screen behind a sideways scroll with no hint.
+    expect($html)->toContain('sm:hidden')->toContain('hidden sm:block');
+});
+
+it('does not lay every sign-in token out on the screen at once', function () {
+    $student = Student::factory()->create([
+        'circle_id' => $this->circle->id,
+        'access_token' => str_repeat('a', 32),
+    ]);
+
+    $html = Livewire::test('teacher.student-manager')->html();
+
+    // The link was a read-only field in a column of its own, legible to anyone
+    // glancing over a shoulder. It is something the teacher copies now.
+    expect($html)->not->toContain('value="'.route('magic-link', ['token' => $student->access_token]).'"');
+    expect($html)->toContain('نسخ رابط الدخول');
+});
+
+it('marks incomplete paperwork on the name rather than in a second badge column', function () {
+    Student::factory()->create(['circle_id' => $this->circle->id, 'is_data_completed' => false]);
+
+    $html = Livewire::test('teacher.student-manager')->html();
+
+    // Two badges of the same size and shape side by side read as one blur.
+    expect($html)->toContain('بيانات غير مكتملة')
+        ->not->toContain('حالة البيانات');
+});

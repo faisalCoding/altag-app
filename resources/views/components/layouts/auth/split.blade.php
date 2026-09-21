@@ -11,11 +11,12 @@
     picks a panel, only how dark the ground is.
 --}}
 <!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" dir="rtl">
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" dir="rtl" class="light">
 
 <head>
     @include('partials.head')
     <title>{{ $title ?? App\Support\Branding::siteName() }}</title>
+    <x-light-only />
 </head>
 
 <body class="min-h-screen bg-zinc-50 antialiased dark:bg-zinc-950">

@@ -582,6 +582,66 @@ new class extends Component {
             @endif
         </div>
 
+        @php
+            $statusColors = ['active' => 'green', 'registering' => 'blue', 'suspended' => 'amber', 'left' => 'red'];
+            $statusLabels = [
+                'active' => 'مشارك', 'registering' => 'تحت التسجيل',
+                'suspended' => 'موقوف', 'left' => 'غادر الحلقات',
+            ];
+            $magicLink = fn ($student) => $student->access_token
+                ? route('magic-link', ['token' => $student->access_token])
+                : null;
+        @endphp
+
+        {{-- ═══════════ بطاقات على الجوال ═══════════ --}}
+        {{-- A table of eight columns was 743px wide inside a 356px box. It
+             scrolled sideways, with nothing to say it did, so the status — the
+             one thing a teacher opens this page to read — sat off-screen. --}}
+        <div class="sm:hidden divide-y divide-zinc-100 dark:divide-zinc-800">
+            @forelse ($students as $student)
+                <div wire:key="student-card-{{ $student->id }}" class="flex items-start gap-3 p-4">
+                    <input type="checkbox" wire:model.live="selected" value="{{ $student->id }}"
+                        class="mt-1 size-4 shrink-0 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
+                        aria-label="{{ __('تحديد :name', ['name' => $student->name]) }}">
+
+                    <button type="button" class="min-w-0 flex-1 text-start"
+                        x-on:click="$flux.modal('student-details').show(); $wire.viewStudent({{ $student->id }})">
+                        <div class="flex items-center gap-1.5">
+                            <span class="font-medium text-zinc-900 dark:text-zinc-100 truncate">{{ $student->name }}</span>
+                            @unless ($student->is_data_completed)
+                                <flux:icon icon="clock" class="size-3.5 shrink-0 text-amber-500"
+                                    title="{{ __('بيانات غير مكتملة') }}" />
+                            @endunless
+                        </div>
+                        <div class="mt-1.5 flex flex-wrap items-center gap-2">
+                            <flux:badge :color="$statusColors[$student->status] ?? 'zinc'" size="sm">
+                                {{ $statusLabels[$student->status] ?? $student->status }}
+                            </flux:badge>
+                            <span class="text-xs text-zinc-400">
+                                {{ $student->joined_at ? App\Support\HijriDate::dayMonth($student->joined_at) : '—' }}
+                            </span>
+                        </div>
+                    </button>
+
+                    <div class="flex items-center gap-1 shrink-0">
+                        @if ($student->phone)
+                            <flux:button as="a" href="https://wa.me/{{ preg_replace('/[^0-9]/', '', $student->phone) }}"
+                                target="_blank" size="xs" variant="ghost" icon="chat-bubble-left-ellipsis"
+                                class="text-green-600" aria-label="{{ __('واتساب') }}" />
+                        @endif
+                        <x-student-row-menu :student="$student" :link="$magicLink($student)" />
+                    </div>
+                </div>
+            @empty
+                <x-student-roll-empty :search="$search" />
+            @endforelse
+        </div>
+
+        {{-- ═══════════ جدول على الشاشات الأوسع ═══════════ --}}
+        {{-- The visibility classes go on a plain wrapper, not on the Flux
+             component: it puts them on an inner element, and the table simply
+             never appeared. --}}
+        <div class="hidden sm:block">
         <flux:table>
             <flux:table.columns>
                 <flux:table.column class="w-10">
@@ -590,11 +650,9 @@ new class extends Component {
                         aria-label="{{ __('تحديد الكل') }}">
                 </flux:table.column>
                 <flux:table.column>{{ __('اسم الطالب') }}</flux:table.column>
-                <flux:table.column>{{ __('واتساب') }}</flux:table.column>
+                <flux:table.column>{{ __('الحالة') }}</flux:table.column>
                 <flux:table.column>{{ __('تاريخ الالتحاق') }}</flux:table.column>
-                <flux:table.column>{{ __('حالة الطالب') }}</flux:table.column>
-                <flux:table.column>{{ __('حالة البيانات') }}</flux:table.column>
-                <flux:table.column>{{ __('رابط الدخول') }}</flux:table.column>
+                <flux:table.column>{{ __('واتساب') }}</flux:table.column>
                 <flux:table.column class="w-10"></flux:table.column>
             </flux:table.columns>
 
@@ -608,100 +666,60 @@ new class extends Component {
                                 class="rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
                                 aria-label="{{ __('تحديد :name', ['name' => $student->name]) }}">
                         </flux:table.cell>
+
                         <flux:table.cell class="font-medium whitespace-nowrap">
-                            {{ $student->name }}
+                            <span class="inline-flex items-center gap-1.5">
+                                {{ $student->name }}
+                                {{-- Incomplete paperwork was a second badge in a
+                                     column of its own, the same size and shape as
+                                     the enrolment status beside it, so neither read
+                                     at a glance. It is a mark on the name now. --}}
+                                @unless ($student->is_data_completed)
+                                    <flux:icon icon="clock" class="size-3.5 text-amber-500"
+                                        title="{{ __('بيانات غير مكتملة') }}" />
+                                @endunless
+                            </span>
                         </flux:table.cell>
+
+                        <flux:table.cell>
+                            <flux:badge :color="$statusColors[$student->status] ?? 'zinc'" size="sm">
+                                {{ $statusLabels[$student->status] ?? $student->status }}
+                            </flux:badge>
+                        </flux:table.cell>
+
+                        <flux:table.cell class="whitespace-nowrap text-zinc-500 dark:text-zinc-400">
+                            {{ $student->joined_at ? App\Support\HijriDate::dayMonth($student->joined_at) : '—' }}
+                        </flux:table.cell>
+
                         <flux:table.cell @click.stop="">
                             @if ($student->phone)
                                 <flux:button as="a"
                                     href="https://wa.me/{{ preg_replace('/[^0-9]/', '', $student->phone) }}"
-                                    target="_blank" size="xs" color="green" icon="chat-bubble-left-ellipsis"
-                                    variant="ghost">
+                                    target="_blank" size="xs" variant="ghost" icon="chat-bubble-left-ellipsis"
+                                    class="text-green-600">
                                     {{ __('تواصل') }}
                                 </flux:button>
                             @else
-                                <span class="text-zinc-400 text-xs">-</span>
+                                <span class="text-zinc-300 dark:text-zinc-700">—</span>
                             @endif
                         </flux:table.cell>
-                        <flux:table.cell class="first:ps-3 whitespace-nowrap">
-                            {{ $student->joined_at ? App\Support\HijriDate::dayMonth($student->joined_at) : '—' }}
-                        </flux:table.cell>
-                        <flux:table.cell class="first:ps-3" >
-                            @php
-                                $statusColors = [
-                                    'active' => 'green',
-                                    'registering' => 'blue',
-                                    'suspended' => 'amber',
-                                    'left' => 'red',
-                                ];
-                                $statusLabels = [
-                                    'active' => 'مشارك',
-                                    'registering' => 'تحت التسجيل',
-                                    'suspended' => 'موقوف',
-                                    'left' => 'غادر الحلقات',
-                                ];
-                                $stColor = $statusColors[$student->status] ?? 'zinc';
-                                $stLabel = $statusLabels[$student->status] ?? $student->status;
-                            @endphp
-                            <flux:badge :color="$stColor" size="sm">{{ $stLabel }}</flux:badge>
-                        </flux:table.cell>
-                        <flux:table.cell class="first:ps-3" >
-                            @if ($student->is_data_completed)
-                                <flux:badge color="green" size="sm" icon="check-circle">{{ __('مكتملة') }}
-                                </flux:badge>
-                            @else
-                                <flux:badge color="amber" size="sm" icon="clock">{{ __('غير مكتملة') }}
-                                </flux:badge>
-                            @endif
-                        </flux:table.cell>
-                        <flux:table.cell @click.stop="">
-                            @if ($student->access_token)
-                                <div class="flex items-center gap-2" x-data="{ copied: false, link: '{{ route('magic-link', ['token' => $student->access_token]) }}' }" @click.stop>
-                                    <flux:input readonly copyable class="max-w-xs text-xs"
-                                        :value="route('magic-link', ['token' => $student->access_token])" />
-                                </div>
-                            @endif
-                        </flux:table.cell>
-                        <flux:table.cell class="first:ps-3" >
+
+                        <flux:table.cell>
                             <div @click.stop>
-                                <flux:dropdown>
-                                    <flux:button variant="ghost" size="xs" icon="ellipsis-horizontal" />
-                                    <flux:menu>
-                                        <flux:menu.item x-on:click="$flux.modal('student-details').show(); $wire.viewStudent({{ $student->id }})" icon="eye">
-                                            {{ __('عرض وتعديل التفاصيل') }}</flux:menu.item>
-                                        <flux:separator />
-                                        @if ($student->access_token)
-                                            <flux:menu.item as="a"
-                                                href="{{ route('magic-link.login-as', $student->access_token) }}"
-                                                target="_blank" icon="arrow-right">{{ __('الدخول لحساب الطالب') }}
-                                            </flux:menu.item>
-                                        @endif
-                                        <flux:menu.item wire:click="resetToken({{ $student->id }})"
-                                            wire:confirm="هل أنت متأكد من تغيير الرابط؟ سيتم إبطال الرابط القديم فوراً."
-                                            variant="danger" icon="arrow-path">{{ __('إعادة إنشاء الرابط') }}
-                                        </flux:menu.item>
-                                    </flux:menu>
-                                </flux:dropdown>
+                                <x-student-row-menu :student="$student" :link="$magicLink($student)" />
                             </div>
                         </flux:table.cell>
                     </flux:table.row>
                 @empty
                     <flux:table.row>
-                        <flux:table.cell colspan="8">
-                            <div class="py-10 text-center space-y-1">
-                                <flux:icon icon="user-group" class="size-8 mx-auto text-zinc-300 dark:text-zinc-700" />
-                                <div class="text-sm text-zinc-500 dark:text-zinc-400">
-                                    {{ $search !== '' ? __('لا طالب بهذا الاسم.') : __('لا طلاب في حلقتك بعد.') }}
-                                </div>
-                                @if ($search === '')
-                                    <div class="text-xs text-zinc-400">{{ __('اكتب أسماءهم في الأعلى — سطراً لكل اسم.') }}</div>
-                                @endif
-                            </div>
+                        <flux:table.cell colspan="6">
+                            <x-student-roll-empty :search="$search" />
                         </flux:table.cell>
                     </flux:table.row>
                 @endforelse
             </flux:table.rows>
         </flux:table>
+        </div>
 
         <div class="p-4 border-t border-zinc-100 dark:border-zinc-800">
             {{ $students->links() }}

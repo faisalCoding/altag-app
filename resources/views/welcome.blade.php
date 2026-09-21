@@ -15,7 +15,7 @@
     $hasFigures = $figures->sum('value') > 0;
 @endphp
 <!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" dir="rtl">
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" dir="rtl" class="light">
 
 <head>
     <meta charset="utf-8" />
@@ -29,6 +29,7 @@
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 
     <x-branding-styles />
+    <x-light-only />
 </head>
 
 <body class="min-h-screen bg-white text-zinc-900 antialiased dark:bg-zinc-950 dark:text-zinc-100">
