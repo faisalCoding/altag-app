@@ -114,6 +114,13 @@
 
 @layer base {
 
+    /* Alpine hides these once it boots; until then nothing does, so a collapsed
+       menu or dropdown is drawn open for the first moment of every page load.
+       Three components rely on this rule and none of them had it. */
+    [x-cloak] {
+        display: none !important;
+    }
+
     *,
     ::after,
     ::before,
