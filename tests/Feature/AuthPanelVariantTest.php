@@ -1,6 +1,7 @@
 <?php
 
 use App\Support\Branding;
+use Illuminate\Support\Facades\Blade;
 
 it('gives the sign-in page one centred column rather than an illustrated half', function () {
     $content = $this->get(route('login'))->assertSuccessful()->getContent();
@@ -60,4 +61,26 @@ it('holds the public pages in the light theme whatever the device prefers', func
             ->toContain("classList.remove('dark')")
             ->toContain('prefers-color-scheme: dark');
     }
+});
+
+it('reads before it writes when stripping the dark class', function () {
+    // classList.remove() writes the class attribute even when the token was
+    // already absent, and that write is itself an attribute mutation. An
+    // observer that removes unconditionally feeds itself and the tab spins
+    // forever — the page never finishes loading. This shipped once.
+    $script = Blade::render('<x-light-only />');
+
+    expect($script)->toContain("classList.contains('dark')");
+
+    // Every removal inside the observer must sit behind that check.
+    $observer = substr($script, (int) strpos($script, 'MutationObserver'));
+    expect(substr_count($observer, "classList.remove('dark')"))
+        ->toBe(substr_count($observer, "classList.contains('dark')"));
+});
+
+it('keeps the bus links light too, since they share the component', function () {
+    // blank.blade.php carried its own guarded copy until it was folded into the
+    // component; the pages a supervisor books from went with it.
+    expect(file_get_contents(base_path('resources/views/layouts/blank.blade.php')))
+        ->toContain('<x-light-only />');
 });

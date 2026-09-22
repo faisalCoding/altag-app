@@ -20,8 +20,16 @@
     document.documentElement.classList.remove('dark');
 
     // The appearance script runs after this one and may put the class back.
+    //
+    // The read before the write is load-bearing, not defensive: classList.remove
+    // writes the class attribute even when the token was already absent, and that
+    // write is itself an attribute mutation. Removing unconditionally therefore
+    // feeds the observer its own output and the tab spins forever, which is what
+    // happened here — the page never finished loading.
     new MutationObserver(() => {
-        document.documentElement.classList.remove('dark');
+        if (document.documentElement.classList.contains('dark')) {
+            document.documentElement.classList.remove('dark');
+        }
     }).observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
 </script>
 
