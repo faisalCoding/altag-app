@@ -67,7 +67,7 @@ it('keeps the selection when a bulk change fails, so it can be retried', functio
         ->set('bulkStatusDate', '2026-09-05')
         ->call('applyBulkStatus');
 
-    expect($component->get('selectedStudentIds'))->toContain((string) $this->student->id);
+    expect($component->get('selectedIds'))->toContain((string) $this->student->id);
     expect($component->get('bulkStatusDate'))->toBe('2026-09-05');
 });
 

@@ -28,7 +28,7 @@ it('allows supervisor to bulk select and change circle of students', function ()
     $this->actingAs($this->supervisor, 'supervisor');
 
     Livewire::test(Students::class)
-        ->set('selectedStudentIds', [(string) $student1->id, (string) $student2->id])
+        ->set('selectedIds', [(string) $student1->id, (string) $student2->id])
         ->set('bulkCircleId', $this->circle2->id)
         ->call('applyBulkCircle')
         ->assertHasNoErrors();
@@ -50,7 +50,7 @@ it('allows supervisor to bulk change joined_at date of students', function () {
     $this->actingAs($this->supervisor, 'supervisor');
 
     Livewire::test(Students::class)
-        ->set('selectedStudentIds', [(string) $student1->id, (string) $student2->id])
+        ->set('selectedIds', [(string) $student1->id, (string) $student2->id])
         ->set('bulkJoinedAt', '2026-06-01')
         ->call('applyBulkJoinedAt')
         ->assertHasNoErrors();
@@ -72,7 +72,7 @@ it('allows supervisor to bulk change status of students', function () {
     $this->actingAs($this->supervisor, 'supervisor');
 
     Livewire::test(Students::class)
-        ->set('selectedStudentIds', [(string) $student1->id, (string) $student2->id])
+        ->set('selectedIds', [(string) $student1->id, (string) $student2->id])
         ->set('bulkStatus', 'suspended')
         ->call('applyBulkStatus')
         ->assertHasNoErrors();
@@ -93,7 +93,7 @@ it('accepts a Riyadh-dated bulk status change while UTC lags a day behind', func
     $this->actingAs($this->supervisor, 'supervisor');
 
     Livewire::test(Students::class)
-        ->set('selectedStudentIds', [(string) $student->id])
+        ->set('selectedIds', [(string) $student->id])
         ->set('bulkStatus', 'suspended')
         ->set('bulkStatusDate', now('Asia/Riyadh')->format('Y-m-d'))
         ->call('applyBulkStatus')
@@ -115,7 +115,7 @@ it('allows supervisor to bulk reset access tokens', function () {
     $this->actingAs($this->supervisor, 'supervisor');
 
     Livewire::test(Students::class)
-        ->set('selectedStudentIds', [(string) $student1->id, (string) $student2->id])
+        ->set('selectedIds', [(string) $student1->id, (string) $student2->id])
         ->call('applyBulkResetMagicLinks')
         ->assertHasNoErrors();
 
@@ -145,7 +145,7 @@ it('builds a copyable text of selected student names and magic links', function 
     $this->actingAs($this->supervisor, 'supervisor');
 
     $component = Livewire::test(Students::class)
-        ->set('selectedStudentIds', [(string) $student1->id, (string) $student2->id, (string) $outsider->id])
+        ->set('selectedIds', [(string) $student1->id, (string) $student2->id, (string) $outsider->id])
         ->assertSee('نسخ الأسماء والروابط')
         ->call('buildSelectedMagicLinksText')
         ->assertHasNoErrors();
@@ -171,7 +171,7 @@ it('issues a magic link token to selected students that never had one', function
     $this->actingAs($this->supervisor, 'supervisor');
 
     $text = Livewire::test(Students::class)
-        ->set('selectedStudentIds', [(string) $student->id])
+        ->set('selectedIds', [(string) $student->id])
         ->call('buildSelectedMagicLinksText')
         ->effects['returns'][0];
 
@@ -193,8 +193,8 @@ it('limits select all to the supervisor scope and the active filters', function 
     // Without filters, select all covers the supervisor's stage only.
     Livewire::test(Students::class)
         ->set('selectAll', true)
-        ->assertCount('selectedStudentIds', 2)
-        ->assertSet('selectedStudentIds', function (array $ids) use ($inScope, $inScopeOtherCircle) {
+        ->assertCount('selectedIds', 2)
+        ->assertSet('selectedIds', function (array $ids) use ($inScope, $inScopeOtherCircle) {
             sort($ids);
             $expected = [(string) $inScope->id, (string) $inScopeOtherCircle->id];
             sort($expected);
@@ -206,7 +206,7 @@ it('limits select all to the supervisor scope and the active filters', function 
     Livewire::test(Students::class)
         ->set('circleFilter', $this->circle->id)
         ->set('selectAll', true)
-        ->assertSet('selectedStudentIds', [(string) $inScope->id]);
+        ->assertSet('selectedIds', [(string) $inScope->id]);
 });
 
 it('adds to the selection when select all is ticked under a new filter', function () {
@@ -218,12 +218,12 @@ it('adds to the selection when select all is ticked under a new filter', functio
     $component = Livewire::test(Students::class)
         ->set('circleFilter', $this->circle->id)
         ->set('selectAll', true)
-        ->assertSet('selectedStudentIds', [(string) $inCircle->id])
+        ->assertSet('selectedIds', [(string) $inCircle->id])
         // Switching filter and ticking again accumulates instead of replacing.
         ->set('circleFilter', $this->circle2->id)
         ->set('selectAll', true);
 
-    $selected = $component->get('selectedStudentIds');
+    $selected = $component->get('selectedIds');
     sort($selected);
     $expected = [(string) $inCircle->id, (string) $inCircle2->id];
     sort($expected);
@@ -232,7 +232,7 @@ it('adds to the selection when select all is ticked under a new filter', functio
 
     // Unticking only drops the students the current filter shows.
     $component->set('selectAll', false)
-        ->assertSet('selectedStudentIds', [(string) $inCircle->id]);
+        ->assertSet('selectedIds', [(string) $inCircle->id]);
 });
 
 it('keeps selected students while the supervisor searches for more', function () {
@@ -242,11 +242,11 @@ it('keeps selected students while the supervisor searches for more', function ()
     $this->actingAs($this->supervisor, 'supervisor');
 
     Livewire::test(Students::class)
-        ->set('selectedStudentIds', [(string) $first->id])
+        ->set('selectedIds', [(string) $first->id])
         ->set('search', 'بدر')
-        ->assertSet('selectedStudentIds', [(string) $first->id])
+        ->assertSet('selectedIds', [(string) $first->id])
         ->set('statusFilter', 'approved')
-        ->assertSet('selectedStudentIds', [(string) $first->id]);
+        ->assertSet('selectedIds', [(string) $first->id]);
 });
 
 it('returns an empty magic links text when nothing is selected', function () {
@@ -271,7 +271,7 @@ it('allows supervisor to bulk delete students with strict confirmation', functio
 
     // Test with wrong confirmation input first
     Livewire::test(Students::class)
-        ->set('selectedStudentIds', [(string) $student1->id, (string) $student2->id])
+        ->set('selectedIds', [(string) $student1->id, (string) $student2->id])
         ->set('deleteConfirmationInput', 'wrong input')
         ->call('confirmBulkDelete')
         ->assertHasNoErrors();
@@ -281,7 +281,7 @@ it('allows supervisor to bulk delete students with strict confirmation', functio
 
     // Test with correct confirmation input
     Livewire::test(Students::class)
-        ->set('selectedStudentIds', [(string) $student1->id, (string) $student2->id])
+        ->set('selectedIds', [(string) $student1->id, (string) $student2->id])
         ->set('deleteConfirmationInput', 'تأكيد الحذف')
         ->call('confirmBulkDelete')
         ->assertHasNoErrors();

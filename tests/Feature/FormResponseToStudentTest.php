@@ -377,7 +377,7 @@ it('bulk deletes circle-less stage-assigned students', function () {
     ]);
 
     Livewire::test(SupervisorStudents::class)
-        ->set('selectedStudentIds', [(string) $student->id])
+        ->set('selectedIds', [(string) $student->id])
         ->set('deleteConfirmationInput', 'تأكيد الحذف')
         ->call('confirmBulkDelete');
 

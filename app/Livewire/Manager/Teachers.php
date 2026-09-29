@@ -2,8 +2,10 @@
 
 namespace App\Livewire\Manager;
 
+use App\Concerns\CopiesMagicLinks;
 use App\Models\Circle;
 use App\Models\Teacher;
+use App\Support\HijriDate;
 use Flux\Flux;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
@@ -11,6 +13,8 @@ use Livewire\Component;
 
 class Teachers extends Component
 {
+    use CopiesMagicLinks;
+
     public $teachers;
 
     public $circles;
@@ -40,9 +44,12 @@ class Teachers extends Component
         $this->loadData();
     }
 
-    public function loadData()
+    /**
+     * The list as the filters on screen describe it. Shared with the selection,
+     * so ticking the header checkbox picks exactly the rows a manager can see.
+     */
+    protected function listQuery()
     {
-        $this->circles = Circle::with('stage')->get();
         $query = Teacher::with('circles');
 
         if ($this->search) {
@@ -64,7 +71,13 @@ class Teachers extends Component
             });
         }
 
-        $this->teachers = $query->latest()->get();
+        return $query->latest();
+    }
+
+    public function loadData()
+    {
+        $this->circles = Circle::with('stage')->get();
+        $this->teachers = $this->listQuery()->get();
     }
 
     public function updatedSearch()
@@ -199,8 +212,64 @@ class Teachers extends Component
         $this->reset(['name', 'email', 'phone', 'selectedCircles', 'editingTeacherId']);
     }
 
+    /**
+     * Everyone this directory may act on. A manager sees the whole academy, so
+     * nothing is excluded here — the narrowing happens in filteredQuery().
+     */
+    protected function selectableQuery()
+    {
+        return Teacher::query();
+    }
+
+    /**
+     * The same set as the list on screen, so ticking the header checkbox picks
+     * exactly the rows the manager can see.
+     */
+    protected function filteredQuery()
+    {
+        return $this->listQuery();
+    }
+
+    protected function magicLinkRoute(): string
+    {
+        return 'teacher.magic-link';
+    }
+
+    protected function magicLinkAudience(): string
+    {
+        return 'المعلمون';
+    }
+
+    public function copySelectedMagicLinks(): void
+    {
+        // Nothing to do here but let the render pass rebuild the text; the
+        // button reads it out of the view and hands it to the clipboard.
+    }
+
+    public function regenerateSelected(): void
+    {
+        $count = $this->regenerateSelectedMagicLinks();
+
+        if ($count === 0) {
+            Flux::toast(__('لم يُحدَّد أحد.'), variant: 'danger');
+
+            return;
+        }
+
+        $this->resetSelection();
+        $this->loadData();
+
+        Flux::toast(
+            __('أُبطلت الروابط القديمة وأُنشئت :count روابط جديدة.', ['count' => HijriDate::arabicDigits($count)]),
+            variant: 'success',
+        );
+    }
+
     public function render()
     {
-        return view('livewire.manager.teachers');
+        return view('livewire.manager.teachers', [
+            'selectedMagicLinksText' => $this->buildSelectedMagicLinksText(),
+            'selectedOutsideFilters' => $this->selectedOutsideFiltersCount(),
+        ]);
     }
 }
