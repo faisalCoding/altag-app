@@ -6,6 +6,7 @@ use App\Models\Attendance;
 use App\Models\Circle;
 use App\Support\HijriDate;
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Livewire\Component;
 use Mccarlosen\LaravelMpdf\Facades\LaravelMpdf;
@@ -53,6 +54,32 @@ class AttendanceReports extends Component
         return $this->hijri($gregorianDate, 'MMMM yyyy');
     }
 
+    /**
+     * The circles, stage by stage, in the order the academy arranged its stages.
+     *
+     * This used to order by stage_id, which is the order the stages happened to
+     * be created in — so arranging them on the stages page moved them
+     * everywhere except the one report that lists them all.
+     *
+     * The join is what makes it work: the stage model's own ordering never
+     * reaches a query that starts from circles.
+     *
+     * @return Collection<int, Circle>
+     */
+    private function circlesInAcademyOrder()
+    {
+        return Circle::with('stage')
+            ->withCount(['students' => fn ($q) => $q->where('status', 'active')])
+            ->leftJoin('stages', 'stages.id', '=', 'circles.stage_id')
+            ->select('circles.*')
+            // Circles with no stage at all sit at the end rather than the front,
+            // where a null position would otherwise put them.
+            ->orderByRaw('stages.position is null, stages.position')
+            ->orderBy('stages.name')
+            ->orderBy('circles.name')
+            ->get();
+    }
+
     private function hijri($gregorianDate, string $pattern): string
     {
         if (! $gregorianDate) {
@@ -82,9 +109,7 @@ class AttendanceReports extends Component
             $d->addDay();
         }
 
-        $circles = Circle::with('stage')
-            ->withCount(['students' => fn ($q) => $q->where('status', 'active')])
-            ->orderBy('stage_id')->orderBy('name')->get();
+        $circles = $this->circlesInAcademyOrder();
         $groupedCircles = $circles->groupBy(fn ($c) => $c->stage->name ?? 'بدون مرحلة');
 
         $records = Attendance::query()
@@ -149,9 +174,7 @@ class AttendanceReports extends Component
 
         // Fetch all circles grouped by stage (with student count, excluding
         // students still under registration)
-        $circles = Circle::with('stage')
-            ->withCount(['students' => fn ($q) => $q->where('status', 'active')])
-            ->orderBy('stage_id')->orderBy('name')->get();
+        $circles = $this->circlesInAcademyOrder();
         $groupedCircles = $circles->groupBy(fn ($c) => $c->stage->name ?? 'بدون مرحلة');
 
         // Fetch aggregated attendance per circle per day
