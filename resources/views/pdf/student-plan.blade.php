@@ -109,8 +109,8 @@
 
     <div class="header">
         <div class="logo-container">
-            @if(file_exists(public_path('images/altag_logo.png')))
-                <img src="{{ public_path('images/altag_logo.png') }}" alt="Logo">
+            @if(file_exists(App\Support\Branding::logoFilePath()))
+                <img src="{{ App\Support\Branding::logoFilePath() }}" alt="Logo">
             @endif
         </div>
         <h1>

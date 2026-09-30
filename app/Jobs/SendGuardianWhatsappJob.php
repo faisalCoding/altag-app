@@ -17,6 +17,19 @@ class SendGuardianWhatsappJob implements ShouldQueue
      */
     public int $timeout = 120;
 
+    /**
+     * Sessions are closed when idle and woken by the first message, so a refusal
+     * is usually "not warm yet" rather than "will never work". The message waits
+     * rather than being dropped, which is what the old swallow-and-log did.
+     */
+    public int $tries = 5;
+
+    /** @return array<int, int> */
+    public function backoff(): array
+    {
+        return [30, 60, 120, 300];
+    }
+
     public function __construct(
         public string $phone,
         public string $message,
@@ -51,9 +64,18 @@ class SendGuardianWhatsappJob implements ShouldQueue
                 'message' => $this->message,
             ]);
 
-            if (! $response->successful()) {
-                Log::error("Failed to send WhatsApp to guardian phone {$phone}: ".$response->body());
+            if ($response->successful()) {
+                return;
             }
+
+            // The gateway says so itself when a session is merely warming up.
+            if ((bool) $response->json('retryable') && $this->attempts() < $this->tries) {
+                $this->release($this->backoff()[$this->attempts() - 1] ?? 300);
+
+                return;
+            }
+
+            Log::error("Failed to send WhatsApp to guardian phone {$phone}: ".$response->body());
         } catch (\Exception $e) {
             Log::error("Exception while sending WhatsApp to guardian phone {$phone}: ".$e->getMessage());
         }

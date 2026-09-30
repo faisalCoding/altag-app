@@ -2,7 +2,7 @@
 
 namespace App\Livewire\Supervisor;
 
-use App\Concerns\CopiesStudentMagicLinks;
+use App\Concerns\CopiesMagicLinks;
 use App\Models\Circle;
 use App\Models\Guardian;
 use App\Models\Student;
@@ -15,7 +15,13 @@ use Livewire\WithPagination;
 
 class Students extends Component
 {
-    use CopiesStudentMagicLinks, WithPagination;
+    // The component adds its own step to clearing a selection, so the trait's
+    // version is aliased rather than shadowed — shadowing it made the override
+    // call itself.
+    use CopiesMagicLinks {
+        resetSelection as protected clearMagicLinkSelection;
+    }
+    use WithPagination;
 
     public $circles;
 
@@ -91,12 +97,22 @@ class Students extends Component
         });
     }
 
-    protected function selectableStudentsQuery()
+    protected function magicLinkRoute(): string
+    {
+        return 'magic-link';
+    }
+
+    protected function magicLinkAudience(): string
+    {
+        return 'الطلاب';
+    }
+
+    protected function selectableQuery()
     {
         return $this->scopeToSupervisor(Student::query());
     }
 
-    protected function filteredStudentsQuery()
+    protected function filteredQuery()
     {
         $query = $this->scopeToSupervisor(Student::with(['circle.stage', 'stage', 'guardian']));
 
@@ -140,7 +156,7 @@ class Students extends Component
 
     public function resetSelection(): void
     {
-        $this->resetStudentSelection();
+        $this->clearMagicLinkSelection();
         $this->deleteConfirmationInput = '';
     }
 
@@ -158,7 +174,7 @@ class Students extends Component
             return;
         }
 
-        $count = $this->selectedStudentsQuery()->update([
+        $count = $this->selectedQuery()->update([
             'circle_id' => $this->bulkCircleId ?: null,
         ]);
 
@@ -175,7 +191,7 @@ class Students extends Component
             'bulkJoinedAt' => 'required|date',
         ]);
 
-        $count = $this->selectedStudentsQuery()->update([
+        $count = $this->selectedQuery()->update([
             'joined_at' => $this->bulkJoinedAt,
         ]);
 
@@ -196,20 +212,40 @@ class Students extends Component
             'bulkStatusDate.before_or_equal' => __('تاريخ سريان الحالة لا يمكن أن يكون في المستقبل'),
         ]);
 
-        $students = $this->selectedStudentsQuery()->get();
+        $students = $this->selectedQuery()->get();
         $count = 0;
-        $skipped = 0;
+        $skipped = collect();
+
         foreach ($students as $student) {
             try {
                 StudentStatusService::changeStatus($student, $this->bulkStatus, $this->bulkStatusDate ?: null);
                 $count++;
             } catch (\InvalidArgumentException $e) {
-                $skipped++;
+                $skipped->push($student->name);
             }
         }
 
-        if ($skipped > 0) {
-            Flux::toast(__('تم تخطي '.$skipped.' طلاب لأن التاريخ يسبق سجلات حالاتهم الحالية'), variant: 'warning');
+        // Nothing changed, so nothing is closed or cleared: the selection and the
+        // chosen date stay put to be corrected. Reporting success here — which is
+        // what a bare count did — is how "the status does not change" becomes a
+        // thing that happens silently.
+        if ($count === 0 && $skipped->isNotEmpty()) {
+            Flux::toast(
+                __('لم تتغيّر أي حالة. التاريخ المختار يسبق آخر سجل حالة لهؤلاء الطلاب: ')
+                    .$skipped->take(3)->implode('، ')
+                    .($skipped->count() > 3 ? __(' وغيرهم') : '')
+                    .__('. اختر تاريخاً أحدث، أو صحّح سجل الحالة من صفحة الطالب.'),
+                variant: 'danger',
+            );
+
+            return;
+        }
+
+        if ($skipped->isNotEmpty()) {
+            Flux::toast(
+                __('تُخطّي '.$skipped->count().' طالباً لأن التاريخ يسبق آخر سجل حالة لهم: ').$skipped->take(3)->implode('، '),
+                variant: 'warning',
+            );
         }
 
         $this->resetSelection();
@@ -217,12 +253,12 @@ class Students extends Component
         $this->bulkStatusDate = '';
 
         Flux::modal('bulk-status-modal')->close();
-        Flux::toast(__('تم تغيير حالة '.$count.' طلاب بنجاح'), variant: 'success');
+        Flux::toast(__('تم تغيير حالة '.$count.' طالباً بنجاح'), variant: 'success');
     }
 
     public function applyBulkResetMagicLinks(): void
     {
-        $students = $this->selectedStudentsQuery()->get();
+        $students = $this->selectedQuery()->get();
         $count = $students->count();
 
         foreach ($students as $student) {
@@ -244,7 +280,7 @@ class Students extends Component
             return;
         }
 
-        $students = $this->selectedStudentsQuery()->get();
+        $students = $this->selectedQuery()->get();
         $count = $students->count();
 
         foreach ($students as $student) {
@@ -366,7 +402,7 @@ class Students extends Component
     public function render()
     {
         return view('livewire.supervisor.students', [
-            'students' => $this->filteredStudentsQuery()->paginate(20),
+            'students' => $this->filteredQuery()->paginate(20),
             'selectedMagicLinksText' => $this->buildSelectedMagicLinksText(),
             'selectedOutsideFilters' => $this->selectedOutsideFiltersCount(),
         ])->layout('layouts.role-shell');

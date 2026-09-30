@@ -29,7 +29,7 @@ new class extends Component {
 
     public function getStagesProperty()
     {
-        return Stage::orderBy('name')->get();
+        return Stage::get();
     }
 
     public function getCirclesProperty()

@@ -5,6 +5,8 @@ use App\Http\Controllers\Student\StudentPlanPrintController;
 use App\Http\Controllers\Teacher\TasmeehDataController;
 use App\Livewire\Auth\Student\Register;
 use App\Livewire\Manager\PendingApprovals;
+use App\Livewire\Public\BusBooking;
+use App\Livewire\Public\BusOfficer;
 use App\Livewire\Public\CircleReport as PublicCircleReport;
 use App\Livewire\Public\CoinRedemption as PublicCoinRedemption;
 use App\Livewire\Public\FormReport;
@@ -113,6 +115,7 @@ Route::middleware(['auth:manager', 'approved', 'page.enabled'])->prefix('manager
     Route::view('/circles', 'manager.circles')->name('circles');
     Route::view('/promotion-ladder', 'manager.promotion-ladder')->name('promotion-ladder');
     Route::view('/promotions', 'manager.promotions')->name('promotions');
+    Route::view('/bus-bookings', 'manager.bus-bookings')->name('bus-bookings');
     Route::view('/supervisors', 'manager.supervisors')->name('supervisors');
     Route::view('/teachers', 'manager.teachers')->name('teachers');
     Route::view('/students', 'manager.students')->name('students');
@@ -182,6 +185,7 @@ Route::middleware(['auth:supervisor', 'approved', 'page.enabled', 'surveys.requi
     Route::view('/academic-calendar', 'supervisor.academic-calendar')->name('academic-calendar');
     Route::view('/yearly-attendance', 'supervisor.yearly-attendance')->name('yearly-attendance');
     Route::view('/tasks', 'supervisor.tasks')->name('tasks');
+    Route::view('/settings', 'supervisor.settings')->name('settings');
     Route::view('/whatsapp-settings', 'supervisor.whatsapp-settings')->name('whatsapp-settings');
     Route::view('/messages', 'supervisor.messages')->name('messages');
 
@@ -394,6 +398,11 @@ Route::get('/quran-json', function () {
 Route::get('/test', function () {})->name('test');
 
 Route::get('/f/{slug}', FormSubmit::class)->name('forms.submit');
+
+// حجز الباصات: صفحتان عامتان يصل إليهما المشرفون والمسؤول بالرابط وحده، بلا
+// حساب. الرمز يُفحص داخل المكوّن، ومن يملكه يستعمل الصفحة.
+Route::get('/bus-booking/{token}', BusBooking::class)->name('bus.book');
+Route::get('/bus-officer/{token}', BusOfficer::class)->name('bus.officer');
 Route::get('/f/{slug}/{token}', FormReport::class)->name('forms.report');
 
 // Where the survey gate sends anyone who owes a blocking survey. Reachable from

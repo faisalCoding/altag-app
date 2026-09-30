@@ -1,3 +1,28 @@
+@php
+    use App\Support\Branding;
+    use App\Support\HijriDate;
+
+    $ar = fn ($n) => HijriDate::arabicDigits((int) $n);
+    $brand = Branding::color();
+    $brandDark = Branding::shade($brand, 0.55);
+
+    // mPDF does not read #RRGGBBAA, so a tint has to be mixed against white
+    // here rather than written as an alpha — the stage rows came out solid.
+    $tint = '#'.collect(str_split(substr($brand, 1), 2))
+        ->map(fn ($pair) => str_pad(dechex((int) round(hexdec($pair) * 0.12 + 255 * 0.88)), 2, '0', STR_PAD_LEFT))
+        ->implode('');
+
+    // Grouped here rather than in the table, so the header markup stays readable.
+    $monthGroups = [];
+    foreach ($dates as $d) {
+        $label = HijriDate::monthYear($d);
+        if ($monthGroups && end($monthGroups)['label'] === $label) {
+            $monthGroups[count($monthGroups) - 1]['span']++;
+        } else {
+            $monthGroups[] = ['label' => $label, 'span' => 1];
+        }
+    }
+@endphp
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 
@@ -5,217 +30,184 @@
     <meta charset="UTF-8">
     <title>تقرير الحضور والغياب</title>
     <style>
-        body {
-            margin: 0;
-            padding: 16px;
-            font-size: 10px;
-            font-family: 'Tajawal', 'DejaVu Sans', sans-serif;
-        }
+        /* Lama Sans, registered with mPDF in config/pdf.php — a sheet printed
+           from a screen should be set in the face that screen was read in. */
+        body { font-family: lamasans, sans-serif; font-size: 9px; color: #27272a; margin: 0; }
 
-        .header {
-            text-align: center;
-            margin-bottom: 16px;
-        }
+        .brandbar { height: 3px; background-color: {{ $brand }}; }
 
-        .header img {
-            height: 60px;
-            margin-bottom: 8px;
-            object-fit: contain;
-        }
+        .head { padding: 10px 0 6px 0; }
+        .head td { border: none; padding: 0; vertical-align: middle; }
+        .head .logo { width: 56px; }
+        .head h1 { font-size: 14px; margin: 0; font-weight: bold; color: {{ $brandDark }}; }
+        .head .academy { font-size: 9px; color: #71717a; margin: 2px 0 0 0; }
+        .head .meta { text-align: left; font-size: 8px; color: #71717a; line-height: 1.6; }
 
-        .header h1 {
-            font-size: 16px;
-            margin: 0 0 4px 0;
-            font-weight: bold;
-        }
-
-        .header p {
-            margin: 0;
-            color: #555;
-            font-size: 12px;
-        }
-
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            table-layout: auto;
-        }
-
-        th, td {
-            border: 1px solid #d1d5db;
+        table.grid { width: 100%; border-collapse: collapse; }
+        table.grid th, table.grid td {
+            border: 0.5px solid #d4d4d8;
             padding: 3px 4px;
             text-align: center;
             vertical-align: middle;
         }
 
-        /* Sticky-like header */
-        th {
-            background-color: #f1f5f9;
-            font-weight: bold;
-            color: #374151;
-        }
+        table.grid thead th { background-color: #fafafa; font-weight: bold; color: #3f3f46; }
+        .monthcell { font-size: 8px; color: #71717a; font-weight: normal; }
+        .daycell { font-size: 8px; line-height: 1.3; }
+        .dayname { color: #a1a1aa; font-weight: normal; }
 
-        /* Stage separator row */
-        .stage-row td {
-            background-color: #e2e8f0;
+        .namecol { text-align: right; padding-right: 8px; width: 16%; }
+
+        .stagerow td {
+            background-color: {{ $tint }};
+            color: {{ $brandDark }};
             font-weight: bold;
             text-align: right;
-            padding-right: 12px;
-            font-size: 11px;
+            padding: 4px 8px;
+            font-size: 10px;
         }
 
-        /* Circle name cell */
-        .circle-name {
-            text-align: right;
-            padding-right: 8px;
-            font-weight: 500;
-            color: #374151;
-        }
+        .present { font-weight: bold; }
+        .of { color: #a1a1aa; }
+        .none { color: #d4d4d8; }
 
-        /* Cell data */
-        .present { color: #16a34a; font-weight: bold; }
-        .total-num { color: #6b7280; }
-        .dash { color: #d1d5db; }
+        .totalcol { background-color: #fafafa; width: 9%; }
+        .totalcol .big { font-weight: bold; font-size: 11px; color: {{ $brandDark }}; }
+        .totalcol .sub { font-size: 7px; color: #71717a; }
 
-        /* Total column */
-        .col-total {
-            background-color: #f8fafc;
-            font-weight: bold;
-        }
+        tfoot td { background-color: #f4f4f5; font-weight: bold; }
+        tfoot .namecol { color: {{ $brandDark }}; }
 
-        /* Grand total row */
-        .grand-total td {
-            background-color: #e2e8f0;
-            font-weight: bold;
-        }
-
-        .grand-total .circle-name {
-            background-color: #cbd5e1;
-        }
+        .foot { font-size: 7px; color: #a1a1aa; text-align: center; }
     </style>
 </head>
 
 <body>
-    <div class="header">
-        <img src="{{ public_path('images/altag_logo.png') }}" alt="Logo">
-        <h1>تقرير الحضور والغياب للحلقات</h1>
-        @php
-            @endphp
-        <p>الفترة من: {{ \App\Support\HijriDate::full($fromDate) }} إلى {{ \App\Support\HijriDate::full($toDate) }}</p>
-    </div>
 
-    <table>
-        <thead>
-            {{-- Month row --}}
-            <tr>
-                <th rowspan="2" style="width: 15%; text-align: right; padding-right: 8px;">الحلقة / المرحلة</th>
-                @php
-                    $monthGroups = [];
-                    $prevMonth = null;
-                    foreach ($dates as $d) {
-                        $m = \App\Support\HijriDate::format($d, 'MMM yyyy');
-                        if ($m === $prevMonth) {
-                            $monthGroups[count($monthGroups) - 1]['span']++;
-                        } else {
-                            $monthGroups[] = ['label' => $m, 'span' => 1];
-                            $prevMonth = $m;
-                        }
-                    }
-                @endphp
-                @foreach($monthGroups as $mg)
-                    <th colspan="{{ $mg['span'] }}" style="font-size: 8px;">{{ $mg['label'] }}</th>
-                @endforeach
-                <th rowspan="2" class="col-total" style="width: 10%;">الإجمالي<br>(حضور / مشاركون)</th>
-            </tr>
-            {{-- Day row --}}
-            <tr>
-                @foreach($dates as $date)
-                    @php
-                        $dayNum  = \App\Support\HijriDate::format($date, 'd');
-                        $dayName = \App\Support\HijriDate::format($date, 'E');
-                    @endphp
-                    <th style="font-size: 8px; max-width: 28px;">{{ $dayNum }}<br>{{ $dayName }}</th>
-                @endforeach
-            </tr>
-        </thead>
-        <tbody>
-            @php
-                $grandTotalPresent      = 0;
-                $grandTotalParticipants = 0;
-                $grandPerDay            = array_fill_keys($dates, ['present' => 0, 'total' => 0]);
-            @endphp
+<div class="brandbar"></div>
 
-            @foreach($groupedCircles as $stageName => $circles)
-                {{-- Stage Row --}}
-                <tr class="stage-row">
-                    <td colspan="{{ count($dates) + 2 }}">{{ $stageName }}</td>
-                </tr>
+{{-- A table rather than floats: mPDF lays those out poorly, and the header has
+     three columns that must sit on one line. --}}
+<table class="head">
+    <tr>
+        {{-- Sized with the attribute, not with CSS: mPDF reads the attribute and
+             ignores the rule, and the logo came out filling the page. --}}
+        <td class="logo"><img src="{{ Branding::logoFilePath() }}" width="48" alt=""></td>
+        <td>
+            <h1>تقرير الحضور والغياب</h1>
+            <p class="academy">{{ Branding::siteName() }}</p>
+        </td>
+        <td class="meta">
+            من {{ HijriDate::full($fromDate) }}<br>
+            إلى {{ HijriDate::full($toDate) }}<br>
+            {{ $stageNames ?? 'كل المراحل' }}
+        </td>
+    </tr>
+</table>
 
-                @foreach($circles as $circle)
-                    @php
-                        $circleTotalPresent      = 0;
-                        $circleGlobalTotal       = 0;
-                        $daysWithData            = 0;
-                    @endphp
-                    <tr>
-                        <td class="circle-name">{{ $circle->name }}</td>
-
-                        @foreach($dates as $date)
-                            @php
-                                $cell = $attendanceData[$circle->id][$date] ?? null;
-                                if ($cell) {
-                                    $circleTotalPresent      += $cell['present'];
-                                    $circleGlobalTotal       += $cell['total'];
-                                    $grandPerDay[$date]['present'] += $cell['present'];
-                                    $grandPerDay[$date]['total']   += $cell['total'];
-                                    $daysWithData++;
-                                }
-                            @endphp
-                            <td>
-                                @if($cell)
-                                    <span class="present">{{ $cell['present'] }}</span><span class="total-num">/{{ $cell['total'] }}</span>
-                                @else
-                                    <span class="dash">—</span>
-                                @endif
-                            </td>
-                        @endforeach
-
-                        @php
-                            $grandTotalPresent      += $circleTotalPresent;
-                            $grandTotalParticipants += $circleGlobalTotal;
-                            $avgTotal = $daysWithData > 0 ? round($circleGlobalTotal / $daysWithData) : 0;
-                        @endphp
-                        <td class="col-total">
-                            <span class="present">{{ $circleTotalPresent }}</span><br>
-                            <small style="color: #6b7280;">متوسط: {{ $avgTotal }}</small><br>
-                            <small style="color: #3b82f6;">المشاركون: {{ $circleGlobalTotal }}</small>
-                        </td>
-                    </tr>
-                @endforeach
+<table class="grid">
+    <thead>
+        <tr>
+            <th rowspan="2" class="namecol">الحلقة</th>
+            @foreach ($monthGroups as $group)
+                <th colspan="{{ $group['span'] }}" class="monthcell">{{ $group['label'] }}</th>
             @endforeach
-        </tbody>
+            <th rowspan="2" class="totalcol">الإجمالي</th>
+        </tr>
+        <tr>
+            @foreach ($dates as $date)
+                <th class="daycell">
+                    {{-- format() already returns Arabic-Indic digits; running them through
+                         arabicDigits() again cast «١٣» to an int and printed ٠. --}}
+                    <span class="dayname">{{ HijriDate::weekday($date) }}</span><br>{{ HijriDate::format($date, 'd') }}
+                </th>
+            @endforeach
+        </tr>
+    </thead>
 
-        {{-- Grand Total Footer --}}
+    <tbody>
+        @php
+            $grandPresent = 0;
+            $grandParticipants = 0;
+            $perDay = array_fill_keys($dates, ['present' => 0, 'total' => 0]);
+        @endphp
+
+        @forelse ($groupedCircles as $stageName => $circles)
+            <tr class="stagerow">
+                <td colspan="{{ count($dates) + 2 }}">{{ $stageName }}</td>
+            </tr>
+
+            @foreach ($circles as $circle)
+                @php
+                    $present = 0;
+                    $participants = 0;
+                    $daysWithData = 0;
+                @endphp
+                <tr>
+                    <td class="namecol">{{ $circle->name }}</td>
+
+                    @foreach ($dates as $date)
+                        @php
+                            $cell = $attendanceData[$circle->id][$date] ?? null;
+                            if ($cell) {
+                                $present += $cell['present'];
+                                $participants += $cell['total'];
+                                $perDay[$date]['present'] += $cell['present'];
+                                $perDay[$date]['total'] += $cell['total'];
+                                $daysWithData++;
+                            }
+                        @endphp
+                        <td>
+                            @if ($cell)
+                                <span class="present">{{ $ar($cell['present']) }}</span><span class="of">/{{ $ar($cell['total']) }}</span>
+                            @else
+                                <span class="none">—</span>
+                            @endif
+                        </td>
+                    @endforeach
+
+                    @php
+                        $grandPresent += $present;
+                        $grandParticipants += $participants;
+                    @endphp
+                    <td class="totalcol">
+                        <span class="big">{{ $ar($present) }}</span><span class="of">/{{ $ar($participants) }}</span><br>
+                        <span class="sub">متوسط {{ $ar($daysWithData > 0 ? round($participants / $daysWithData) : 0) }}</span>
+                    </td>
+                </tr>
+            @endforeach
+        @empty
+            <tr>
+                <td colspan="{{ count($dates) + 2 }}" style="padding: 24px; color: #a1a1aa;">
+                    لا حلقات في المراحل المختارة.
+                </td>
+            </tr>
+        @endforelse
+    </tbody>
+
+    @if (count($groupedCircles) > 0)
         <tfoot>
-            <tr class="grand-total">
-                <td class="circle-name">الإجمالي الكلي</td>
-                @foreach($dates as $date)
+            <tr>
+                <td class="namecol">الإجمالي الكلي</td>
+                @foreach ($dates as $date)
                     <td>
-                        @if($grandPerDay[$date]['total'] > 0)
-                            <span class="present">{{ $grandPerDay[$date]['present'] }}</span>
-                            <span class="total-num">/{{ $grandPerDay[$date]['total'] }}</span>
+                        @if ($perDay[$date]['total'] > 0)
+                            <span class="present">{{ $ar($perDay[$date]['present']) }}</span><span class="of">/{{ $ar($perDay[$date]['total']) }}</span>
                         @else
-                            <span class="dash">—</span>
+                            <span class="none">—</span>
                         @endif
                     </td>
                 @endforeach
-                <td class="col-total">
-                    <span class="present">{{ $grandTotalPresent }}</span><br>
-                    <small style="color: #3b82f6;">المشاركون: {{ $grandTotalParticipants }}</small>
+                <td class="totalcol">
+                    <span class="big">{{ $ar($grandPresent) }}</span><span class="of">/{{ $ar($grandParticipants) }}</span>
                 </td>
             </tr>
         </tfoot>
-    </table>
+    @endif
+</table>
+
+<p class="foot">طُبع في {{ HijriDate::full(now('Asia/Riyadh')) }} · الرقم الأول حضور والثاني عدد المشاركين</p>
+
 </body>
 
 </html>

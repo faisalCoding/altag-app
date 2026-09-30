@@ -28,6 +28,32 @@
         </div>
     </div>
 
+    {{-- ─────────── تصفية المراحل ─────────── --}}
+    {{-- Nothing ticked means the whole academy, so the report opens complete
+         and narrows only when the manager asks it to. --}}
+    <div class="mx-6 mb-6 rounded-xl border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-800/50">
+        <div class="flex flex-wrap items-center gap-2">
+            <span class="text-xs font-medium text-zinc-500 me-1">المراحل:</span>
+
+            @foreach ($stages as $stage)
+                <label wire:key="stage-filter-{{ $stage->id }}"
+                    class="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs transition-colors
+                        {{ in_array((string) $stage->id, array_map('strval', $stageIds), true)
+                            ? 'border-maroon bg-maroon/10 text-maroon dark:text-red-secondary font-bold'
+                            : 'border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-white dark:hover:bg-zinc-800' }}">
+                    <input type="checkbox" wire:model.live="stageIds" value="{{ $stage->id }}" class="sr-only">
+                    {{ $stage->name }}
+                </label>
+            @endforeach
+
+            @if (count($stageIds) > 0)
+                <flux:button size="xs" variant="ghost" wire:click="clearStages">كل المراحل</flux:button>
+            @else
+                <span class="text-xs text-zinc-400">— الكل</span>
+            @endif
+        </div>
+    </div>
+
 
     {{-- Main Grid Table --}}
     <div class="mx-6 mb-6">
@@ -77,8 +103,10 @@
                         <tr>
                             @foreach($dates as $date)
                                 <th class="bg-zinc-50 dark:bg-zinc-800/70 border border-zinc-200 dark:border-zinc-700 px-1 py-1 text-center">
-                                    <div class="text-xs font-bold text-zinc-700 dark:text-zinc-300">{{ $this->formatHijriDayNum($date) }}</div>
+                                    {{-- Weekday above the number, as the month sheet
+                                         already reads. --}}
                                     <div class="text-[10px] text-zinc-400">{{ $this->formatHijriDayName($date) }}</div>
+                                    <div class="text-xs font-bold text-zinc-700 dark:text-zinc-300">{{ $this->formatHijriDayNum($date) }}</div>
                                 </th>
                             @endforeach
                         </tr>

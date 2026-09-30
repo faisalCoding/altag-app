@@ -14,6 +14,8 @@
 
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 
+    <x-branding-styles />
+
     {{-- No @fluxAppearance here on purpose: it re-applies the app/system
          appearance and would fight the page's own theme toggle. This page is
          dark by default and the toggle persists the operator's choice. --}}

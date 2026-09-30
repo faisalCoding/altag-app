@@ -12,6 +12,7 @@ use App\Models\Teacher;
 use App\Services\GamificationService;
 use App\Services\GuardianNotificationService;
 use App\Support\HijriDate;
+use App\Support\StudentStatus;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
 use Flux\Flux;
@@ -166,9 +167,11 @@ class AttendanceSheet extends Component
         return Student::where('circle_id', $this->circleId)
             ->whereRoleState(fn ($q) => $q->where('is_approved', true))
             ->where(function ($query) use ($end) {
-                $query->whereNull('joined_at')->orWhere('joined_at', '<=', $end);
+                // whereDate: the stored value carries a midnight time, so a
+                // string comparison drops anyone who joined on the last day.
+                $query->whereNull('joined_at')->orWhereDate('joined_at', '<=', $end);
             })
-            ->with(['statusHistories' => fn ($q) => $q->orderBy('start_date')->orderBy('id')])
+            ->with('statusHistories')
             ->orderBy('name')
             ->get();
     }
@@ -204,14 +207,104 @@ class AttendanceSheet extends Component
     }
 
     /**
+     * Whether this circle's stage still asks for a reason on an off-day edit.
+     *
+     * A stage with no answer — or a circle attached to no stage — keeps the
+     * requirement, so the rule can only ever be relaxed deliberately.
+     */
+    #[Computed]
+    public function reasonRequired(): bool
+    {
+        $stage = Circle::with('stage')->find($this->circleId)?->stage;
+
+        return $stage?->require_edit_reason ?? true;
+    }
+
+    /**
+     * Why a cell cannot be written in, phrased for the teacher looking at it.
+     *
+     * The grid greys a cell out without saying why, and the reasons are not
+     * interchangeable: a day before the student enrolled is not the same as a
+     * day they were suspended, and a teacher chasing a gap in the register needs
+     * to know which. Only blocked cells appear here.
+     *
+     * @return array<string, string> "student_id|date" => reason
+     */
+    #[Computed]
+    public function blockedReasons(): array
+    {
+        $reasons = [];
+
+        foreach ($this->students as $student) {
+            $joined = $student->joined_at ? Carbon::parse($student->joined_at)->toDateString() : null;
+
+            foreach ($this->days as $day) {
+                $date = $day['date'];
+
+                if ($day['is_future']) {
+                    $reasons[$student->id.'|'.$date] = 'هذا اليوم لم يأتِ بعد، فلا يمكن تحضيره.';
+
+                    continue;
+                }
+
+                if ($joined !== null && $date < $joined) {
+                    $reasons[$student->id.'|'.$date] = 'لم يكن الطالب قد التحق بالمجمع بعد — التحق في '
+                        .HijriDate::full($joined).'.';
+
+                    continue;
+                }
+
+                $status = $this->statusOnDate($student, $date);
+
+                if ($status !== 'active') {
+                    // Named as a status rather than described, and in the same words
+                    // the student's own page uses, so the two can be matched up.
+                    $reasons[$student->id.'|'.$date] = 'حالة الطالب في هذا اليوم: '
+                        .StudentStatus::label($status)
+                        .$this->becameActiveOn($student, $date);
+                }
+            }
+        }
+
+        return $reasons;
+    }
+
+    /**
+     * " — صار مشاركاً في ..." when the student became active after this date.
+     *
+     * Without it the teacher is told only that the day is closed, and a status
+     * that was corrected today reads identically to one never corrected at all —
+     * which is exactly the moment someone concludes the sheet is broken. Naming
+     * the date says instead that the correction landed, and where it starts.
+     */
+    private function becameActiveOn(Student $student, string $date): string
+    {
+        $return = $student->statusHistories
+            ->filter(fn ($row) => $row->status === 'active'
+                && Carbon::parse($row->start_date)->toDateString() > $date)
+            ->sortBy([['start_date', 'asc'], ['id', 'asc']])
+            ->first();
+
+        return $return
+            ? ' — صار مشاركاً في '.HijriDate::full($return->start_date).'.'
+            : '.';
+    }
+
+    /**
      * A student's enrolment status on a date, from their history, falling back
      * to their current status when the history says nothing yet.
      */
     private function statusOnDate(Student $student, string $date): string
     {
+        // Sorted here rather than trusted from the query: the relation itself is
+        // declared newest-first, so an orderBy added to the eager load only
+        // appends a second clause and changes nothing — and this read wants the
+        // newest row at or before the date, the same row the SQL in
+        // Attendance::activeStatusOnDateSql() picks.
         $history = $student->statusHistories
             ->filter(fn ($row) => Carbon::parse($row->start_date)->toDateString() <= $date)
-            ->last();
+            ->sortBy([['start_date', 'desc'], ['id', 'desc']])
+            ->first();
 
         return $history->status ?? $student->status;
     }
@@ -320,7 +413,7 @@ class AttendanceSheet extends Component
 
         $offDay = collect($valid)->filter(fn (array $change) => $change['date'] !== $today);
 
-        if ($offDay->isNotEmpty() && $reason === '') {
+        if ($offDay->isNotEmpty() && $reason === '' && $this->reasonRequired()) {
             $this->addError('reason', 'يجب إدخال سبب التعديل عند التحضير في غير يوم الجلسة.');
 
             return false;

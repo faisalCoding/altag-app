@@ -2,6 +2,7 @@
 
 use Livewire\Component;
 use App\Models\AcademicCalendarEvent;
+use App\Models\Stage;
 use Carbon\Carbon;
 use Flux\Flux;
 use Livewire\Attributes\Computed;
@@ -101,7 +102,14 @@ new class extends Component {
         $this->hijriToDate = $period->end_date?->format('Y-m-d') ?? '';
         $this->description = $period->description ?? '';
         $this->selectedWeekdays = array_map('intval', $period->weekdays ?? []);
-        $this->periodStageIds = array_map('strval', $period->stage_ids ?? []);
+        // Filtered against the stages that still exist: the column carries ids with
+        // no foreign key behind them, so a retired stage would otherwise load into
+        // a checkbox that is no longer drawn and fail `exists` on save — locking
+        // the period over a stage the form never showed.
+        $this->periodStageIds = Stage::whereIn('id', $period->stage_ids ?? [])
+            ->pluck('id')
+            ->map(fn ($id) => (string) $id)
+            ->all();
         $this->periodExtraDates = $period->extra_dates ?? [];
         $this->periodExcludedDates = $period->excluded_dates ?? [];
         $this->periodSessions = $period->sessions ?? [];

@@ -6,7 +6,9 @@ use App\Models\AttendanceRevision;
 use App\Models\Circle;
 use App\Models\Stage;
 use App\Models\Student;
+use App\Models\StudentStatusHistory;
 use App\Models\Teacher;
+use App\Support\StudentStatus;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
 
@@ -303,4 +305,210 @@ it('stacks only the first two name parts for phone-width rows', function () {
 
 it('keeps a one-word name to a single line', function () {
     expect($this->studentA->shortNameParts())->toBe(['أحمد']);
+});
+
+it('says why a cell is blocked, and says something different for each reason', function () {
+    $joiner = Student::factory()->create([
+        'circle_id' => $this->circle->id,
+        'name' => 'ملتحق حديثاً',
+        'joined_at' => '2026-07-07',
+    ]);
+
+    $suspended = Student::factory()->create([
+        'circle_id' => $this->circle->id,
+        'name' => 'موقوف',
+    ]);
+
+    StudentStatusHistory::create([
+        'student_id' => $suspended->id,
+        'status' => 'suspended',
+        'start_date' => '2026-07-01',
+    ]);
+
+    $reasons = Livewire::test(AttendanceSheet::class, ['circleId' => $this->circle->id])
+        ->instance()->blockedReasons();
+
+    // A day before the student enrolled names the date they did.
+    expect($reasons[$joiner->id.'|2026-07-06'])->toContain('لم يكن الطالب قد التحق');
+
+    // Being suspended is not the same fact, and must not read the same.
+    expect($reasons[$suspended->id.'|2026-07-07'])->toContain('موقوف');
+
+    // A day that has not happened yet is a third, separate case.
+    expect($reasons[$this->studentA->id.'|2026-07-09'])->toContain('لم يأتِ بعد');
+
+    // An editable cell carries no reason at all.
+    expect($reasons)->not->toHaveKey($this->studentA->id.'|2026-07-08');
+});
+
+it('offers a reason for every cell the grid refuses to edit', function () {
+    Student::factory()->create([
+        'circle_id' => $this->circle->id,
+        'joined_at' => '2026-07-07',
+    ]);
+
+    $component = Livewire::test(AttendanceSheet::class, ['circleId' => $this->circle->id])->instance();
+
+    $reasons = $component->blockedReasons();
+
+    foreach ($component->students() as $student) {
+        foreach ($component->days() as $day) {
+            $blocked = $day['is_future'] || ! ($component->editable()[$student->id][$day['date']] ?? false);
+
+            expect(array_key_exists($student->id.'|'.$day['date'], $reasons))->toBe($blocked);
+        }
+    }
+});
+
+it('renders a blocked cell as something pressable that carries its reason', function () {
+    Livewire::test(AttendanceSheet::class, ['circleId' => $this->circle->id])
+        // A future day is blocked for everyone, so there is always one to find.
+        ->assertSeeHtml('x-on:click="explain(\''.$this->studentA->id.'|2026-07-09\')"')
+        ->assertSeeHtml('هذا اليوم لم يأتِ بعد، فلا يمكن تحضيره.')
+        ->assertSeeHtml('x-text="blockedNote"');
+});
+
+it('still refuses an off-day edit without a reason while the stage asks for one', function () {
+    expect($this->stage->fresh()->require_edit_reason)->toBeTrue();
+
+    Livewire::test(AttendanceSheet::class, ['circleId' => $this->circle->id])
+        ->call('saveChanges', [
+            ['student_id' => $this->studentA->id, 'date' => '2026-07-06', 'status' => 'present'],
+        ], '')
+        ->assertHasErrors('reason');
+});
+
+it('accepts an off-day edit without a reason once the stage stops asking', function () {
+    $this->stage->update(['require_edit_reason' => false]);
+
+    Livewire::test(AttendanceSheet::class, ['circleId' => $this->circle->id])
+        ->call('saveChanges', [
+            ['student_id' => $this->studentA->id, 'date' => '2026-07-06', 'status' => 'present'],
+        ], '')
+        ->assertHasNoErrors();
+
+    expect(AttendanceModel::where('student_id', $this->studentA->id)->whereDate('date', '2026-07-06')->exists())->toBeTrue();
+});
+
+it('keeps recording who changed what even when no reason is asked for', function () {
+    $this->stage->update(['require_edit_reason' => false]);
+
+    Livewire::test(AttendanceSheet::class, ['circleId' => $this->circle->id])
+        ->call('saveChanges', [
+            ['student_id' => $this->studentA->id, 'date' => '2026-07-06', 'status' => 'absent'],
+        ], '');
+
+    // Relaxing the prompt must not quietly relax the audit trail.
+    $revision = AttendanceRevision::where('student_id', $this->studentA->id)->first();
+
+    expect($revision)->not->toBeNull();
+    expect($revision->edited_by_id)->toBe($this->teacher->id);
+    expect($revision->new_status)->toBe('absent');
+    expect($revision->is_off_day_edit)->toBeTruthy();
+});
+
+it('asks for a reason in a stage nobody has configured', function () {
+    // The rule may only ever be relaxed on purpose, so a brand new stage keeps it.
+    // Read back from the database: the default lives on the column, not the factory.
+    $fresh = Stage::factory()->create()->fresh();
+
+    expect($fresh->require_edit_reason)->toBeTrue();
+
+    $circle = Circle::factory()->create(['stage_id' => $fresh->id]);
+    $this->teacher->circles()->attach($circle->id);
+
+    expect(Livewire::test(AttendanceSheet::class, ['circleId' => $circle->id])
+        ->instance()->reasonRequired())->toBeTrue();
+});
+
+it('lets a returning student be marked from the day they came back', function () {
+    $returner = Student::factory()->create(['circle_id' => $this->circle->id, 'name' => 'عائد']);
+
+    // Left in the past, then brought back part-way through the visible month.
+    StudentStatusHistory::create([
+        'student_id' => $returner->id,
+        'status' => 'left',
+        'start_date' => '2026-06-01',
+    ]);
+    StudentStatusHistory::create([
+        'student_id' => $returner->id,
+        'status' => 'active',
+        'start_date' => '2026-07-07',
+    ]);
+    $returner->update(['status' => 'active']);
+
+    $sheet = Livewire::test(AttendanceSheet::class, ['circleId' => $this->circle->id])->instance();
+    $editable = $sheet->editable();
+
+    // The relation is declared newest-first, so reading the wrong end of it
+    // pinned this student to "left" forever, whatever the newer row said.
+    expect($editable[$returner->id]['2026-07-06'])->toBeFalse();
+    expect($editable[$returner->id]['2026-07-07'])->toBeTrue();
+    expect($editable[$returner->id]['2026-07-08'])->toBeTrue();
+});
+
+it('names the day a student returned when refusing an earlier one', function () {
+    $returner = Student::factory()->create(['circle_id' => $this->circle->id, 'name' => 'عائد']);
+
+    StudentStatusHistory::create([
+        'student_id' => $returner->id,
+        'status' => 'left',
+        'start_date' => '2026-06-01',
+    ]);
+    StudentStatusHistory::create([
+        'student_id' => $returner->id,
+        'status' => 'active',
+        'start_date' => '2026-07-07',
+    ]);
+
+    $reasons = Livewire::test(AttendanceSheet::class, ['circleId' => $this->circle->id])
+        ->instance()->blockedReasons();
+
+    expect($reasons[$returner->id.'|2026-07-06'])
+        ->toContain('غادر الحلقات')
+        ->toContain('صار مشاركاً في');
+});
+
+it('still refuses a student who never came back, without inventing a date', function () {
+    $gone = Student::factory()->create(['circle_id' => $this->circle->id, 'status' => 'left']);
+
+    StudentStatusHistory::create([
+        'student_id' => $gone->id,
+        'status' => 'left',
+        'start_date' => '2026-06-01',
+    ]);
+
+    $reasons = Livewire::test(AttendanceSheet::class, ['circleId' => $this->circle->id])
+        ->instance()->blockedReasons();
+
+    expect($reasons[$gone->id.'|2026-07-06'])
+        ->toContain('غادر الحلقات')
+        ->not->toContain('صار مشاركاً');
+});
+
+it('names the status in the same words the rest of the app uses', function () {
+    $cases = [
+        'left' => 'غادر الحلقات',
+        'suspended' => 'موقوف',
+        'registering' => 'تحت التسجيل',
+    ];
+
+    foreach ($cases as $status => $label) {
+        $student = Student::factory()->create(['circle_id' => $this->circle->id, 'status' => $status]);
+
+        StudentStatusHistory::create([
+            'student_id' => $student->id,
+            'status' => $status,
+            'start_date' => '2026-06-01',
+        ]);
+
+        $reasons = Livewire::test(AttendanceSheet::class, ['circleId' => $this->circle->id])
+            ->instance()->blockedReasons();
+
+        // The exact label from the student's own page, so the two can be matched.
+        expect($reasons[$student->id.'|2026-07-06'])
+            ->toContain('حالة الطالب في هذا اليوم: '.$label);
+
+        expect($label)->toBe(StudentStatus::LABELS[$status]);
+    }
 });

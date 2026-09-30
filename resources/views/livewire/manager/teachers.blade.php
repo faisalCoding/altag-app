@@ -46,10 +46,16 @@
         </form>
     </flux:card>
 
+    <x-magic-link-selection-bar :count="count($selectedIds)" :outside="$selectedOutsideFilters"
+        :text="$selectedMagicLinksText" noun="معلم" copied="نُسخت أسماء المعلمين وروابطهم" />
+
     <div
         class="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-100 dark:border-zinc-800 shadow-xs overflow-hidden">
         <flux:table class="w-full">
             <flux:table.columns>
+                <flux:table.column class="w-10">
+                    <flux:checkbox wire:model.live="selectAll" />
+                </flux:table.column>
                 <flux:table.column>{{ __('المعلم') }}</flux:table.column>
                 <flux:table.column class="hidden md:table-cell">{{ __('الحلقات') }}</flux:table.column>
                 <flux:table.column class="hidden md:table-cell">{{ __('حالة البيانات') }}</flux:table.column>
@@ -61,6 +67,9 @@
                     <flux:table.row :key="$teacher->id"
                         class="cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/50   s"
                         x-on:click="$flux.modal('teacher-modal').show(); $wire.edit({{ $teacher->id }})">
+                        <flux:table.cell x-on:click.stop="">
+                            <flux:checkbox wire:model.live="selectedIds" value="{{ $teacher->id }}" />
+                        </flux:table.cell>
                         <flux:table.cell class="first:ps-3" >
                             <div class="flex flex-col">
                                 <span class="font-bold text-zinc-900 dark:text-white">{{ $teacher->name }}</span>

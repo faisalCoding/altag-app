@@ -31,6 +31,13 @@
     </flux:sidebar.item>
 @endif
 
+@if(\App\Support\RolePages::isEnabled('manager', 'manager.bus-bookings'))
+    <flux:sidebar.item class="[&_svg]:bg-[#0369a1] hover:[&_svg]:bg-[#075985]" icon="truck" :href="route('manager.bus-bookings')"
+        :current="request()->routeIs('manager.bus-bookings')" wire:navigate>
+        حجز الباصات
+    </flux:sidebar.item>
+@endif
+
 @if(\App\Support\RolePages::isEnabled('manager', 'manager.promotions'))
     <flux:sidebar.item class="[&_svg]:bg-[#b45309] hover:[&_svg]:bg-[#92400e]" icon="arrows-right-left" :href="route('manager.promotions')"
         :current="request()->routeIs('manager.promotions')" wire:navigate>

@@ -9,6 +9,12 @@ use Illuminate\Support\Facades\Cache;
 
 class QuranPlanService
 {
+    /** Cached surah rows, rehydrated into models on read. */
+    public const SURAHS_KEY = 'quran.surahs.rows';
+
+    /** Cached juz→surah map and per-surah verse layout for the plan wizard. */
+    public const REFERENCE_KEY = 'quran.plan.reference_data';
+
     /*
      * ─── Hot-path memoization ──────────────────────────────────────────────
      * getAyahSize() and getTemporalNextAyah() live inside while-loops and
@@ -49,17 +55,30 @@ class QuranPlanService
      * Plain arrays are cached rather than the Eloquent collection itself: a
      * serializing cache store (file/redis/database) cannot always reconstruct
      * cached model objects and hands back an __PHP_Incomplete_Class instead.
-     * Run `php artisan cache:clear` after reseeding surahs.
      *
      * @return Collection<int, Surah>
      */
     public function getAllSurahs(): Collection
     {
-        $rows = Cache::rememberForever('quran.surahs.rows', function () {
+        $rows = Cache::rememberForever(self::SURAHS_KEY, function () {
             return Surah::orderBy('id')->get()->map->getAttributes()->all();
         });
 
         return Surah::hydrate($rows);
+    }
+
+    /**
+     * Drop the cached reference data.
+     *
+     * Forever means forever: an empty table read once — a fresh install where
+     * somebody opened the plan wizard before the surahs were synced — is cached
+     * as an empty list and never reconsidered. The sync calls this when it
+     * finishes, which is the only moment the underlying data can have changed.
+     */
+    public function forgetReferenceData(): void
+    {
+        Cache::forget(self::SURAHS_KEY);
+        Cache::forget(self::REFERENCE_KEY);
     }
 
     /**
@@ -72,7 +91,7 @@ class QuranPlanService
      */
     public function getPlanReferenceData(): array
     {
-        return Cache::rememberForever('quran.plan.reference_data', function () {
+        return Cache::rememberForever(self::REFERENCE_KEY, function () {
             $ayahs = Ayah::orderBy('surah_id')->orderBy('verse_number')->get(['surah_id', 'verse_number', 'page_number', 'line_number_start', 'line_number_end', 'juz_number']);
 
             $juzSurahs = [];
@@ -133,32 +152,18 @@ class QuranPlanService
             $endAyah = $this->traverseLines($currentAyah, 5, $direction);
         } elseif ($type === 'page') {
             $endAyah = $this->traverseLines($currentAyah, 15, $direction);
-        } elseif ($type === 'surah') {
-            $endAyah = Ayah::where('surah_id', $currentAyah->surah_id)->orderBy('verse_number', 'desc')->first();
+        } elseif ($type === 'surah' || $type === '1_surah') {
+            $endAyah = $this->surahEnd($currentAyah, 1, $direction);
         } elseif ($type === '3_surahs') {
-            if ($direction === 'forward') {
-                $targetSurahId = min(114, $currentAyah->surah_id + 2);
-            } else {
-                $targetSurahId = max(1, $currentAyah->surah_id - 2);
-            }
-            $endAyah = Ayah::where('surah_id', $targetSurahId)->orderBy('verse_number', 'desc')->first();
+            $endAyah = $this->surahEnd($currentAyah, 3, $direction);
         } elseif ($type === '2_surahs') {
-            if ($direction === 'forward') {
-                $targetSurahId = min(114, $currentAyah->surah_id + 1);
-            } else {
-                $targetSurahId = max(1, $currentAyah->surah_id - 1);
-            }
-            $endAyah = Ayah::where('surah_id', $targetSurahId)->orderBy('verse_number', 'desc')->first();
-        } elseif ($type === '1_surah') {
-            $endAyah = Ayah::where('surah_id', $currentAyah->surah_id)->orderBy('verse_number', 'desc')->first();
+            $endAyah = $this->surahEnd($currentAyah, 2, $direction);
+        } elseif (str_starts_with($type, 'custom_surahs_')) {
+            $endAyah = $this->surahEnd($currentAyah, max(1, (int) str_replace('custom_surahs_', '', $type)), $direction);
         } elseif ($type === 'juz') {
-            if ($currentAyah->surah_id == 114 && $currentAyah->verse_number == 1 && $direction === 'reverse') {
-                $endAyah = Ayah::where('surah_id', 78)->orderBy('verse_number', 'desc')->first();
-            } elseif ($currentAyah->surah_id == 78 && $currentAyah->verse_number == 1 && $direction === 'forward') {
-                $endAyah = Ayah::where('surah_id', 114)->orderBy('verse_number', 'desc')->first();
-            } else {
-                $endAyah = $this->traverseLines($currentAyah, 300, $direction); // 20 pages * 15 lines
-            }
+            $endAyah = $this->juzEnd($currentAyah, 1, $direction);
+        } elseif (str_starts_with($type, 'custom_juz_')) {
+            $endAyah = $this->juzEnd($currentAyah, max(1, (int) str_replace('custom_juz_', '', $type)), $direction);
         } elseif ($type === 'half_juz') {
             $endAyah = $this->traverseLines($currentAyah, 150, $direction); // 10 pages * 15 lines
         } elseif ($type === '5_pages') {
@@ -174,7 +179,10 @@ class QuranPlanService
         }
 
         // Apply page-fill optimization rules if we traversed lines AND it is a review only plan
-        if ($isReviewOnlyPlan && (in_array($type, ['half', 'third', 'page', '5_pages', 'juz', 'half_juz']) || str_starts_with($type, 'custom_pages_'))) {
+        // Only the line-measured volumes are rounded. A juz now ends on its real
+        // boundary, and "finish the surah" would carry the day past it; the surah
+        // volumes already end on a boundary of their own.
+        if ($isReviewOnlyPlan && (in_array($type, ['half', 'third', 'page', '5_pages', 'half_juz'], true) || str_starts_with($type, 'custom_pages_'))) {
             $endAyah = $this->applyPageOptimizationRules($startAyah, $endAyah, $direction);
         }
 
@@ -187,6 +195,59 @@ class QuranPlanService
         }
 
         return $endAyah;
+    }
+
+    /**
+     * The end of a run of whole surahs.
+     *
+     * A day that starts mid-surah still ends at a surah's last verse, so the
+     * first surah of the run may be partial — the next day picks up from the
+     * verse after, which is how the surah volumes have always behaved.
+     */
+    public function surahEnd(Ayah $start, int $count, string $direction): Ayah
+    {
+        $step = max(0, $count - 1);
+
+        $target = $direction === 'forward'
+            ? min(114, $start->surah_id + $step)
+            : max(1, $start->surah_id - $step);
+
+        return $this->lastOfSurah($target) ?? $start;
+    }
+
+    /**
+     * The end of a run of whole juz, read off the real boundaries.
+     *
+     * This used to be twenty pages of lines, which is close but never right:
+     * juz 1 spans 21 pages and juz 30 spans 23, and the drift was patched with
+     * a hand-written exception for juz 30 alone. The ayahs carry their juz
+     * number, so the boundary is simply looked up.
+     *
+     * Reverse needs the far end rather than the near one. A day always reads
+     * forward inside a surah and only then jumps to the surah before it, so the
+     * last thing read in a reverse juz is the final verse of the surah that
+     * opens it — which is exactly what the old exception for juz 30 said.
+     */
+    public function juzEnd(Ayah $start, int $count, string $direction): Ayah
+    {
+        $juz = (int) $start->juz_number;
+
+        if ($juz < 1) {
+            // Narrow fixtures and any row the sync never filled: fall back to
+            // the measurement this used to make.
+            return $this->traverseLines($start, $count * 300, $direction);
+        }
+
+        $step = max(0, $count - 1);
+        $target = $direction === 'forward' ? min(30, $juz + $step) : max(1, $juz - $step);
+
+        if ($direction === 'forward') {
+            return Ayah::where('juz_number', $target)->orderByDesc('id')->first() ?? $start;
+        }
+
+        $opensTheJuz = Ayah::where('juz_number', $target)->orderBy('id')->first();
+
+        return $opensTheJuz ? ($this->lastOfSurah($opensTheJuz->surah_id) ?? $start) : $start;
     }
 
     public function isExceeding(Ayah $current, Ayah $cap, string $direction, bool $inclusive = true): bool

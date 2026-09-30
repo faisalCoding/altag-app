@@ -11,7 +11,7 @@
 <div {{ $attributes->merge([
     'class' => 'relative hidden lg:flex flex-col justify-between h-full p-10 overflow-hidden '
         .($isDark
-            ? 'bg-gradient-to-b from-[#3f1a19] via-maroon to-[#5c231f]'
+            ? 'bg-gradient-to-b from-accent-dark via-maroon to-burgundy'
             : 'bg-gradient-to-b from-[#f7efe0] via-[#faf5ea] to-[#fdfaf3]'),
 ]) }}>
     {{-- زخرفة إسلامية خفيفة --}}
@@ -27,8 +27,8 @@
 
     {{-- الشعار --}}
     <a href="{{ route('home') }}" class="relative z-10 flex flex-col items-center text-center" wire:navigate>
-        <img src="{{ asset('images/altag_logo.png') }}" alt="مجمع التاج القرآني" class="h-14 object-contain mb-2 drop-shadow-sm" />
-        <span class="font-extrabold text-lg {{ $isDark ? 'text-white' : 'text-maroon' }}">مجمع التاج القرآني</span>
+        <img src="{{ App\Support\Branding::logoUrl() }}" alt="{{ App\Support\Branding::siteName() }}" class="h-14 object-contain mb-2 drop-shadow-sm" />
+        <span class="font-extrabold text-lg {{ $isDark ? 'text-white' : 'text-maroon' }}">{{ App\Support\Branding::siteName() }}</span>
         <span class="text-xs font-medium mt-0.5 {{ $isDark ? 'text-white/70' : 'text-neutral-grey' }}">منصة رقمية متكاملة لتحفيظ القرآن الكريم</span>
     </a>
 
@@ -49,7 +49,7 @@
     @else
         {{-- مشهد توضيحي: مصحف على رحلة + فانوس + هلال، برسم خطي أنيق --}}
         <div class="relative z-10 flex-1 flex items-center justify-center my-8">
-            <div class="relative w-full max-w-xs aspect-square rounded-3xl bg-gradient-to-br from-[#3f1a19] via-maroon to-[#5c231f] shadow-lg overflow-hidden">
+            <div class="relative w-full max-w-xs aspect-square rounded-3xl bg-gradient-to-br from-accent-dark via-maroon to-burgundy shadow-lg overflow-hidden">
                 <div class="absolute -left-6 top-1/3 w-32 h-32 rounded-full bg-amber-400/25 blur-3xl"></div>
                 <div class="absolute right-0 bottom-0 w-28 h-28 rounded-full bg-red-secondary/20 blur-2xl"></div>
 

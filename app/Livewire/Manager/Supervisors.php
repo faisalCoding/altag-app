@@ -2,8 +2,10 @@
 
 namespace App\Livewire\Manager;
 
+use App\Concerns\CopiesMagicLinks;
 use App\Models\Stage;
 use App\Models\Supervisor;
+use App\Support\HijriDate;
 use Flux\Flux;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
@@ -11,6 +13,8 @@ use Livewire\Component;
 
 class Supervisors extends Component
 {
+    use CopiesMagicLinks;
+
     public $supervisors;
 
     public $stages;
@@ -43,7 +47,11 @@ class Supervisors extends Component
         $this->loadData();
     }
 
-    public function loadData()
+    /**
+     * The list as the filters on screen describe it. Shared with the selection,
+     * so ticking the header checkbox picks exactly the rows a manager can see.
+     */
+    protected function listQuery()
     {
         $query = Supervisor::with('stages');
 
@@ -66,7 +74,12 @@ class Supervisors extends Component
             });
         }
 
-        $this->supervisors = $query->latest()->get();
+        return $query->latest();
+    }
+
+    public function loadData()
+    {
+        $this->supervisors = $this->listQuery()->get();
     }
 
     public function updatedSearch()
@@ -224,8 +237,64 @@ class Supervisors extends Component
         $this->reset(['name', 'email', 'phone', 'password', 'selectedStages', 'editingSupervisorId', 'viewingSupervisor']);
     }
 
+    /**
+     * Everyone this directory may act on. A manager sees the whole academy, so
+     * nothing is excluded here — the narrowing happens in filteredQuery().
+     */
+    protected function selectableQuery()
+    {
+        return Supervisor::query();
+    }
+
+    /**
+     * The same set as the list on screen, so ticking the header checkbox picks
+     * exactly the rows the manager can see.
+     */
+    protected function filteredQuery()
+    {
+        return $this->listQuery();
+    }
+
+    protected function magicLinkRoute(): string
+    {
+        return 'supervisor.magic-link';
+    }
+
+    protected function magicLinkAudience(): string
+    {
+        return 'المشرفون';
+    }
+
+    public function copySelectedMagicLinks(): void
+    {
+        // Nothing to do here but let the render pass rebuild the text; the
+        // button reads it out of the view and hands it to the clipboard.
+    }
+
+    public function regenerateSelected(): void
+    {
+        $count = $this->regenerateSelectedMagicLinks();
+
+        if ($count === 0) {
+            Flux::toast(__('لم يُحدَّد أحد.'), variant: 'danger');
+
+            return;
+        }
+
+        $this->resetSelection();
+        $this->loadData();
+
+        Flux::toast(
+            __('أُبطلت الروابط القديمة وأُنشئت :count روابط جديدة.', ['count' => HijriDate::arabicDigits($count)]),
+            variant: 'success',
+        );
+    }
+
     public function render()
     {
-        return view('livewire.manager.supervisors');
+        return view('livewire.manager.supervisors', [
+            'selectedMagicLinksText' => $this->buildSelectedMagicLinksText(),
+            'selectedOutsideFilters' => $this->selectedOutsideFiltersCount(),
+        ]);
     }
 }

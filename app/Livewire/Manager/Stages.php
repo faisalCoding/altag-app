@@ -57,8 +57,42 @@ class Stages extends Component
             });
         }
 
-        $this->stages = $query->latest()->get();
+        // Newest-first would hide the very order this page exists to arrange.
+        $this->stages = $query->get();
         $this->supervisorsList = Supervisor::whereRoleState(fn ($q) => $q->where('is_approved', true))->get();
+    }
+
+    /**
+     * Move a stage one place up or down.
+     *
+     * The order is read wherever stages are listed — the reports, every stage
+     * picker, the supervisors' own scopes — so this is the one screen that sets
+     * it. Reordering while a search is active still moves the stage within the
+     * whole list, not within the filtered view.
+     */
+    public function moveStage(int $id, int $direction): void
+    {
+        $stages = Stage::get()->values();
+
+        // Normalised first: positions may have collided or never been set, and a
+        // swap only means anything once each stage owns a distinct number.
+        foreach ($stages as $index => $stage) {
+            if ($stage->position !== $index + 1) {
+                $stage->update(['position' => $index + 1]);
+            }
+        }
+
+        $index = $stages->search(fn (Stage $stage) => $stage->id === $id);
+        $target = $index === false ? null : ($stages[$index + $direction] ?? null);
+
+        if ($target === null) {
+            return;
+        }
+
+        $stages[$index]->update(['position' => $index + 1 + $direction]);
+        $target->update(['position' => $index + 1]);
+
+        $this->loadStages();
     }
 
     public function save()

@@ -400,7 +400,9 @@ it('narrows the stage report to a single circle', function () {
 });
 
 it('keeps the shared public report light-only while supervisor reports follow the theme', function () {
-    $forceLightGuard = 'lightOnlyObserver.observe(document.documentElement';
+    // What the guard does, not what its variable was called: the block moved
+    // into the shared <x-light-only /> component and the name went with it.
+    $forceLightGuard = 'color-scheme: only light';
 
     [$from, $to] = CircleReportService::resolveRange('this_week');
     $signedUrl = URL::signedRoute('reports.circle', [

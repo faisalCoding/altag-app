@@ -960,6 +960,8 @@ new class extends Component {
         selectionStart: null,
         filling:        false,
         customPages:    1,
+        customSurahs:   1,
+        customJuz:      1,
         
         async goNext() {
             if (this.wizardStep === 1 && this.userLevel === 'teacher' && !$wire.get('studentId')) {
@@ -1446,11 +1448,31 @@ new class extends Component {
                             </div>
 
                             <div class="h-4 w-px bg-zinc-200 dark:bg-zinc-700 mx-2 self-center"></div>
+
+                            {{-- The three custom volumes sit outside both groups,
+                                 like the pages one always has, so they serve حفظ
+                                 and مراجعة alike. --}}
                             <div class="flex items-center gap-1.5">
                                 <input type="number" min="1" max="604" x-model="customPages" class="w-12 text-center text-xs rounded border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 py-1 outline-none font-mono" />
                                 <flux:button size="xs" class="bg-indigo-600 text-white hover:bg-indigo-700"
                                     @click="doFill('custom_pages_' + customPages)">
                                     {{ __('صفحات مخصصة') }}
+                                </flux:button>
+                            </div>
+
+                            <div class="flex items-center gap-1.5">
+                                <input type="number" min="1" max="114" x-model="customSurahs" class="w-12 text-center text-xs rounded border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 py-1 outline-none font-mono" />
+                                <flux:button size="xs" class="bg-indigo-600 text-white hover:bg-indigo-700"
+                                    @click="doFill('custom_surahs_' + customSurahs)">
+                                    {{ __('سور مخصصة') }}
+                                </flux:button>
+                            </div>
+
+                            <div class="flex items-center gap-1.5">
+                                <input type="number" min="1" max="30" x-model="customJuz" class="w-12 text-center text-xs rounded border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 py-1 outline-none font-mono" />
+                                <flux:button size="xs" class="bg-indigo-600 text-white hover:bg-indigo-700"
+                                    @click="doFill('custom_juz_' + customJuz)">
+                                    {{ __('أجزاء مخصصة') }}
                                 </flux:button>
                             </div>
                         </div>

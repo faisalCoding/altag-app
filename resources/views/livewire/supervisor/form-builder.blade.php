@@ -131,7 +131,7 @@
                     <flux:label>اللون المميز (سمة النموذج) *</flux:label>
                     <div class="flex items-center gap-3">
                         <input type="color" wire:model="color" x-model="color" class="w-10 h-10 rounded-lg cursor-pointer border-0 p-0" />
-                        <flux:input wire:model="color" x-model="color" placeholder="#7a2727" class="flex-1" />
+                        <flux:input wire:model="color" x-model="color" placeholder="{{ App\Support\Branding::color() }}" class="flex-1" />
                     </div>
                     <flux:error name="color" />
                 </flux:field>

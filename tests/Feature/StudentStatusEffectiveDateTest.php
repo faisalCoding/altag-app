@@ -101,7 +101,7 @@ it('lets the manager change status with an effective date from the status manage
     expect($latest->changed_by_name)->toBe($manager->name);
 });
 
-it('rejects a future effective date and requires a reason', function () {
+it('rejects a future effective date', function () {
     $manager = Manager::factory()->create();
     $this->actingAs($manager, 'manager');
 
@@ -111,9 +111,26 @@ it('rejects a future effective date and requires a reason', function () {
         ->set('effectiveDate', '2026-06-15')
         ->set('reason', '')
         ->call('saveStatus')
-        ->assertHasErrors(['effectiveDate', 'reason']);
+        ->assertHasErrors('effectiveDate')
+        // The reason is optional now: the change is attributed either way.
+        ->assertHasNoErrors('reason');
 
     expect($this->student->refresh()->status)->toBe('registering');
+});
+
+it('saves a status change with no reason given', function () {
+    $manager = Manager::factory()->create();
+    $this->actingAs($manager, 'manager');
+
+    Livewire::test('shared.⚡student-status-manager')
+        ->call('open', $this->student->id)
+        ->set('newStatus', 'active')
+        ->set('effectiveDate', '2026-06-05')
+        ->set('reason', '')
+        ->call('saveStatus')
+        ->assertHasNoErrors();
+
+    expect($this->student->refresh()->status)->toBe('active');
 });
 
 it('suspends with an automatic return that the daily sync activates', function () {

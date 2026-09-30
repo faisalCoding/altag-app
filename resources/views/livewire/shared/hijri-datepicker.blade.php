@@ -15,12 +15,25 @@ new class extends Component {
     public $showEvents = false;
     public $showAttendanceDays = false;
 
-    public function mount($label = 'التاريخ (هجري)', $placeholder = 'حدد التاريخ', $buttonClass = null, $showEvents = false, $showAttendanceDays = false)
+    /**
+     * Days the caller will actually accept, as 1=Sunday … 7=Saturday. Empty
+     * means every weekday. Days outside it are shown dimmed and refuse the tap,
+     * so a picker never offers a date the page behind it will reject.
+     */
+    public $allowedWeekdays = [];
+
+    public $minDate = null;
+    public $maxDate = null;
+
+    public function mount($label = 'التاريخ (هجري)', $placeholder = 'حدد التاريخ', $buttonClass = null, $showEvents = false, $showAttendanceDays = false, $allowedWeekdays = [], $minDate = null, $maxDate = null)
     {
         $this->label = $label;
         $this->placeholder = $placeholder;
         $this->showEvents = $showEvents;
         $this->showAttendanceDays = $showAttendanceDays;
+        $this->allowedWeekdays = array_map('intval', $allowedWeekdays ?? []);
+        $this->minDate = $minDate;
+        $this->maxDate = $maxDate;
         if ($buttonClass) {
             $this->buttonClass = $buttonClass;
         }
@@ -56,8 +69,32 @@ new class extends Component {
         $this->currentViewTimestamp = $cal->getTime() / 1000;
     }
 
+    /**
+     * Whether this picker will hand a date back.
+     */
+    public function allows($gregorianDate): bool
+    {
+        if ($this->minDate && $gregorianDate < $this->minDate) {
+            return false;
+        }
+
+        if ($this->maxDate && $gregorianDate > $this->maxDate) {
+            return false;
+        }
+
+        if ($this->allowedWeekdays === []) {
+            return true;
+        }
+
+        return in_array((int) date('w', strtotime($gregorianDate)) + 1, $this->allowedWeekdays, true);
+    }
+
     public function selectDate($gregorianDate)
     {
+        if (! $this->allows($gregorianDate)) {
+            return;
+        }
+
         $this->date = $gregorianDate;
         $this->open = false;
 
@@ -143,6 +180,8 @@ new class extends Component {
                     $gregDate = date('Y-m-d', $cal->getTime() / 1000);
                     $isSelected = $gregDate === $date;
                     $isToday = $gregDate === date('Y-m-d');
+                    $isAllowed = $this->allows($gregDate);
+                    $isRestricted = $allowedWeekdays !== [] || $minDate || $maxDate;
 
                     $isWorkingDay = false;
                     if ($showAttendanceDays) {
@@ -173,9 +212,19 @@ new class extends Component {
                         });
                     }
                 @endphp
-                <button wire:click="selectDate('{{ $gregDate }}')" type="button"
-                    class="relative h-8 w-8 flex flex-col items-center justify-center rounded-lg text-xs 
-                                {{ $isSelected ? 'bg-indigo-500 text-white font-bold' : ($isToday ? 'border border-indigo-300 text-indigo-600' : ($isWorkingDay ? 'bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/20 dark:hover:bg-emerald-900/30 text-emerald-800 dark:text-emerald-300 font-medium' : 'hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300')) }}">
+                <button wire:click="selectDate('{{ $gregDate }}')" type="button" @disabled(! $isAllowed)
+                    class="relative h-8 w-8 flex flex-col items-center justify-center rounded-lg text-xs
+                                {{ $isSelected
+                                    ? 'bg-indigo-500 text-white font-bold'
+                                    : (! $isAllowed
+                                        ? 'text-zinc-300 dark:text-zinc-700 cursor-not-allowed line-through decoration-1'
+                                        : ($isRestricted
+                                            ? 'bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/30 dark:hover:bg-emerald-900/40 text-emerald-800 dark:text-emerald-300 font-bold ring-1 ring-emerald-300 dark:ring-emerald-800'
+                                            : ($isToday
+                                                ? 'border border-indigo-300 text-indigo-600'
+                                                : ($isWorkingDay
+                                                    ? 'bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/20 dark:hover:bg-emerald-900/30 text-emerald-800 dark:text-emerald-300 font-medium'
+                                                    : 'hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300')))) }}">
                     <span class="{{ $showEvents && $dayEvents->isNotEmpty() ? '-mt-1' : '' }}">{{ $i }}</span>
 
                     @if($isWorkingDay && !$isSelected)

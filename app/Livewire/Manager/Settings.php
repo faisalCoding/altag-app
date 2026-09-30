@@ -3,6 +3,7 @@
 namespace App\Livewire\Manager;
 
 use App\Models\Setting;
+use App\Support\Branding;
 use Flux\Flux;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
@@ -23,11 +24,90 @@ class Settings extends Component
 
     public $uploadedBackup;
 
+    // ── هوية المجمع ─────────────────────────────────────────────────────────
+    public string $siteName = Branding::DEFAULT_NAME;
+
+    public string $primaryColor = Branding::DEFAULT_COLOR;
+
+    public $uploadedLogo;
+
     public function mount()
     {
         $this->absenceLimit = Setting::getVal('absence_limit', 3);
         $this->latenessLimit = Setting::getVal('lateness_limit', 5);
         $this->calculationPeriodDays = Setting::getVal('calculation_period_days', 30);
+        $this->primaryColor = Branding::color();
+        $this->siteName = Branding::siteName();
+    }
+
+    /**
+     * The name in the sidebar, the page titles and the front page.
+     */
+    public function saveName(): void
+    {
+        $this->validate([
+            'siteName' => 'required|string|min:2|max:120',
+        ], [
+            'siteName.required' => 'اسم المجمع لا يكون فارغاً.',
+            'siteName.max' => 'الاسم لا يتجاوز ١٢٠ حرفاً.',
+        ]);
+
+        Branding::setSiteName($this->siteName);
+        $this->siteName = Branding::siteName();
+
+        Flux::toast('حُفظ الاسم.', variant: 'success');
+        $this->js('setTimeout(() => window.location.reload(), 600)');
+    }
+
+    /**
+     * The colour every «maroon» in the interface resolves to.
+     */
+    public function saveColor(): void
+    {
+        $this->validate([
+            'primaryColor' => 'required|string|regex:/^#[0-9a-fA-F]{6}$/',
+        ], [
+            'primaryColor.regex' => 'اللون يكون بصيغة #RRGGBB، مثل #7a2727.',
+        ]);
+
+        Branding::setColor($this->primaryColor);
+        $this->primaryColor = Branding::color();
+
+        // Reloaded rather than re-rendered: the colour lives in a style tag in
+        // the document head, which a Livewire update never touches.
+        Flux::toast('حُفظ اللون.', variant: 'success');
+        $this->js('setTimeout(() => window.location.reload(), 600)');
+    }
+
+    public function saveLogo(): void
+    {
+        $this->validate([
+            'uploadedLogo' => 'required|image|mimes:png,jpg,jpeg,webp,svg|max:1024',
+        ], [
+            'uploadedLogo.required' => 'اختر صورة الشعار.',
+            'uploadedLogo.image' => 'الملف ليس صورة.',
+            'uploadedLogo.max' => 'حجم الشعار لا يتجاوز ميغابايت واحداً.',
+        ]);
+
+        $path = $this->uploadedLogo->store('branding', 'public');
+
+        Branding::setLogoPath($path);
+        $this->uploadedLogo = null;
+
+        Flux::toast('حُفظ الشعار.', variant: 'success');
+        $this->js('setTimeout(() => window.location.reload(), 600)');
+    }
+
+    public function resetBranding(): void
+    {
+        Branding::reset();
+
+        $this->primaryColor = Branding::color();
+        $this->siteName = Branding::siteName();
+        $this->uploadedLogo = null;
+
+        Flux::toast('أُعيدت الهوية إلى الأصل.', variant: 'success');
+        $this->js('setTimeout(() => window.location.reload(), 600)');
     }
 
     public function save()
@@ -211,6 +291,10 @@ class Settings extends Component
             'scheduledBackups' => $scheduledBackups,
             'manualBackups' => $manualBackups,
             'uploadedBackups' => $uploadedBackups,
+            'logoUrl' => Branding::logoUrl(),
+            'defaultName' => Branding::DEFAULT_NAME,
+            'hasCustomLogo' => Branding::hasCustomLogo(),
+            'defaultColor' => Branding::DEFAULT_COLOR,
         ]);
     }
 }

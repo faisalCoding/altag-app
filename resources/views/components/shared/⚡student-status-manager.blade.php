@@ -132,10 +132,10 @@ new class extends Component {
             // rule rejected the very date the form had just filled in.
             'effectiveDate' => 'required|date|before_or_equal:'.now('Asia/Riyadh')->format('Y-m-d'),
             'returnDate' => 'nullable|date',
-            'reason' => 'required|string|min:3|max:500',
+            // Optional: the change is recorded with who made it and when either
+            // way, and a mandatory box mostly collects the word "تحديث".
+            'reason' => 'nullable|string|max:500',
         ], [
-            'reason.required' => 'سبب التغيير مطلوب',
-            'reason.min' => 'اكتب سبباً واضحاً (3 أحرف على الأقل)',
             'effectiveDate.before_or_equal' => 'تاريخ السريان لا يمكن أن يكون في المستقبل',
         ]);
 
@@ -160,6 +160,73 @@ new class extends Component {
         $this->dispatch('student-list-updated');
         $this->dispatch('student-status-updated');
         Flux::toast('تم تحديث حالة الطالب بنجاح', variant: 'success');
+    }
+
+    /** @var array{status: string, start_date: string, notes: string}|null */
+    public ?array $editingHistory = null;
+
+    public ?int $editingHistoryId = null;
+
+    public function editHistory(int $historyId): void
+    {
+        $student = $this->scopedStudent($this->studentId);
+
+        $entry = $student?->statusHistories()->whereKey($historyId)->first();
+
+        if (! $entry) {
+            return;
+        }
+
+        $this->editingHistoryId = $entry->id;
+        $this->editingHistory = [
+            'status' => $entry->status,
+            'start_date' => $entry->start_date->format('Y-m-d'),
+            'notes' => $entry->notes ?? '',
+        ];
+
+    }
+
+    public function cancelHistoryEdit(): void
+    {
+        $this->editingHistoryId = null;
+        $this->editingHistory = null;
+    }
+
+    public function saveHistoryEdit(): void
+    {
+        $this->validate([
+            'editingHistory.status' => 'required|in:active,registering,suspended,left',
+            'editingHistory.start_date' => 'required|date|before_or_equal:'.now('Asia/Riyadh')->format('Y-m-d'),
+            'editingHistory.notes' => 'nullable|string|max:500',
+        ], [
+            'editingHistory.start_date.before_or_equal' => 'تاريخ السريان لا يمكن أن يكون في المستقبل',
+        ]);
+
+        $student = $this->scopedStudent($this->studentId);
+
+        if (! $student || ! $this->editingHistoryId) {
+            return;
+        }
+
+        try {
+            StudentStatusService::editHistoryEntry(
+                $student,
+                $this->editingHistoryId,
+                $this->editingHistory['status'],
+                $this->editingHistory['start_date'],
+                $this->editingHistory['notes'] ?: null,
+            );
+        } catch (\InvalidArgumentException $e) {
+            Flux::toast($e->getMessage(), variant: 'danger');
+
+            return;
+        }
+
+        $this->cancelHistoryEdit();
+
+        $this->dispatch('student-list-updated');
+        $this->dispatch('student-status-updated');
+        Flux::toast('تم تعديل سجل الحالة', variant: 'success');
     }
 
     public function deleteHistoryEntry(int $historyId)
@@ -341,6 +408,36 @@ new class extends Component {
                 <div class="text-xs font-bold text-zinc-500 mb-2">{{ __('سجل الحالات') }}</div>
                 <div class="space-y-2 max-h-40 overflow-y-auto pr-1">
                     @forelse($historyRows as $history)
+                        @if($editingHistoryId === $history->id)
+                            {{-- The row itself becomes the form: a second modal over this
+                                 one would sit behind it, and the record being corrected
+                                 should stay in view while it is corrected. --}}
+                            <div wire:key="history-edit-{{ $history->id }}"
+                                class="p-3 border border-maroon/40 dark:border-white/20 rounded-xl bg-white dark:bg-zinc-900 space-y-3">
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <flux:select wire:model="editingHistory.status" size="sm" label="{{ __('الحالة') }}">
+                                        @foreach($statusLabels as $value => $label)
+                                            <flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>
+                                        @endforeach
+                                    </flux:select>
+
+                                    <livewire:shared.hijri-datepicker wire:model="editingHistory.start_date"
+                                        :key="'edit-history-date-'.$history->id"
+                                        label="{{ __('تاريخ السريان') }}" />
+                                </div>
+
+                                <flux:input wire:model="editingHistory.notes" size="sm"
+                                    label="{{ __('ملاحظة (اختياري)') }}" />
+
+                                @error('editingHistory.start_date') <p class="text-xs text-red-600">{{ $message }}</p> @enderror
+                                @error('editingHistory.status') <p class="text-xs text-red-600">{{ $message }}</p> @enderror
+
+                                <div class="flex justify-end gap-2">
+                                    <flux:button size="sm" variant="ghost" wire:click="cancelHistoryEdit">{{ __('إلغاء') }}</flux:button>
+                                    <flux:button size="sm" variant="primary" wire:click="saveHistoryEdit">{{ __('حفظ') }}</flux:button>
+                                </div>
+                            </div>
+                        @else
                         <div wire:key="history-{{ $history->id }}"
                             class="flex items-center justify-between p-2.5 border border-zinc-200 dark:border-zinc-700/50 rounded-xl bg-zinc-50 dark:bg-zinc-800/50">
                             <div class="flex flex-col gap-0.5">
@@ -365,11 +462,17 @@ new class extends Component {
                                     </span>
                                 @endif
                             </div>
-                            <flux:button size="xs" variant="ghost" icon="trash"
-                                class="text-red-400 hover:text-red-600"
-                                wire:click="deleteHistoryEntry({{ $history->id }})"
-                                wire:confirm="{{ __('حذف هذا السجل؟ سيُعاد احتساب حالة الطالب من السجلات المتبقية.') }}" />
+                            <div class="flex items-center gap-1 shrink-0">
+                                <flux:button size="xs" variant="ghost" icon="pencil-square"
+                                    class="text-zinc-400 hover:text-zinc-600"
+                                    wire:click="editHistory({{ $history->id }})" />
+                                <flux:button size="xs" variant="ghost" icon="trash"
+                                    class="text-red-400 hover:text-red-600"
+                                    wire:click="deleteHistoryEntry({{ $history->id }})"
+                                    wire:confirm="{{ __('حذف هذا السجل؟ سيُعاد احتساب حالة الطالب من السجلات المتبقية.') }}" />
+                            </div>
                         </div>
+                        @endif
                     @empty
                         <div class="text-sm text-zinc-500 text-center py-3">{{ __('لا يوجد سجل حالات.') }}</div>
                     @endforelse
@@ -390,7 +493,7 @@ new class extends Component {
                         <flux:select.option value="left">غادر الحلقات</flux:select.option>
                     </flux:select>
 
-                    <flux:input wire:model="reason" label="{{ __('سبب التغيير (إلزامي)') }}"
+                    <flux:input wire:model="reason" label="{{ __('سبب التغيير (اختياري)') }}"
                         placeholder="{{ __('مثال: انقطاع عن الحضور أسبوعين') }}" />
                 </div>
 

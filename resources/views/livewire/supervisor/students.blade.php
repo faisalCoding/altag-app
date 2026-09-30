@@ -30,13 +30,13 @@
         </div>
     </div>
 
-    @if (count($selectedStudentIds) > 0)
+    @if (count($selectedIds) > 0)
         <div class="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900/50 rounded-2xl">
             <div class="flex items-center gap-2">
                 <span class="flex h-2 w-2 rounded-full bg-indigo-600 dark:bg-indigo-400"></span>
                 <div class="flex flex-col">
                     <span class="text-sm font-medium text-indigo-900 dark:text-indigo-200">
-                        تم تحديد {{ count($selectedStudentIds) }} طالب
+                        تم تحديد {{ count($selectedIds) }} طالب
                     </span>
                     @if ($selectedOutsideFilters > 0)
                         <span class="text-xs text-amber-700 dark:text-amber-400">
@@ -44,7 +44,7 @@
                         </span>
                     @endif
                 </div>
-                <flux:button size="xs" variant="ghost" icon="x-mark" wire:click="resetStudentSelection">
+                <flux:button size="xs" variant="ghost" icon="x-mark" wire:click="resetSelection">
                     إلغاء التحديد
                 </flux:button>
             </div>
@@ -90,7 +90,7 @@
                         class="cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
                         x-on:click="$flux.modal('student-modal').show(); $wire.edit({{ $student->id }})">
                         <flux:table.cell x-on:click.stop="">
-                            <flux:checkbox wire:model.live="selectedStudentIds" value="{{ $student->id }}" />
+                            <flux:checkbox wire:model.live="selectedIds" value="{{ $student->id }}" />
                         </flux:table.cell>
                         <flux:table.cell class="first:ps-3" >
                             <div class="flex flex-col">

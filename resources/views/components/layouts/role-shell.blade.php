@@ -3,7 +3,7 @@
 
 <head>
     @include('partials.head')
-    <title>{{ $title ?? config('app.name') }}</title>
+    <title>{{ $title ?? App\Support\Branding::siteName() }}</title>
     @if(auth('student')->check())
         <script>
             document.documentElement.classList.remove('dark');

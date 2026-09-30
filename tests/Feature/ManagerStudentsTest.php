@@ -94,7 +94,7 @@ it('builds a copyable text of selected student names and magic links', function 
     $this->actingAs($manager, 'manager');
 
     $component = Livewire::test(Students::class)
-        ->set('selectedStudentIds', [(string) $selected->id])
+        ->set('selectedIds', [(string) $selected->id])
         ->assertSee('نسخ الأسماء والروابط')
         ->call('buildSelectedMagicLinksText')
         ->assertHasNoErrors();
@@ -115,14 +115,14 @@ it('keeps selected students while the manager searches for more', function () {
     $this->actingAs($manager, 'manager');
 
     Livewire::test(Students::class)
-        ->set('selectedStudentIds', [(string) $first->id])
+        ->set('selectedIds', [(string) $first->id])
         // Searching for someone else must not drop the first pick.
         ->set('search', 'بدر')
-        ->assertSet('selectedStudentIds', [(string) $first->id])
-        ->set('selectedStudentIds', [(string) $first->id, (string) $second->id])
+        ->assertSet('selectedIds', [(string) $first->id])
+        ->set('selectedIds', [(string) $first->id, (string) $second->id])
         // Nor must changing a filter afterwards.
         ->set('circleFilter', $circle->id)
-        ->assertSet('selectedStudentIds', [(string) $first->id, (string) $second->id])
+        ->assertSet('selectedIds', [(string) $first->id, (string) $second->id])
         ->assertSee('نسخ الأسماء والروابط');
 });
 
@@ -137,7 +137,7 @@ it('clears the header checkbox but not the selection when filters change', funct
         ->assertSet('selectAll', true)
         ->set('search', 'لا أحد')
         ->assertSet('selectAll', false)
-        ->assertSet('selectedStudentIds', [(string) $student->id]);
+        ->assertSet('selectedIds', [(string) $student->id]);
 });
 
 it('reports how many selected students the active filters hide', function () {
@@ -152,7 +152,7 @@ it('reports how many selected students the active filters hide', function () {
     $this->actingAs($manager, 'manager');
 
     Livewire::test(Students::class)
-        ->set('selectedStudentIds', [(string) $visible->id, (string) $hidden->id])
+        ->set('selectedIds', [(string) $visible->id, (string) $hidden->id])
         ->set('circleFilter', $circle->id)
         ->assertSee('خارج نتائج البحث الحالية')
         ->call('selectedOutsideFiltersCount')
@@ -166,9 +166,9 @@ it('lets the manager clear the whole selection at once', function () {
     $this->actingAs($manager, 'manager');
 
     Livewire::test(Students::class)
-        ->set('selectedStudentIds', [(string) $student->id])
-        ->call('resetStudentSelection')
-        ->assertSet('selectedStudentIds', [])
+        ->set('selectedIds', [(string) $student->id])
+        ->call('resetSelection')
+        ->assertSet('selectedIds', [])
         ->assertSet('selectAll', false);
 });
 
@@ -184,7 +184,7 @@ it('selects every filtered student when the manager ticks select all', function 
     Livewire::test(Students::class)
         ->set('circleFilter', $circle->id)
         ->set('selectAll', true)
-        ->assertSet('selectedStudentIds', [(string) $inCircle->id]);
+        ->assertSet('selectedIds', [(string) $inCircle->id]);
 
     expect($outOfCircle->exists)->toBeTrue();
 });
@@ -199,7 +199,7 @@ it('issues a magic link token to selected students that never had one', function
     $this->actingAs($manager, 'manager');
 
     $component = Livewire::test(Students::class)
-        ->set('selectedStudentIds', [(string) $student->id])
+        ->set('selectedIds', [(string) $student->id])
         ->call('buildSelectedMagicLinksText');
 
     $token = $student->refresh()->access_token;

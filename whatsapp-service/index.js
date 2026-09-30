@@ -21,25 +21,15 @@ app.use((req, res, next) => {
     next();
 });
 
-// تخزين جميع الجلسات: Map من clientId -> بيانات الجلسة
-const sessions = new Map();
+const { SessionRegistry } = require('./sessions');
 
-/**
- * إنشاء أو استرجاع جلسة واتساب لمستخدم معين
- */
-function getOrCreateSession(clientId) {
-    if (sessions.has(clientId)) {
-        return sessions.get(clientId);
-    }
+// مهلة الخمول: بعدها تُغلق الجلسة ويُحرَّر متصفّحها. الإرسال يوقظها من جديد.
+const idleMs = parseInt(process.env.WHATSAPP_IDLE_MINUTES || '30', 10) * 60 * 1000;
+const sweepMs = 60 * 1000;
 
-    const sessionData = {
-        client: null,
-        status: 'starting',
-        qrCode: null,
-        loadingPercent: 0,
-    };
-
-    const client = new Client({
+const registry = new SessionRegistry({
+    idleMs,
+    createClient: (clientId) => new Client({
         authStrategy: new LocalAuth({ clientId }),
         puppeteer: {
             headless: true,
@@ -50,54 +40,34 @@ function getOrCreateSession(clientId) {
                 // crashpad يتطلب HOME قابلاً للكتابة ويفشل تحت systemd؛ لا حاجة له.
                 '--disable-crashpad',
                 '--disable-gpu',
+                // لا نعرض صفحات لأحد: كل ما يخدم واجهة مستخدم أو تحديثاً خلفياً
+                // هو معالجة مهدورة على خادم يشارك المعالج مع الموقع.
+                '--disable-extensions',
+                '--disable-background-networking',
+                '--disable-default-apps',
+                '--disable-sync',
+                '--no-first-run',
+                '--mute-audio',
+                '--renderer-process-limit=1',
             ],
         },
-    });
+    }),
+});
 
-    client.on('qr', (qr) => {
-        console.log(`[${clientId}] QR Code جديد.`);
-        sessionData.qrCode = qr;
-        sessionData.status = 'needs_scan';
-    });
-
-    client.on('loading_screen', (percent) => {
-        sessionData.loadingPercent = percent;
-        sessionData.status = 'loading';
-    });
-
-    client.on('authenticated', () => {
-        console.log(`[${clientId}] تمت المصادقة.`);
-        sessionData.status = 'loading';
-        sessionData.qrCode = null;
-    });
-
-    client.on('ready', () => {
-        console.log(`[${clientId}] جاهز للإرسال.`);
-        sessionData.status = 'ready';
-        sessionData.qrCode = null;
-    });
-
-    client.on('disconnected', (reason) => {
-        console.log(`[${clientId}] قُطع الاتصال: ${reason}`);
-        sessionData.status = 'disconnected';
-        sessionData.qrCode = null;
-        // إعادة التهيئة تلقائياً بعد 5 ثوانٍ
-        setTimeout(() => {
-            sessions.delete(clientId);
-        }, 5000);
-    });
-
-    client.initialize();
-    sessionData.client = client;
-    sessions.set(clientId, sessionData);
-
-    return sessionData;
-}
+setInterval(() => {
+    registry.sweepIdle().catch((error) => console.error('[sweepIdle]', error));
+}, sweepMs).unref();
 
 // ── GET /status/:clientId ─────────────────────────────────────────────────────
 app.get('/status/:clientId', async (req, res) => {
     const { clientId } = req.params;
-    const session = getOrCreateSession(clientId);
+    const session = registry.get(clientId);
+
+    // القراءة لا تُشغّل متصفّحاً. كان أي استعلام حالة — ولو بمعرّف مكتوب خطأً —
+    // يفتح Chromium كاملاً ويتركه يعمل.
+    if (!session) {
+        return res.json({ status: 'stopped', message: 'الجلسة متوقفة. اضغط «ربط الواتساب» لبدئها.' });
+    }
 
     if (session.status === 'ready') {
         return res.json({ status: 'ready', message: 'واتساب متصل وجاهز.' });
@@ -126,6 +96,16 @@ app.get('/status/:clientId', async (req, res) => {
     return res.json({ status: 'starting', message: 'جاري تهيئة الواتساب...' });
 });
 
+// ── POST /connect/:clientId ───────────────────────────────────────────────────
+// بدء الجلسة صار فعلاً صريحاً: يطلبه المستخدم من صفحة الإعدادات، أو يوقظه
+// الإرسال عند الحاجة. لا شيء آخر يفتح متصفّحاً.
+app.post('/connect/:clientId', (req, res) => {
+    const { clientId } = req.params;
+    const session = registry.start(clientId);
+
+    return res.json({ success: true, status: session.status });
+});
+
 // ── POST /send ────────────────────────────────────────────────────────────────
 app.post('/send', async (req, res) => {
     const { clientId, phone, message } = req.body;
@@ -134,15 +114,35 @@ app.post('/send', async (req, res) => {
         return res.status(400).json({ success: false, message: 'يرجى توفير clientId ورقم الهاتف والرسالة.' });
     }
 
-    const session = sessions.get(clientId);
+    const session = registry.get(clientId);
 
-    if (!session || session.status !== 'ready') {
-        return res.status(503).json({ success: false, message: `الجلسة [${clientId}] غير جاهزة بعد.` });
+    // جلسة نائمة تُوقَظ هنا ويُرَدّ 503: الإرسال يعيد المحاولة بعد أن يسخن
+    // المتصفّح. هذا ما يسمح بإغلاق الجلسات الخاملة دون فقد رسالة.
+    if (!session) {
+        registry.start(clientId);
+
+        return res.status(503).json({
+            success: false,
+            status: 'starting',
+            retryable: true,
+            message: `الجلسة [${clientId}] كانت متوقفة، وبدأ تشغيلها. أعد المحاولة بعد قليل.`,
+        });
+    }
+
+    if (session.status !== 'ready') {
+        return res.status(503).json({
+            success: false,
+            status: session.status,
+            retryable: true,
+            message: `الجلسة [${clientId}] غير جاهزة بعد.`,
+        });
     }
 
     try {
         const chatId = `${phone}@c.us`;
         await session.client.sendMessage(chatId, message);
+        registry.touch(clientId);
+
         return res.json({ success: true, message: 'تم الإرسال بنجاح.' });
     } catch (error) {
         console.error(`[${clientId}] خطأ في الإرسال:`, error.message);
@@ -153,34 +153,17 @@ app.post('/send', async (req, res) => {
 // ── POST /disconnect/:clientId ────────────────────────────────────────────────
 app.post('/disconnect/:clientId', async (req, res) => {
     const { clientId } = req.params;
-    const session = sessions.get(clientId);
 
-    if (!session) {
-        return res.json({ success: true, message: 'الجلسة غير موجودة.' });
-    }
+    await registry.stop(clientId);
 
-    try {
-        await session.client.destroy();
-        sessions.delete(clientId);
-        return res.json({ success: true, message: 'تم قطع الاتصال.' });
-    } catch (error) {
-        return res.status(500).json({ success: false, error: error.message });
-    }
+    return res.json({ success: true, message: 'تم قطع الاتصال.' });
 });
 
 // ── POST /reset/:clientId ────────────────────────────────────────────────
 app.post('/reset/:clientId', async (req, res) => {
     const { clientId } = req.params;
-    const session = sessions.get(clientId);
 
-    if (session) {
-        try {
-            await session.client.destroy();
-        } catch (e) {
-            console.error('Error destroying client:', e);
-        }
-        sessions.delete(clientId);
-    }
+    await registry.stop(clientId);
 
     const sessionDir = path.join(__dirname, '.wwebjs_auth', `session-${clientId}`);
     if (fs.existsSync(sessionDir)) {
@@ -207,34 +190,23 @@ process.on('uncaughtException', (err) => {
     process.exit(1);
 });
 
-// عند الإقلاع: استعادة الجلسات المحفوظة على القرص تلقائياً حتى لا يتوقف الإرسال
-// بعد إعادة تشغيل الخدمة (systemd) بانتظار فتح كل مستخدم لصفحة الإعدادات.
-// تُستعاد الجلسات تباعاً (وليس دفعة واحدة) لأن تهيئة كل Chromium ثقيلة على المعالج.
-const SESSION_RESTORE_GAP_MS = 20000;
+// لا تُستعاد الجلسات عند الإقلاع.
+//
+// كانت الخدمة تفتح متصفّحاً لكل مجلد في .wwebjs_auth — مستعملاً كان أو مهجوراً،
+// وحتى المجلدات التي خلّفها خطأ في الطرفية — فتبدأ بعدة نسخ من Chromium لا
+// يطلبها أحد. الجلسة الآن تبدأ حين تُطلب: من صفحة الإعدادات، أو من أول رسالة
+// تُرسَل، وتُعيد المحاولة حتى تسخن.
 
-function restoreSavedSessions() {
-    const authDir = path.join(__dirname, '.wwebjs_auth');
-    if (!fs.existsSync(authDir)) {
-        return;
-    }
-
-    const clientIds = fs.readdirSync(authDir)
-        .filter((name) => name.startsWith('session-'))
-        .map((name) => name.substring('session-'.length));
-
-    clientIds.forEach((clientId, index) => {
-        setTimeout(() => {
-            console.log(`استعادة الجلسة المحفوظة [${clientId}]...`);
-            getOrCreateSession(clientId);
-        }, index * SESSION_RESTORE_GAP_MS);
+// إنهاء المتصفحات عند إيقاف الخدمة، فلا تبقى معلّقة بعد رحيل العملية الأم.
+['SIGTERM', 'SIGINT'].forEach((signal) => {
+    process.on(signal, async () => {
+        console.log(`استلمت ${signal}: إغلاق الجلسات...`);
+        await registry.stopAll();
+        process.exit(0);
     });
-
-    if (clientIds.length > 0) {
-        console.log(`سيتم استعادة ${clientIds.length} جلسة محفوظة تباعاً.`);
-    }
-}
+});
 
 app.listen(port, host, () => {
     console.log(`خدمة الواتساب تعمل على http://${host}:${port}`);
-    restoreSavedSessions();
+    console.log(`تُغلق الجلسة الخاملة بعد ${idleMs / 60000} دقيقة.`);
 });

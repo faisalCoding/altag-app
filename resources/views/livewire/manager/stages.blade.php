@@ -34,6 +34,7 @@
     <div class="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-100 dark:border-zinc-800 shadow-xs overflow-hidden">
         <flux:table>
             <flux:table.columns>
+                <flux:table.column class="w-20 text-center whitespace-nowrap">الترتيب</flux:table.column>
                 <flux:table.column class="text-right">اسم المرحلة</flux:table.column>
                 <flux:table.column class="text-right">الوصف</flux:table.column>
                 <flux:table.column class="text-center">المشرفين الحاضرين</flux:table.column>
@@ -45,6 +46,20 @@
             <flux:table.rows>
                 @forelse ($stages as $stage)
                     <flux:table.row :key="$stage->id">
+                        {{-- This order is what every stage list on the site reads:
+                             the reports, the pickers, the supervisors' scopes. --}}
+                        <flux:table.cell>
+                            <div class="flex items-center justify-center gap-0.5">
+                                <flux:button size="xs" variant="ghost" icon="chevron-up"
+                                    wire:click="moveStage({{ $stage->id }}, -1)"
+                                    :disabled="$loop->first && $search === '' && $supervisorFilter === 'all'"
+                                    aria-label="{{ __('تقديم :name', ['name' => $stage->name]) }}" />
+                                <flux:button size="xs" variant="ghost" icon="chevron-down"
+                                    wire:click="moveStage({{ $stage->id }}, 1)"
+                                    :disabled="$loop->last && $search === '' && $supervisorFilter === 'all'"
+                                    aria-label="{{ __('تأخير :name', ['name' => $stage->name]) }}" />
+                            </div>
+                        </flux:table.cell>
                         <flux:table.cell class="font-bold text-zinc-900 dark:text-white">{{ $stage->name }}</flux:table.cell>
                         <flux:table.cell class="text-zinc-500 dark:text-zinc-400 max-w-xs truncate">{{ $stage->description ?: '-' }}</flux:table.cell>
                         <flux:table.cell class="text-center">
@@ -71,7 +86,7 @@
                     </flux:table.row>
                 @empty
                     <flux:table.row>
-                        <flux:table.cell colspan="4" class="text-center py-16">
+                        <flux:table.cell colspan="7" class="text-center py-16">
                             <flux:text class="text-zinc-400">لا توجد مراحل حالياً</flux:text>
                         </flux:table.cell>
                     </flux:table.row>

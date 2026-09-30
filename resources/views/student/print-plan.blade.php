@@ -19,6 +19,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ $title }} - {{ $student->name }}</title>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
+
+    <x-branding-styles />
     <style>
         @media print {
             .no-print { display: none !important; }
@@ -78,7 +80,7 @@
         <div class="flex flex-wrap justify-between gap-2 text-xs font-semibold">
             <div class="flex justify-center items-end border border-zinc-200 rounded-3xl p-5 pt-3">
                 <div class="flex justify-start items-end w-26">
-                    <img src="{{ asset('images/altag_logo.png') }}" alt="Logo" class="h-24 object-contain" />
+                    <img src="{{ App\Support\Branding::logoUrl() }}" alt="Logo" class="h-24 object-contain" />
                 </div>
                 <div class="flex flex-col items-start">
                     <h1 class="text-lg mb-2">{{ $title }}</h1>

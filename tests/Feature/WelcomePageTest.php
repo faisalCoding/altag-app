@@ -3,29 +3,76 @@
 use App\Models\Circle;
 use App\Models\Student;
 use App\Models\Teacher;
+use App\Support\Branding;
 
-it('renders the features section and live stats on the welcome page', function () {
-    Student::factory()->count(2)->create();
-    Teacher::factory()->count(1)->create();
-    Circle::factory()->count(1)->create();
+it('opens on the sign-in form itself rather than a button to it', function () {
+    $response = $this->get(route('home'))->assertOk();
 
-    $response = $this->get(route('home'));
-
-    $response->assertOk();
-    $response->assertSee('لماذا مجمع التاج');
-    $response->assertSee('خطط حفظ ومراجعة مخصصة');
-    $response->assertSee('data-countup="2"', false);
-    $response->assertSee('data-countup="1"', false);
+    // One door, not four portals — and not a landing page that makes a student
+    // click twice to reach the only thing they came for.
+    $response->assertSee('البريد الإلكتروني')
+        ->assertSee('تسجيل الدخول')
+        ->assertSee(route('register'), false)
+        ->assertDontSee('/student/login', false)
+        ->assertDontSee('/teacher/login', false)
+        ->assertDontSee('/supervisor/login', false);
 });
 
-it('shows a single unified login entry point instead of four separate portals', function () {
-    $response = $this->get(route('home'));
+it('names the academy once on the first screen', function () {
+    $content = $this->get(route('home'))->assertOk()->getContent();
 
-    $response->assertOk();
-    $response->assertSee('من نحن');
-    $response->assertSee('مجمع التاج القرآني منصة رقمية متكاملة');
-    $response->assertSee(route('login'), false);
-    $response->assertDontSee('/student/login', false);
-    $response->assertDontSee('/teacher/login', false);
-    $response->assertDontSee('/supervisor/login', false);
+    // It was said three times running: small, large, and inside the greeting.
+    $body = substr($content, (int) strpos($content, '<body'));
+    $hero = substr($body, 0, (int) strpos($body, 'id="about"'));
+    $visible = preg_replace('/\s+/', ' ', strip_tags($hero));
+
+    expect(substr_count($visible, Branding::siteName()))->toBe(2); // الشريط العلوي، والعنوان
+});
+
+it('carries the sections a visitor scrolls for', function () {
+    $this->get(route('home'))
+        ->assertOk()
+        ->assertSee('من نحن')
+        ->assertSee('ما يقدّمه')
+        ->assertSee('أسئلة شائعة')
+        ->assertSee('تواصل');
+});
+
+it('counts in the digits the rest of the app counts in', function () {
+    Student::factory()->count(12)->create();
+    Teacher::factory()->count(3)->create();
+    Circle::factory()->count(2)->create();
+
+    $this->get(route('home'))
+        ->assertOk()
+        ->assertSee('id="figures"', false)
+        ->assertSee('١٢')
+        ->assertSee('٣');
+});
+
+it('says nothing about its numbers when it has none', function () {
+    // A new academy reading "إحصاءات حية" beside three zeros learns only that
+    // nobody tends the page.
+    $this->get(route('home'))
+        ->assertOk()
+        ->assertDontSee('id="figures"', false);
+});
+
+it('asks its questions in the Arabic the rest of the site is written in', function () {
+    // The four answers were in Egyptian colloquial: «إزاي أعمل حساب جديد؟».
+    $this->get(route('home'))
+        ->assertOk()
+        ->assertSee('كيف أُنشئ حساباً جديداً؟')
+        ->assertDontSee('إزاي')
+        ->assertDontSee('قد إيه')
+        ->assertDontSee('تقدر');
+});
+
+it('sends a signed-in visitor to their dashboard instead of a login form', function () {
+    $this->actingAs(Teacher::factory()->create(), 'teacher');
+
+    $this->get(route('home'))
+        ->assertOk()
+        ->assertSee('الذهاب إلى لوحتك')
+        ->assertDontSee('البريد الإلكتروني');
 });

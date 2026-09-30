@@ -2,10 +2,11 @@
 
 namespace App\Livewire\Manager;
 
-use App\Concerns\CopiesStudentMagicLinks;
+use App\Concerns\CopiesMagicLinks;
 use App\Models\Circle;
 use App\Models\Guardian;
 use App\Models\Student;
+use App\Support\HijriDate;
 use Flux\Flux;
 use Illuminate\Support\Str;
 use Livewire\Attributes\On;
@@ -14,7 +15,7 @@ use Livewire\WithPagination;
 
 class Students extends Component
 {
-    use CopiesStudentMagicLinks, WithPagination;
+    use CopiesMagicLinks, WithPagination;
 
     public $circles;
 
@@ -46,12 +47,40 @@ class Students extends Component
         $this->guardiansList = Guardian::whereRoleState(fn ($q) => $q->where('is_approved', true))->get();
     }
 
-    protected function selectableStudentsQuery()
+    public function regenerateSelected(): void
+    {
+        $count = $this->regenerateSelectedMagicLinks();
+
+        if ($count === 0) {
+            Flux::toast(__('لم يُحدَّد أحد.'), variant: 'danger');
+
+            return;
+        }
+
+        $this->resetSelection();
+
+        Flux::toast(
+            __('أُبطلت الروابط القديمة وأُنشئت :count روابط جديدة.', ['count' => HijriDate::arabicDigits($count)]),
+            variant: 'success',
+        );
+    }
+
+    protected function magicLinkRoute(): string
+    {
+        return 'magic-link';
+    }
+
+    protected function magicLinkAudience(): string
+    {
+        return 'الطلاب';
+    }
+
+    protected function selectableQuery()
     {
         return Student::query();
     }
 
-    protected function filteredStudentsQuery()
+    protected function filteredQuery()
     {
         $query = Student::with(['circle.stage', 'guardian']);
 
@@ -219,7 +248,7 @@ class Students extends Component
     public function render()
     {
         return view('livewire.manager.students', [
-            'students' => $this->filteredStudentsQuery()->paginate(20),
+            'students' => $this->filteredQuery()->paginate(20),
             'selectedMagicLinksText' => $this->buildSelectedMagicLinksText(),
             'selectedOutsideFilters' => $this->selectedOutsideFiltersCount(),
         ]);
