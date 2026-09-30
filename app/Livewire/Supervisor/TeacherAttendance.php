@@ -23,9 +23,25 @@ class TeacherAttendance extends Component
     /** @var array<int, string> teacher id => status */
     public array $records = [];
 
+    /**
+     * Kept as a property so a supervisor who reloads keeps what they typed, but
+     * the filtering itself happens in the browser — the whole list is already
+     * there, and a round trip per keystroke is the opposite of smooth.
+     */
     public string $search = '';
 
     public ?int $circleFilter = null;
+
+    /**
+     * The ids in the order they are listed, so the browser can walk them
+     * without asking the server where to go next.
+     *
+     * @var array<int, int>
+     */
+    public array $teacherOrder = [];
+
+    /** @var Collection<int, Teacher>|null */
+    private ?Collection $teacherCache = null;
 
     public function mount(): void
     {
@@ -38,15 +54,29 @@ class TeacherAttendance extends Component
         $this->loadRecords();
     }
 
+    public function updatedCircleFilter(): void
+    {
+        $this->loadRecords();
+    }
+
     /**
      * Read back whatever was already marked for the chosen day.
      */
     public function loadRecords(): void
     {
+        $this->teacherCache = null;
+        $teachers = $this->teachers();
+
         $this->records = Record::whereDate('date', $this->date)
-            ->whereIn('teacher_id', $this->teachers()->pluck('id'))
+            ->whereIn('teacher_id', $teachers->pluck('id'))
             ->pluck('status', 'teacher_id')
             ->all();
+
+        $this->teacherOrder = $teachers->pluck('id')->all();
+
+        // Tells the browser to start the walk over, the way the students'
+        // register does when its list changes underneath it.
+        $this->dispatch('teachersLoaded');
     }
 
     public function mark(int $teacherId, string $status): void
@@ -114,13 +144,16 @@ class TeacherAttendance extends Component
      */
     public function teachers(): Collection
     {
+        if ($this->teacherCache !== null) {
+            return $this->teacherCache;
+        }
+
         $circleIds = $this->supervisorCircleIds();
 
-        return Teacher::with('circles:id,name')
+        return $this->teacherCache = Teacher::with('circles:id,name')
             ->whereHas('circles', fn ($q) => $q->whereIn('circles.id', $this->circleFilter
                 ? array_intersect($circleIds, [$this->circleFilter])
                 : $circleIds))
-            ->when($this->search !== '', fn ($q) => $q->where('name', 'like', '%'.$this->search.'%'))
             ->orderBy('name')
             ->get();
     }

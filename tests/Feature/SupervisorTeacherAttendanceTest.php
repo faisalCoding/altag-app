@@ -117,7 +117,7 @@ it('clears only the chosen day', function () {
     expect(TeacherAttendance::first()->date->format('Y-m-d'))->toBe('2026-09-12');
 });
 
-it('narrows the list by circle and by name', function () {
+it('narrows the list by circle', function () {
     $otherCircle = Circle::factory()->create(['stage_id' => $this->stage->id]);
     $other = Teacher::factory()->create(['name' => 'أستاذ خالد']);
     $other->circles()->attach($otherCircle->id);
@@ -125,9 +125,36 @@ it('narrows the list by circle and by name', function () {
     Livewire::test(Screen::class)
         ->set('circleFilter', $otherCircle->id)
         ->assertSee('أستاذ خالد')
-        ->assertDontSee('أستاذ أحمد')
-        ->set('circleFilter', null)
-        ->set('search', 'خالد')
-        ->assertSee('أستاذ خالد')
         ->assertDontSee('أستاذ أحمد');
+});
+
+it('hands the search to the browser rather than to the server', function () {
+    $other = Teacher::factory()->create(['name' => 'أستاذ خالد']);
+    $other->circles()->attach($this->circle->id);
+
+    $html = Livewire::test(Screen::class)->html();
+
+    // Both are in the markup and the page filters between them itself; a round
+    // trip per keystroke is what this screen was rebuilt to stop doing.
+    expect($html)->toContain('أستاذ خالد')->toContain('أستاذ أحمد')
+        ->toContain('x-model="search"')
+        ->toContain('isVisible(');
+});
+
+it('gives the browser the order it needs to walk the list', function () {
+    $other = Teacher::factory()->create(['name' => 'أستاذ خالد']);
+    $other->circles()->attach($this->circle->id);
+
+    $page = Livewire::test(Screen::class);
+
+    // Marking advances to the next unmarked teacher without asking the server
+    // where that is, so the order has to travel with the page.
+    expect($page->get('teacherOrder'))->toHaveCount(2)
+        ->toContain($this->teacher->id, $other->id);
+});
+
+it('starts the walk over when the day or the circle changes', function () {
+    Livewire::test(Screen::class)
+        ->set('date', '2026-09-13')
+        ->assertDispatched('teachersLoaded');
 });
