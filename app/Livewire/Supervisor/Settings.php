@@ -63,7 +63,7 @@ class Settings extends Component
      */
     public function stages(): Collection
     {
-        return Auth::guard('supervisor')->user()->stages()->orderBy('name')->get();
+        return Auth::guard('supervisor')->user()->stages()->get();
     }
 
     public function render()

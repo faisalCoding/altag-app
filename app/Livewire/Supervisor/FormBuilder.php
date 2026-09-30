@@ -462,7 +462,7 @@ class FormBuilder extends Component
     {
         return view('livewire.supervisor.form-builder', [
             'fieldTypes' => SurveyFieldTypes::all(),
-            'stages' => Stage::orderBy('name')->get(['id', 'name']),
+            'stages' => Stage::get(['id', 'name']),
             'circleList' => Circle::orderBy('name')->get(['id', 'name', 'stage_id']),
             'audienceRoles' => [
                 'guardian' => 'أولياء الأمور',

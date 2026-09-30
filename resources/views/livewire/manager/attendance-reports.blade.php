@@ -77,8 +77,10 @@
                         <tr>
                             @foreach($dates as $date)
                                 <th class="bg-zinc-50 dark:bg-zinc-800/70 border border-zinc-200 dark:border-zinc-700 px-1 py-1 text-center">
-                                    <div class="text-xs font-bold text-zinc-700 dark:text-zinc-300">{{ $this->formatHijriDayNum($date) }}</div>
+                                    {{-- Weekday above the number, as the month sheet
+                                         already reads. --}}
                                     <div class="text-[10px] text-zinc-400">{{ $this->formatHijriDayName($date) }}</div>
+                                    <div class="text-xs font-bold text-zinc-700 dark:text-zinc-300">{{ $this->formatHijriDayNum($date) }}</div>
                                 </th>
                             @endforeach
                         </tr>

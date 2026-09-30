@@ -29,31 +29,37 @@ class AttendanceReports extends Component
         $this->toDate = Carbon::now()->toDateString();
     }
 
+    /**
+     * The day of the month on its own — the month and the year are already
+     * spelled out in the row above, which spans every day that shares them.
+     *
+     * All three of these used to return 'MMM yyyy', so the day row printed the
+     * month twice and the reader had nothing to count the days by.
+     */
     public function formatHijriDayNum($gregorianDate): string
     {
-        if (! $gregorianDate) {
-            return '';
-        }
-
-        return HijriDate::format(is_string($gregorianDate) ? strtotime($gregorianDate) : $gregorianDate, 'MMM yyyy');
+        return $this->hijri($gregorianDate, 'd');
     }
 
+    /** "السبت". */
     public function formatHijriDayName($gregorianDate): string
     {
-        if (! $gregorianDate) {
-            return '';
-        }
-
-        return HijriDate::format(is_string($gregorianDate) ? strtotime($gregorianDate) : $gregorianDate, 'MMM yyyy');
+        return $this->hijri($gregorianDate, 'EEEE');
     }
 
+    /** "صفر ١٤٤٨" — the heading the day columns group under. */
     public function formatHijriMonthYear($gregorianDate): string
+    {
+        return $this->hijri($gregorianDate, 'MMMM yyyy');
+    }
+
+    private function hijri($gregorianDate, string $pattern): string
     {
         if (! $gregorianDate) {
             return '';
         }
 
-        return HijriDate::format(is_string($gregorianDate) ? strtotime($gregorianDate) : $gregorianDate, 'MMM yyyy');
+        return HijriDate::format(is_string($gregorianDate) ? strtotime($gregorianDate) : $gregorianDate, $pattern);
     }
 
     public function clearFilters()

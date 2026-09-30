@@ -250,7 +250,7 @@ class BusOfficer extends Component
             'rulingStage' => $rulingStage,
             'bookings' => $query->orderByDesc('date')->limit(60)->get(),
             'items' => BusHandoverItem::active()->get(),
-            'stages' => Stage::orderBy('name')->get(['id', 'name'])
+            'stages' => Stage::get(['id', 'name'])
                 ->each(fn (Stage $stage) => $stage->bus_standing = $bookings->standingFor($stage)),
             'waitingCount' => BusBooking::whereNotIn('status', [BusBooking::RECEIVED, BusBooking::CANCELLED])
                 ->whereDate('date', '<=', $today)->count(),

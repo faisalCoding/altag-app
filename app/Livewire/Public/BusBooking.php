@@ -185,7 +185,7 @@ class BusBooking extends Component
         $stage = Stage::find($this->stageId);
 
         return view('livewire.public.bus-booking', [
-            'stages' => Stage::orderBy('name')->get(['id', 'name']),
+            'stages' => Stage::get(['id', 'name']),
             'stage' => $stage,
             'standing' => $stage ? $bookings->standingFor($stage) : null,
             'ruling' => $stage ? $bookings->latestRulingFor($stage) : null,
