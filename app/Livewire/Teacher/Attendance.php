@@ -468,6 +468,51 @@ class Attendance extends Component
     }
 
     /**
+     * The day's roll as one message the teacher pastes wherever it is due:
+     * who was absent, excused or late, under the circle, the teacher and the
+     * Hijri day it was taken on. Present and unmarked students are left out.
+     */
+    public function absenceSummaryMessage(): string
+    {
+        if (! $this->selectedCircle) {
+            return '';
+        }
+
+        $circleName = collect($this->circles)->firstWhere('id', $this->selectedCircle)?->name ?? '';
+        $teacherName = auth()->guard('teacher')->user()?->name ?? '';
+
+        $lines = [
+            "الحلقة: {$circleName}",
+            "المعلم: {$teacherName}",
+            'اليوم: '.HijriDate::withWeekday($this->date).'هـ',
+        ];
+
+        $sections = ['absent' => 'الغائبون', 'excused' => 'المستأذنون', 'late' => 'المتأخرون'];
+
+        foreach ($sections as $status => $heading) {
+            $names = $this->students
+                ->filter(fn (Student $student) => ($this->records[$student->id] ?? '') === $status)
+                ->pluck('name')
+                ->values();
+
+            $lines[] = '';
+            $lines[] = "{$heading} (".HijriDate::arabicDigits($names->count()).'):';
+
+            if ($names->isEmpty()) {
+                $lines[] = 'لا يوجد';
+
+                continue;
+            }
+
+            foreach ($names as $index => $name) {
+                $lines[] = HijriDate::arabicDigits($index + 1).'. '.$name;
+            }
+        }
+
+        return implode("\n", $lines);
+    }
+
+    /**
      * The working times the calendar holds for this circle's stage today, so
      * the teacher sees when the circle is due rather than being asked to type
      * how long it ran.

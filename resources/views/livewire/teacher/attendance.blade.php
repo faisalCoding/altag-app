@@ -203,6 +203,22 @@ Livewire fires only on: markStatus | updateStatus | markAllPresent | loadStudent
                         </span>
                     </flux:button>
 
+                    {{-- Absent, excused and late under one header, ready to paste.
+                         Held while a status is still saving so the copy never
+                         lags the roll the teacher sees. --}}
+                    <flux:button x-show="markedCount > 0" x-data="{ copied: false }" size="sm"
+                        data-msg="{{ $this->absenceSummaryMessage() }}"
+                        x-bind:disabled="syncing.length > 0"
+                        x-on:click="navigator.clipboard.writeText($el.dataset.msg).then(() => { copied = true; setTimeout(() => copied = false, 2000); })"
+                        title="نسخ رسالة بأسماء الغائبين والمستأذنين والمتأخرين">
+                        <span class="flex items-center gap-1">
+                            <flux:icon x-show="!copied" icon="clipboard-document" class="size-4" />
+                            <flux:icon x-cloak x-show="copied" icon="check" class="size-4 text-green-500" />
+                            <span x-show="!copied">نسخ رسالة الغياب</span>
+                            <span x-cloak x-show="copied">تم النسخ</span>
+                        </span>
+                    </flux:button>
+
                     <button x-show="markedCount > 0" x-on:click="$flux.modal('confirm-clear-attendance').show()" size="sm"
                         class=" border-red-600 rounded-md px-2 py-1 text-red-600 bg-red-600/20 hover:bg-red-600/70 hover:text-white"
                         title="حذف التحضير">
