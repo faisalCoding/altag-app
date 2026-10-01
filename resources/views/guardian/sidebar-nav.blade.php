@@ -17,6 +17,11 @@
             {{ __('المكافآت التحفيزية') }}
         </flux:sidebar.item>
     @endif
+    @if(\App\Support\RolePages::isEnabled('guardian', 'guardian.schedule'))
+        <flux:sidebar.item class="[&_svg]:bg-[#16a6bd] hover:[&_svg]:bg-[#0e8a9e]" icon="calendar-days" :href="route('guardian.schedule')" :current="request()->routeIs('guardian.schedule*')" wire:navigate>
+            {{ __('جدول البرنامج') }}
+        </flux:sidebar.item>
+    @endif
 </flux:sidebar.group>
 
 <flux:sidebar.group heading="متابعة الأبناء" class="grid">

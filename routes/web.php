@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Manager\BackupController;
+use App\Http\Controllers\ProgramSchedulePrintController;
 use App\Http\Controllers\Student\StudentPlanPrintController;
 use App\Http\Controllers\Teacher\TasmeehDataController;
 use App\Livewire\Auth\Student\Register;
@@ -307,6 +308,10 @@ Route::middleware(['auth:student', 'approved', 'page.enabled', 'surveys.required
     Route::view('/review', 'student.review')->name('review');
     Route::view('/exams', 'student.exams')->name('exams');
     Route::view('/calendar', 'student.calendar')->name('calendar');
+    Route::view('/schedule', 'student.schedule')->name('schedule');
+    Route::get('/schedule/weeks/{week}/print', ProgramSchedulePrintController::class)
+        ->defaults('role', 'student')
+        ->name('schedule.print');
     Route::view('/reports', 'student.reports')->name('reports');
     Route::view('/messages', 'student.messages')->name('messages');
     Route::view('/guide', 'shared.guide')->name('guide');
@@ -330,6 +335,10 @@ Route::middleware(['auth:guardian', 'approved', 'page.enabled', 'surveys.require
     Route::get('/challenges', fn () => view('guardian.challenges'))->name('challenges');
     Route::get('/student/{id}/challenge/create', fn ($id) => view('guardian.create-challenge', ['studentId' => $id]))->name('student.challenge.create');
     Route::view('/messages', 'guardian.messages')->name('messages');
+    Route::view('/schedule', 'guardian.schedule')->name('schedule');
+    Route::get('/schedule/weeks/{week}/print', ProgramSchedulePrintController::class)
+        ->defaults('role', 'guardian')
+        ->name('schedule.print');
     Route::view('/guide', 'shared.guide')->name('guide');
 });
 
