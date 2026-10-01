@@ -12,7 +12,7 @@
     </div>
 
     <div class="flex flex-col md:flex-row gap-4 items-end">
-        <div class="flex-1">
+        <div class="w-full md:flex-1">
             <flux:input icon="magnifying-glass" wire:model.live.debounce.300ms="search" placeholder="بحث عن مشرف..." />
         </div>
         <div class="w-full md:w-48">

@@ -433,7 +433,9 @@ hifz/review — local state per day card for instant visual feedback
 
         <!-- Main Content Area -->
         <div id="grading-area" class="lg:col-span-3 space-y-6 scroll-mt-6">
-            <div x-show="!activeStudentId" class="flex flex-col items-center justify-center p-12 bg-zinc-50/50 dark:bg-zinc-900/50 border border-dashed border-zinc-200 dark:border-zinc-800 rounded-2xl text-center h-full min-h-[400px]">
+            {{-- Desktop only: on a phone the roll sits right above, and a 400px card
+                 pointing at "the side list" only pushed it out of reach. --}}
+            <div x-show="!activeStudentId" class="hidden lg:flex flex-col items-center justify-center p-12 bg-zinc-50/50 dark:bg-zinc-900/50 border border-dashed border-zinc-200 dark:border-zinc-800 rounded-2xl text-center h-full min-h-[400px]">
                 <flux:icon icon="user-group" class="size-16 text-zinc-300 dark:text-zinc-600 mb-4" />
                 <flux:heading size="lg" class="text-zinc-500 dark:text-zinc-400 mb-2">{{ __('اختر طالباً للبدء') }}</flux:heading>
                 <p class="text-zinc-400 dark:text-zinc-500 text-sm max-w-sm">

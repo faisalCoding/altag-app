@@ -124,3 +124,25 @@ it('links all five pages from the student sidebar instead of showing them as com
     $response->assertSee(route('student.calendar'), false);
     $response->assertSee(route('student.reports'), false);
 });
+
+it('gives a student the phone bottom bar, marking the page they are on', function () {
+    $this->actingAs($this->student, 'student');
+
+    $html = $this->get(route('student.hifz'))->assertSuccessful()->getContent();
+    $bar = (string) str($html)->after('aria-label="التنقل السريع"')->before('</nav>');
+
+    foreach (['الرئيسية', 'خطتي', 'الحفظ', 'المراجعة', 'المزيد'] as $label) {
+        expect($bar)->toContain($label);
+    }
+
+    expect($bar)->toContain('aria-current="page"')
+        ->and(substr_count($bar, 'aria-current="page"'))->toBe(1);
+});
+
+it('declares the pages Arabic, so browsers neither offer to translate nor read them in English', function () {
+    $this->actingAs($this->student, 'student');
+
+    $this->get(route('student.hifz'))
+        ->assertSuccessful()
+        ->assertSee('<html lang="ar" dir="rtl"', false);
+});

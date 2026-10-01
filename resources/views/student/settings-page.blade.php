@@ -1,4 +1,4 @@
-<x-layouts.role-shell :title="__('Settings')">
+<x-layouts.role-shell :title="__('إعدادات الحساب')">
     <x-slot:sidebar>
         @include('student.sidebar-nav')
     </x-slot:sidebar>

@@ -7,14 +7,11 @@
         @include('teacher.sidebar-nav')
     </x-slot:sidebar>
 
-    <div class="p-6 md:p-8 space-y-8" dir="rtl">
+    <div class="py-4 md:p-8 space-y-8" dir="rtl">
         <!-- Dashboard Main Volt Component -->
         <livewire:teacher.dashboard />
 
-        <!-- Exceeded Limits (Violations) List -->
-        <div>
-            <flux:heading size="lg" class="mb-4">{{ __('لائحة التجاوزات والانذارات') }}</flux:heading>
-            <livewire:shared.exceeded-limits />
-        </div>
+        <!-- Exceeded Limits (Violations) List — the component carries its own heading -->
+        <livewire:shared.exceeded-limits />
     </div>
 </x-layouts.role-shell>

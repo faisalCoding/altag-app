@@ -83,6 +83,18 @@ it('renders the redesigned attendance page end-to-end with real data', function 
         ->assertSee($this->studentB->name);
 });
 
+it('names every tab of the phone bottom bar, not only the open one', function () {
+    $html = $this->get(route('teacher.attendance'))->assertSuccessful()->getContent();
+
+    $bar = str($html)->after('aria-label="التنقل السريع"')->before('</nav>');
+
+    foreach (['التحضير', 'التسميع', 'البنود', 'الخطط', 'الطلاب'] as $label) {
+        expect((string) $bar)->toContain(">{$label}</span>");
+    }
+
+    expect((string) $bar)->not->toContain('x-show="isActive"');
+});
+
 it('streams a CSV export of the current day attendance', function () {
     Livewire::test(Attendance::class)
         ->set('selectedCircle', $this->circle->id)

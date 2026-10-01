@@ -10,7 +10,7 @@
     </div>
 
     <div class="flex flex-col md:flex-row gap-4 items-end">
-        <div class="flex-1">
+        <div class="w-full md:flex-1">
             <flux:input icon="magnifying-glass" wire:model.live.debounce.300ms="search" placeholder="بحث عن طالب..." />
         </div>
         <div class="w-full md:w-32">
@@ -81,15 +81,7 @@
                             @endif
                         </flux:table.cell>
                         <flux:table.cell class="hidden sm:table-cell">
-                            @if ($student->status === 'active')
-                                <flux:badge size="sm" variant="success">مشارك</flux:badge>
-                            @elseif ($student->status === 'registering')
-                                <flux:badge size="sm" variant="warning">تحت التسجيل</flux:badge>
-                            @elseif ($student->status === 'suspended')
-                                <flux:badge size="sm" variant="danger">موقوف</flux:badge>
-                            @else
-                                <flux:badge size="sm" variant="neutral">غادر الحلقات</flux:badge>
-                            @endif
+                            <flux:badge size="sm" :color="\App\Support\StudentStatus::color($student->status)">{{ \App\Support\StudentStatus::label($student->status) }}</flux:badge>
                         </flux:table.cell>
                         <flux:table.cell class="first:ps-3" >
                             <div class="flex items-center justify-end gap-2" @click.stop>

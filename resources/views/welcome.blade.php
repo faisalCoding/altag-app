@@ -15,7 +15,7 @@
     $hasFigures = $figures->sum('value') > 0;
 @endphp
 <!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" dir="rtl" class="light">
+<html lang="ar" dir="rtl" class="light">
 
 <head>
     <meta charset="utf-8" />

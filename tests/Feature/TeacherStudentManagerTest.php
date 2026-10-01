@@ -254,3 +254,11 @@ it('marks incomplete paperwork on the name rather than in a second badge column'
     expect($html)->toContain('بيانات غير مكتملة')
         ->not->toContain('حالة البيانات');
 });
+
+it('opens on the roll once a circle has students, and on the add form while it has none', function () {
+    manager()->assertSeeHtml('x-data="{ adding: true }"');
+
+    Student::factory()->create(['circle_id' => $this->circle->id]);
+
+    manager()->assertSeeHtml('x-data="{ adding: false }"');
+});

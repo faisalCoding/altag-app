@@ -488,7 +488,15 @@ new class extends Component {
 };
 ?>
 
-<div class="space-y-6">
+@php
+    $canCreateStudents = Auth::guard('teacher')->user()?->effectivePermissions()['can_create_students'] ?? true;
+@endphp
+
+{{-- The roll is what a teacher opens this tab to read, so it leads; the
+     form to add more waits behind a button — open from the start only for a
+     circle with nobody in it yet, or when it has something to say. --}}
+<div class="space-y-6"
+    x-data="{ adding: {{ ($students->total() === 0 && $search === '') || $errors->hasAny(['names', 'joinedAt']) ? 'true' : 'false' }} }">
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
             <flux:heading size="xl" level="1">{{ __('إدارة طلاب الحلقة') }}</flux:heading>
@@ -496,11 +504,22 @@ new class extends Component {
             </flux:subheading>
         </div>
 
+        @if($canCreateStudents)
+            <div class="grid grid-cols-2 md:flex gap-2">
+                <flux:button x-on:click="adding = ! adding" x-bind:aria-expanded="adding" variant="primary" icon="user-plus">
+                    {{ __('إضافة طلاب') }}
+                </flux:button>
+                <flux:button wire:click="$set('unassignedSearch', '')"
+                    x-on:click="$flux.modal('unassigned-students-modal').show()" icon="magnifying-glass-plus">
+                    {{ __('من خارج الحلقات') }}
+                </flux:button>
+            </div>
+        @endif
     </div>
 
     <!-- Quick Create Card -->
-    @if(Auth::guard('teacher')->user()?->effectivePermissions()['can_create_students'] ?? true)
-    <flux:card>
+    @if($canCreateStudents)
+    <flux:card x-show="adding" x-cloak x-transition.opacity>
         {{-- A list rather than a field: teachers arrive with the names already
              written down somewhere, and typing them one at a time — then fixing
              each one's status and join date — was thirty acts for ten students. --}}
@@ -543,10 +562,6 @@ new class extends Component {
                 {{ __('يُضاف الطالب مشاركاً، فيظهر في التحضير من يوم التحاقه مباشرة.') }}
             </p>
         </form>
-        <flux:button wire:click="$set('unassignedSearch', '')"
-            x-on:click="$flux.modal('unassigned-students-modal').show()" icon="magnifying-glass-plus" class="w-full md:w-auto mt-3">
-            {{ __('إضافة طالب غير مرتبط بحلقة') }}
-        </flux:button>
     </flux:card>
     @endif
 

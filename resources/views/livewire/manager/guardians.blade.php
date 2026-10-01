@@ -10,7 +10,7 @@
     </div>
 
     <div class="flex flex-col md:flex-row gap-4 items-end">
-        <div class="flex-1">
+        <div class="w-full md:flex-1">
             <flux:input icon="magnifying-glass" wire:model.live.debounce.300ms="search"
                 placeholder="بحث عن ولي أمر..." />
         </div>
@@ -70,9 +70,9 @@
                         </flux:table.cell>
                         <flux:table.cell class="hidden sm:table-cell">
                             @if ($guardian->is_approved)
-                                <flux:badge size="sm" variant="success">معتمد</flux:badge>
+                                <flux:badge size="sm" color="green">معتمد</flux:badge>
                             @else
-                                <flux:badge size="sm" variant="warning">قيد الانتظار</flux:badge>
+                                <flux:badge size="sm" color="amber">قيد الانتظار</flux:badge>
                             @endif
                         </flux:table.cell>
                         <flux:table.cell class="hidden md:table-cell text-xs text-zinc-400">

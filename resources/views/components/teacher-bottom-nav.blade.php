@@ -1,6 +1,7 @@
-<div class="fixed bottom-0 left-0 rounded-full right-0 z-[100] lg:hidden bg-maroon dark:bg-accent-dark border-t border-white/10 shadow-none"
-    style="padding-bottom: env(safe-area-inset-bottom, 12px);">
-    <div class="flex items-center justify-around px-2 min-h-18 max-w-lg mx-auto ">
+<nav aria-label="{{ __('التنقل السريع') }}" data-bottom-nav
+    class="fixed inset-x-3 z-[100] lg:hidden rounded-3xl bg-maroon dark:bg-accent-dark border border-white/10 shadow-lg shadow-black/20"
+    style="bottom: max(0.75rem, env(safe-area-inset-bottom));">
+    <div class="flex items-stretch justify-around gap-1 p-1.5 max-w-lg mx-auto">
 
         @php
             $navItems = [
@@ -12,21 +13,19 @@
             ];
         @endphp
 
+        {{-- Every tab keeps its name on show: an icon alone leaves a teacher guessing which one is the plans and which the items. --}}
         @foreach($navItems as $item)
-            <a href="{{ route($item['route']) }}" 
+            <a href="{{ route($item['route']) }}"
                 x-data="{ isActive: '{{ $initialTab ?? '' }}' === '{{ $item['tab'] }}' || {{ request()->routeIs($item['route'] . '*') ? 'true' : 'false' }} }"
                 x-on:click.prevent="if(document.getElementById('teacher-app-shell')) { $dispatch('switch-tab', { tab: '{{ $item['tab'] }}', url: '{{ route($item['route']) }}' }); } else { Livewire.navigate('{{ route($item['route']) }}'); }"
                 x-on:switch-tab.window="isActive = ($event.detail.tab === '{{ $item['tab'] }}')"
-                :class="isActive ? 'text-white' : 'text-white/60 hover:text-white'"
-                class="relative flex flex-col items-center justify-center duration-300 ease-out h-full flex-1">
-
-                <div :class="isActive ? 'bg-white/15 px-6 py-2' : 'p-2'"
-                    class="relative flex items-center justify-center min-h-15 rounded-full duration-300">
-                    <flux:icon icon="{{ $item['icon'] }}" class="size-7 shrink-0"
-                        x-bind:variant="isActive ? 'solid' : 'outline'" />
-                    <span x-show="isActive" x-cloak class="ms-2 font-bold text-sm truncate block">{{ $item['name'] }}</span>
-                </div>
+                :class="isActive ? 'text-white bg-white/15' : 'text-white/65 hover:text-white hover:bg-white/5'"
+                :aria-current="isActive ? 'page' : null"
+                class="flex flex-1 min-w-0 flex-col items-center justify-center gap-1 min-h-14 rounded-2xl transition-colors duration-200">
+                <flux:icon icon="{{ $item['icon'] }}" class="size-6 shrink-0"
+                    x-bind:variant="isActive ? 'solid' : 'outline'" />
+                <span class="text-[11px] font-bold leading-none truncate max-w-full">{{ $item['name'] }}</span>
             </a>
         @endforeach
     </div>
-</div>
+</nav>

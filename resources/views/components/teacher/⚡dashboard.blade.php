@@ -295,7 +295,7 @@ new class extends Component {
                 <div class="space-y-2">
                     @foreach($teacherCompetitionStandings as $row)
                         @php $isMe = $row['teacher']->id === auth()->guard('teacher')->id(); @endphp
-                        <div class="flex items-center justify-between gap-3 p-3 rounded-xl {{ $isMe ? 'bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800/50' : 'bg-zinc-50 dark:bg-zinc-800/50' }}">
+                        <div class="flex items-center justify-between gap-3 p-3 rounded-xl {{ $isMe ? 'bg-accent/5 dark:bg-accent/15 border border-accent/20 dark:border-accent/40' : 'bg-zinc-50 dark:bg-zinc-800/50' }}">
                             <div class="flex items-center gap-3">
                                 <div class="w-8 h-8 rounded-full flex items-center justify-center font-black text-sm {{ $row['rank'] <= 3 ? 'bg-amber-400 text-white' : 'bg-zinc-200 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300' }}">
                                     {{ $row['rank'] }}
@@ -303,7 +303,7 @@ new class extends Component {
                                 <span class="font-bold text-zinc-800 dark:text-zinc-100">
                                     {{ $row['teacher']->name }}
                                     @if($isMe)
-                                        <span class="text-[10px] font-bold ms-1 bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-full">{{ __('أنت') }}</span>
+                                        <span class="text-[10px] font-bold ms-1 bg-accent/10 dark:bg-accent/30 text-accent dark:text-white px-2 py-0.5 rounded-full">{{ __('أنت') }}</span>
                                     @endif
                                 </span>
                             </div>
@@ -322,25 +322,29 @@ new class extends Component {
     <!-- Quick CTA: Attendance -->
     <a href="{{ route('teacher.attendance') }}" class="block w-full transition-transform hover:-translate-y-1">
         <div
-            class="bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 rounded-2xl p-6 shadow-md shadow-indigo-600/20 text-white flex flex-col sm:flex-row items-center sm:justify-between gap-4">
+            class="bg-maroon hover:bg-burgundy dark:bg-red-secondary dark:hover:bg-maroon rounded-2xl p-6 shadow-md shadow-maroon/20 text-white flex flex-col sm:flex-row items-center sm:justify-between gap-4">
             <div class="flex items-center gap-4">
                 <div class="bg-white/20 p-3 rounded-full">
                     <flux:icon icon="clipboard-document-check" class="w-8 h-8 text-white" />
                 </div>
                 <div>
                     <h2 class="text-xl font-bold">{{ __('التحضير اليومي') }}</h2>
-                    <p class="text-indigo-100 text-sm mt-1 mb-0">{{ __('سجل حضور وغياب وتأخر طلابك لهذا اليوم') }}</p>
+                    <p class="text-white/80 text-sm mt-1 mb-0">{{ __('سجل حضور وغياب وتأخر طلابك لهذا اليوم') }}</p>
                 </div>
             </div>
-            <flux:button variant="filled" class="bg-white text-indigo-600 hover:bg-zinc-50">
-                {{ __('ابدأ التحضير الآن') }}</flux:button>
+            {{-- A span, not a button: the whole card is already the link, and a
+                 button inside a link is two targets claiming one tap. --}}
+            <span class="inline-flex items-center justify-center gap-2 h-10 px-5 w-full sm:w-auto rounded-xl bg-white text-maroon text-sm font-bold shadow-sm">
+                {{ __('ابدأ التحضير الآن') }}
+                <flux:icon icon="arrow-left" class="size-4" />
+            </span>
         </div>
     </a>
 
     <!-- Assigned Group Tasks -->
     <div class="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-100 dark:border-zinc-800 p-6 space-y-4 shadow-xs">
         <flux:heading size="lg" class="font-bold text-zinc-900 dark:text-white flex items-center gap-2">
-            <svg class="size-6 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <svg class="size-6 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 002 2h2a2 2 0 002-2" />
             </svg>
             <span>{{ __('مهام المجموعات المكلف بمسؤوليتها') }}</span>
@@ -426,7 +430,7 @@ new class extends Component {
                         <h3 class="font-bold text-sm">{{ __('التميز الحضوري') }}</h3>
                     </div>
                     <a href="{{ route('teacher.discipline') }}"
-                        class="text-xs text-indigo-500 hover:underline">{{ __('التفاصيل') }}</a>
+                        class="text-xs text-accent dark:text-zinc-200 hover:underline">{{ __('التفاصيل') }}</a>
                 </div>
                 <div class="text-xs text-zinc-500">{{ __('فرسان الحضور خلال آخر 30 يوماً') }}</div>
 
@@ -457,7 +461,7 @@ new class extends Component {
                         <h3 class="font-bold text-sm">{{ __('التميز القرآني') }}</h3>
                     </div>
                     <a href="{{ route('teacher.quranic-discipline') }}"
-                        class="text-xs text-indigo-500 hover:underline">{{ __('التفاصيل') }}</a>
+                        class="text-xs text-accent dark:text-zinc-200 hover:underline">{{ __('التفاصيل') }}</a>
                 </div>
                 <div class="text-xs text-zinc-500">{{ __('فرسان التسميع بتقدير ممتاز خلال آخر 30 يوماً') }}</div>
 
@@ -481,30 +485,31 @@ new class extends Component {
     <!-- Secondary Shortcuts Grid -->
     <div>
         <flux:heading size="lg" class="mb-4">{{ __('روابط سريعة') }}</flux:heading>
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {{-- Three abreast on a phone too: they repeat the bottom bar there, so they earn a row, not a screen. --}}
+        <div class="grid grid-cols-3 gap-3 md:gap-6">
 
             <a href="{{ route('teacher.tasmeeh') }}"
-                class="group bg-white dark:bg-zinc-900 p-6 rounded-2xl border border-zinc-100 dark:border-zinc-800 shadow-xs hover:border-indigo-500/50 hover:shadow-md transition-[transform,shadow,border-color] h-36 flex flex-col justify-center items-center text-center">
+                class="group bg-white dark:bg-zinc-900 p-3 md:p-6 rounded-2xl border border-zinc-100 dark:border-zinc-800 shadow-xs hover:border-accent/50 hover:shadow-md transition-[transform,shadow,border-color] min-h-24 md:h-36 flex flex-col justify-center items-center text-center">
                 <flux:icon icon="book-open"
-                    class="size-8 text-indigo-500 mb-2 group-hover:scale-110 transition-transform" />
-                <flux:heading size="md" class="group-hover:text-indigo-600">{{ __('التسميع اليومي') }}
+                    class="size-8 text-accent mb-2 group-hover:scale-110 transition-transform" />
+                <flux:heading size="md" class="text-sm md:text-base group-hover:text-accent">{{ __('التسميع اليومي') }}
                 </flux:heading>
-                <flux:subheading class="text-xs mt-1">{{ __('متابعة تسميع المهام اليومية للطلاب') }}</flux:subheading>
+                <flux:subheading class="hidden md:block text-xs mt-1">{{ __('متابعة تسميع المهام اليومية للطلاب') }}</flux:subheading>
             </a>
 
             <a href="{{ route('teacher.plan-creator') }}"
-                class="group bg-white dark:bg-zinc-900 p-6 rounded-2xl border border-zinc-100 dark:border-zinc-800 shadow-xs hover:border-indigo-500/50 hover:shadow-md transition-[transform,shadow,border-color] h-36 flex flex-col justify-center items-center text-center">
+                class="group bg-white dark:bg-zinc-900 p-3 md:p-6 rounded-2xl border border-zinc-100 dark:border-zinc-800 shadow-xs hover:border-accent/50 hover:shadow-md transition-[transform,shadow,border-color] min-h-24 md:h-36 flex flex-col justify-center items-center text-center">
                 <flux:icon icon="calendar-days"
                     class="size-8 text-emerald-500 mb-2 group-hover:scale-110 transition-transform" />
-                <flux:heading size="md" class="group-hover:text-indigo-600">{{ __('منشئ الخطط') }}</flux:heading>
-                <flux:subheading class="text-xs mt-1">{{ __('إنشاء وتوزيع مسارات الحفظ والمراجعة') }}</flux:subheading>
+                <flux:heading size="md" class="text-sm md:text-base group-hover:text-accent">{{ __('منشئ الخطط') }}</flux:heading>
+                <flux:subheading class="hidden md:block text-xs mt-1">{{ __('إنشاء وتوزيع مسارات الحفظ والمراجعة') }}</flux:subheading>
             </a>
 
             <a href="{{ route('teacher.students') }}"
-                class="group bg-white dark:bg-zinc-900 p-6 rounded-2xl border border-zinc-100 dark:border-zinc-800 shadow-xs hover:border-indigo-500/50 hover:shadow-md transition-[transform,shadow,border-color] h-36 flex flex-col justify-center items-center text-center">
+                class="group bg-white dark:bg-zinc-900 p-3 md:p-6 rounded-2xl border border-zinc-100 dark:border-zinc-800 shadow-xs hover:border-accent/50 hover:shadow-md transition-[transform,shadow,border-color] min-h-24 md:h-36 flex flex-col justify-center items-center text-center">
                 <flux:icon icon="users" class="size-8 text-amber-500 mb-2 group-hover:scale-110 transition-transform" />
-                <flux:heading size="md" class="group-hover:text-indigo-600">{{ __('طلابي') }}</flux:heading>
-                <flux:subheading class="text-xs mt-1">{{ __('إدارة قائمة الطلاب ( ' . $studentsCount . ' طالب )') }}
+                <flux:heading size="md" class="text-sm md:text-base group-hover:text-accent">{{ __('طلابي') }}</flux:heading>
+                <flux:subheading class="hidden md:block text-xs mt-1">{{ __('إدارة قائمة الطلاب ( ' . $studentsCount . ' طالب )') }}
                 </flux:subheading>
             </a>
 

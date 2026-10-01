@@ -16,7 +16,7 @@
     </div>
 
     <div class="flex flex-col md:flex-row gap-4 items-end">
-        <div class="flex-1">
+        <div class="w-full md:flex-1">
             <flux:input icon="magnifying-glass" wire:model.live.debounce.300ms="search" placeholder="بحث عن حلقة..." />
         </div>
         <div class="w-full md:w-48">
@@ -58,7 +58,7 @@
                         <flux:table.cell class="text-center">
                             <div class="flex flex-wrap items-center justify-center gap-1">
                                     @forelse($circle->teachers as $teacher)
-                                        <flux:badge size="sm" variant="success">{{ $teacher->name }}</flux:badge>
+                                        <flux:badge size="sm" color="green">{{ $teacher->name }}</flux:badge>
                                     @empty
                                         <span class="text-xs text-zinc-400">لا يوجد معلمين</span>
                                     @endforelse

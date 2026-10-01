@@ -21,8 +21,27 @@ class StudentStatus
         'left' => 'غادر الحلقات',
     ];
 
+    /**
+     * The badge colour for each standing, one set for every page that shows
+     * it — the directories had drifted apart, «تحت التسجيل» blue on one and
+     * amber on another.
+     *
+     * @var array<string, string>
+     */
+    public const COLORS = [
+        'active' => 'green',
+        'registering' => 'blue',
+        'suspended' => 'amber',
+        'left' => 'red',
+    ];
+
     public static function label(?string $status): string
     {
         return self::LABELS[$status] ?? 'غير معروفة';
+    }
+
+    public static function color(?string $status): string
+    {
+        return self::COLORS[$status] ?? 'zinc';
     }
 }

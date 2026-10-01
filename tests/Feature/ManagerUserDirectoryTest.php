@@ -1,9 +1,12 @@
 <?php
 
+use App\Models\Circle;
 use App\Models\Guardian;
 use App\Models\Manager;
+use App\Models\Student;
 use App\Models\Supervisor;
 use App\Models\Teacher;
+use App\Support\StudentStatus;
 use Livewire\Livewire;
 
 it('defaults to the students tab on the students route', function () {
@@ -62,3 +65,22 @@ it('ignores an unknown initial tab and falls back to students', function () {
     Livewire::test('manager.user-directory', ['initialTab' => 'not-a-real-tab'])
         ->assertSet('activeTab', 'students');
 });
+
+it('colours each student standing in the directory, the same way every page does', function (string $status, string $color) {
+    $manager = Manager::factory()->create();
+    $circle = Circle::factory()->create();
+    Student::factory()->create(['circle_id' => $circle->id, 'status' => $status]);
+    $this->actingAs($manager, 'manager');
+
+    expect(StudentStatus::color($status))->toBe($color);
+
+    $this->get(route('manager.students'))
+        ->assertSuccessful()
+        ->assertSee(StudentStatus::label($status))
+        ->assertSee("text-{$color}-", false);
+})->with([
+    'participating' => ['active', 'green'],
+    'registering' => ['registering', 'blue'],
+    'suspended' => ['suspended', 'amber'],
+    'left' => ['left', 'red'],
+]);

@@ -1035,12 +1035,12 @@ new class extends Component {
                         <flux:heading size="xl" level="1">{{ __('إعداد الخطة الدراسية') }}</flux:heading>
                         <flux:subheading>{{ __('معالج إنشاء الجدول بخطوات بسيطة') }}</flux:subheading>
                     </div>
-                    <div class="text-xs font-bold text-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 px-3 py-1 rounded-full"
+                    <div class="text-xs font-bold text-accent dark:text-zinc-100 bg-accent/10 dark:bg-accent/30 px-3 py-1 rounded-full"
                         x-text="'{{ __('خطوة') }} ' + wizardStep + ' {{ __('من') }} 5'">
                     </div>
                 </div>
                 <div class="relative w-full h-1.5 bg-zinc-200 dark:bg-zinc-700 rounded overflow-hidden mt-4">
-                    <div class="absolute top-0 bottom-0 right-0 bg-indigo-500 duration-300"
+                    <div class="absolute top-0 bottom-0 right-0 bg-accent duration-300"
                         x-bind:style="'width: ' + ((wizardStep / 5) * 100) + '%'"></div>
                 </div>
             </div>
@@ -1050,7 +1050,7 @@ new class extends Component {
                 @if($userLevel == 'teacher')
                     <div x-show="wizardStep == 1" class="space-y-6 text-center animate-in fade-in zoom-in duration-300">
                         <div
-                            class="mx-auto bg-indigo-50 dark:bg-zinc-800 w-16 h-16 rounded-full flex items-center justify-center text-indigo-500 mb-4">
+                            class="mx-auto bg-accent/10 dark:bg-zinc-800 w-16 h-16 rounded-full flex items-center justify-center text-accent dark:text-zinc-200 mb-4">
                             <flux:icon icon="user" class="size-8" />
                         </div>
                         <flux:heading size="lg" class="mb-4">{{ __('لمن تريد إنشاء الخطة؟') }}</flux:heading>
@@ -1301,7 +1301,7 @@ new class extends Component {
                 </template>
                 <template x-if="wizardStep == 5">
                     <flux:button variant="primary" wire:click="generateDays" icon="calendar"
-                        class="min-w-[120px] bg-indigo-600 hover:bg-indigo-700 border-none">
+                        class="min-w-[120px] border-none">
                         {{ __('اكمال بيانات الايام') }}
                     </flux:button>
                 </template>

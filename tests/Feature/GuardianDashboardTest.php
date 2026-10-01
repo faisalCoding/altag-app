@@ -47,6 +47,14 @@ it('renders the guardian dashboard with all children listed', function () {
         ->assertSee('الابن الثاني');
 });
 
+it('shows the children before the notifications', function () {
+    $this->actingAs($this->guardian, 'guardian');
+
+    $this->get(route('guardian.dashboard'))
+        ->assertSuccessful()
+        ->assertSeeInOrder(['بيانات الأبناء', 'الابن الأول', 'آخر التنبيهات']);
+});
+
 it('renders the create-challenge page via the single-file component', function () {
     $this->actingAs($this->guardian, 'guardian');
 

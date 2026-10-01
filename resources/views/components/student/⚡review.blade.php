@@ -47,19 +47,20 @@ new class extends Component
         </flux:subheading>
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <flux:card>
-            <div class="text-xs text-zinc-500 dark:text-zinc-400">{{ __('أيام تم تقييمها') }}</div>
-            <div class="text-2xl font-extrabold text-zinc-900 dark:text-white mt-1">{{ $gradedCount }}</div>
+    {{-- Side by side on a phone too: each holds one number, and stacked they filled the screen before the log began. --}}
+    <div class="grid grid-cols-2 gap-3 md:gap-6">
+        <flux:card class="!p-3 md:!p-6">
+            <div class="text-xs text-zinc-500 dark:text-zinc-400 leading-snug">{{ __('أيام تم تقييمها') }}</div>
+            <div class="text-xl md:text-2xl font-extrabold text-zinc-900 dark:text-white mt-1">{{ $gradedCount }}</div>
         </flux:card>
-        <flux:card>
-            <div class="text-xs text-zinc-500 dark:text-zinc-400">{{ __('تقييمات ممتاز') }}</div>
-            <div class="text-2xl font-extrabold text-emerald-600 mt-1">{{ $excellentCount }}</div>
+        <flux:card class="!p-3 md:!p-6">
+            <div class="text-xs text-zinc-500 dark:text-zinc-400 leading-snug">{{ __('تقييمات ممتاز') }}</div>
+            <div class="text-xl md:text-2xl font-extrabold text-emerald-600 mt-1">{{ $excellentCount }}</div>
         </flux:card>
     </div>
 
     <flux:card class="p-0 overflow-hidden">
-        <div class="overflow-x-auto">
+        <div class="overflow-x-auto px-4">
             <flux:table>
                 <flux:table.columns>
                     <flux:table.column>{{ __('التاريخ') }}</flux:table.column>

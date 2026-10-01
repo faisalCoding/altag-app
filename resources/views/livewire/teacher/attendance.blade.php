@@ -176,31 +176,23 @@ Livewire fires only on: markStatus | updateStatus | markAllPresent | loadStudent
                     </div>
                 @endif
 
-                <div class="flex items-center gap-1 p-1 bg-zinc-100 dark:bg-zinc-800 rounded-lg h-fit">
-                    <button @click="mode = 'wizard'" :class="mode === 'wizard'
-                                ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-sm'
-                                : 'text-zinc-500 dark:text-zinc-400'" class="px-3 py-1.5 text-sm font-medium rounded-md ">
-                        <span class="flex items-center gap-1.5">
-                            <flux:icon icon="play" class="size-4" />
-                            تحضير تفاعلي
-                        </span>
-                    </button>
-                    <button @click="mode = 'list'" :class="mode === 'list'
-                                ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-sm'
-                                : 'text-zinc-500 dark:text-zinc-400'" class="px-3 py-1.5 text-sm font-medium rounded-md ">
-                        <span class="flex items-center gap-1.5">
-                            <flux:icon icon="list-bullet" class="size-4" />
-                            قائمة يدوية
-                        </span>
-                    </button>
-                    <button @click="mode = 'sheet'" :class="mode === 'sheet'
-                                ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-sm'
-                                : 'text-zinc-500 dark:text-zinc-400'" class="px-3 py-1.5 text-sm font-medium rounded-md ">
-                        <span class="flex items-center gap-1.5">
-                            <flux:icon icon="table-cells" class="size-4" />
-                            جدول الشهر
-                        </span>
-                    </button>
+                {{-- Three equal segments that hold to one line on a phone. --}}
+                <div class="grid grid-cols-3 sm:flex items-center gap-1 p-1 bg-zinc-100 dark:bg-zinc-800 rounded-xl h-fit w-full sm:w-auto">
+                    @foreach ([
+                        'wizard' => ['icon' => 'play', 'label' => 'تحضير تفاعلي', 'short' => 'تفاعلي'],
+                        'list' => ['icon' => 'list-bullet', 'label' => 'قائمة يدوية', 'short' => 'قائمة'],
+                        'sheet' => ['icon' => 'table-cells', 'label' => 'جدول الشهر', 'short' => 'الشهر'],
+                    ] as $modeKey => $modeTab)
+                        <button @click="mode = '{{ $modeKey }}'" :class="mode === '{{ $modeKey }}'
+                                    ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-sm'
+                                    : 'text-zinc-500 dark:text-zinc-400'"
+                            :aria-pressed="mode === '{{ $modeKey }}'"
+                            class="flex items-center justify-center gap-1.5 px-3 h-9 text-sm font-medium rounded-lg whitespace-nowrap">
+                            <flux:icon icon="{{ $modeTab['icon'] }}" class="size-4 shrink-0" />
+                            <span class="sm:hidden">{{ $modeTab['short'] }}</span>
+                            <span class="hidden sm:inline">{{ $modeTab['label'] }}</span>
+                        </button>
+                    @endforeach
                 </div>
 
                 <div x-show="studentOrder.length > 0 && mode !== 'sheet'" class="flex items-center gap-2">
@@ -402,7 +394,7 @@ Livewire fires only on: markStatus | updateStatus | markAllPresent | loadStudent
 
             {{-- Filter chips + search --}}
             <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border-b border-zinc-100 dark:border-zinc-800">
-                <div class="flex items-center gap-2 overflow-x-auto">
+                <div class="flex items-center gap-2 overflow-x-auto [scrollbar-width:none] -mx-1 px-1">
                     <button @click="filterStatus = 'all'" :class="filterStatus === 'all' ? '!bg-maroon !text-white' : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300'"
                         class="px-4 py-1.5 rounded-full text-sm font-bold whitespace-nowrap">الكل</button>
                     <button @click="filterStatus = 'present'" :class="filterStatus === 'present' ? '!bg-emerald-500 !text-white' : 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600'"
@@ -411,7 +403,7 @@ Livewire fires only on: markStatus | updateStatus | markAllPresent | loadStudent
                         class="px-4 py-1.5 rounded-full text-sm font-bold whitespace-nowrap">متأخر</button>
                     <button @click="filterStatus = 'absent'" :class="filterStatus === 'absent' ? '!bg-rose-500 !text-white' : 'bg-rose-50 dark:bg-rose-900/20 text-rose-600'"
                         class="px-4 py-1.5 rounded-full text-sm font-bold whitespace-nowrap">غائب</button>
-                    <button @click="filterStatus = 'excused'" :class="filterStatus === 'excused' ? '!bg-zinc-500 !text-white' : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-500'"
+                    <button @click="filterStatus = 'excused'" :class="filterStatus === 'excused' ? '!bg-sky-600 !text-white' : 'bg-sky-50 dark:bg-sky-900/20 text-sky-600'"
                         class="px-4 py-1.5 rounded-full text-sm font-bold whitespace-nowrap">مستأذن</button>
                 </div>
 
@@ -420,11 +412,21 @@ Livewire fires only on: markStatus | updateStatus | markAllPresent | loadStudent
                 </div>
             </div>
 
-            <div class="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 divide-zinc-100 dark:divide-zinc-800">
+            @php
+                $statusButtons = [
+                    'present' => ['label' => 'حاضر', 'on' => 'bg-emerald-600 text-white border-emerald-600', 'off' => 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-900 dark:hover:bg-emerald-900/40'],
+                    'absent' => ['label' => 'غائب', 'on' => 'bg-rose-600 text-white border-rose-600', 'off' => 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100 dark:bg-rose-950/40 dark:text-rose-400 dark:border-rose-900 dark:hover:bg-rose-900/40'],
+                    'late' => ['label' => 'متأخر', 'on' => 'bg-amber-500 text-white border-amber-500', 'off' => 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-900 dark:hover:bg-amber-900/40'],
+                    'excused' => ['label' => 'مستأذن', 'on' => 'bg-sky-600 text-white border-sky-600', 'off' => 'bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100 dark:bg-sky-950/40 dark:text-sky-400 dark:border-sky-900 dark:hover:bg-sky-900/40'],
+                ];
+            @endphp
+
+            {{-- Two abreast only where a row still fits a name beside four full buttons. --}}
+            <div class="grid grid-cols-1 2xl:grid-cols-2 divide-y 2xl:divide-y-0 divide-zinc-100 dark:divide-zinc-800">
                 @foreach ($students as $index => $student)
                     <div x-show="isVisible({{ $student->id }})" wire:key="student-{{ $student->id }}"
-                        class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 lg:border-b lg:border-zinc-100 dark:lg:border-zinc-800">
-                        <div class="flex items-center gap-3">
+                        class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 2xl:border-b 2xl:border-zinc-100 dark:2xl:border-zinc-800">
+                        <div class="flex items-center gap-3 min-w-0">
                             <span class="text-xs font-mono text-zinc-400 w-6 text-center">{{ $index + 1 }}</span>
                             <div class="flex items-center gap-2">
                                 @if($student->avatar_path)
@@ -438,7 +440,7 @@ Livewire fires only on: markStatus | updateStatus | markAllPresent | loadStudent
                             </div>
                         </div>
 
-                        <div class="flex items-center gap-2 mr-9 sm:mr-0 min-w-[32px] justify-center">
+                        <div class="flex items-center gap-2 w-full sm:w-auto">
                             {{-- Loading spinner while syncing --}}
                             <div x-cloak x-show="syncing.includes({{ $student->id }})" class="flex items-center justify-center">
                                 <flux:icon icon="arrow-path" class="size-5 text-current animate-spin" />
@@ -468,39 +470,19 @@ Livewire fires only on: markStatus | updateStatus | markAllPresent | loadStudent
                                 @endif
                             </div>
 
-                            {{-- Status buttons — Alpine instant color, Livewire re-renders for WhatsApp --}}
-                            <button @click="updateRecord({{ $student->id }}, 'present')"
-                                :disabled="syncing.includes({{ $student->id }})"
-                                :class="syncing.includes({{ $student->id }}) && getStatus({{ $student->id }}) === 'present'
-                                    ? 'bg-zinc-200 text-zinc-700 border border-zinc-300 dark:bg-white dark:text-zinc-900 dark:border-white'
-                                    : (getStatus({{ $student->id }}) === 'present'
-                                        ? 'bg-green-100 text-green-700 border border-green-300 dark:bg-green-900/30 dark:text-green-400 dark:border-green-700'
-                                        : 'bg-zinc-100 text-zinc-500 border border-zinc-200 hover:bg-green-50 hover:text-green-700 hover:border-green-300 dark:bg-zinc-800 dark:text-zinc-400 dark:border-zinc-700 dark:hover:bg-green-900/20 dark:hover:text-green-400')"
-                                class="px-3 py-1.5 text-xs font-medium rounded-lg">حاضر</button>
-                            <button @click="updateRecord({{ $student->id }}, 'absent')"
-                                :disabled="syncing.includes({{ $student->id }})"
-                                :class="syncing.includes({{ $student->id }}) && getStatus({{ $student->id }}) === 'absent'
-                                    ? 'bg-zinc-200 text-zinc-700 border border-zinc-300 dark:bg-white dark:text-zinc-900 dark:border-white'
-                                    : (getStatus({{ $student->id }}) === 'absent'
-                                        ? 'bg-red-100 text-red-700 border border-red-300 dark:bg-red-900/30 dark:text-red-400 dark:border-red-700'
-                                        : 'bg-zinc-100 text-zinc-500 border border-zinc-200 hover:bg-red-50 hover:text-red-700 hover:border-red-300 dark:bg-zinc-800 dark:text-zinc-400 dark:border-zinc-700 dark:hover:bg-red-900/20 dark:hover:text-red-400')"
-                                class="px-3 py-1.5 text-xs font-medium rounded-lg">غائب</button>
-                            <button @click="updateRecord({{ $student->id }}, 'late')"
-                                :disabled="syncing.includes({{ $student->id }})"
-                                :class="syncing.includes({{ $student->id }}) && getStatus({{ $student->id }}) === 'late'
-                                    ? 'bg-zinc-200 text-zinc-700 border border-zinc-300 dark:bg-white dark:text-zinc-900 dark:border-white'
-                                    : (getStatus({{ $student->id }}) === 'late'
-                                        ? 'bg-amber-100 text-amber-700 border border-amber-300 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-700'
-                                        : 'bg-zinc-100 text-zinc-500 border border-zinc-200 hover:bg-amber-50 hover:text-amber-700 hover:border-amber-300 dark:bg-zinc-800 dark:text-zinc-400 dark:border-zinc-700 dark:hover:bg-amber-900/20 dark:hover:text-amber-400')"
-                                class="px-3 py-1.5 text-xs font-medium rounded-lg">متأخر</button>
-                            <button @click="updateRecord({{ $student->id }}, 'excused')"
-                                :disabled="syncing.includes({{ $student->id }})"
-                                :class="syncing.includes({{ $student->id }}) && getStatus({{ $student->id }}) === 'excused'
-                                    ? 'bg-zinc-200 text-zinc-700 border border-zinc-300 dark:bg-white dark:text-zinc-900 dark:border-white'
-                                    : (getStatus({{ $student->id }}) === 'excused'
-                                        ? 'bg-blue-100 text-blue-700 border border-blue-300 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-700'
-                                        : 'bg-zinc-100 text-zinc-500 border border-zinc-200 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-300 dark:bg-zinc-800 dark:text-zinc-400 dark:border-zinc-700 dark:hover:bg-blue-900/20 dark:hover:text-blue-400')"
-                                class="px-3 py-1.5 text-xs font-medium rounded-lg">مستأذن</button>
+                            {{-- Status buttons — a full row of thumb-sized targets, each
+                                 tinted in its own colour so the roll can be read at a glance. --}}
+                            <div class="grid grid-cols-4 gap-1.5 flex-1 sm:flex-none sm:w-80">
+                                @foreach ($statusButtons as $status => $button)
+                                    <button @click="updateRecord({{ $student->id }}, '{{ $status }}')"
+                                        :disabled="syncing.includes({{ $student->id }})"
+                                        :class="syncing.includes({{ $student->id }}) && getStatus({{ $student->id }}) === '{{ $status }}'
+                                            ? 'bg-zinc-200 text-zinc-700 border-zinc-300 dark:bg-white dark:text-zinc-900 dark:border-white'
+                                            : (getStatus({{ $student->id }}) === '{{ $status }}' ? '{{ $button['on'] }}' : '{{ $button['off'] }}')"
+                                        :aria-pressed="getStatus({{ $student->id }}) === '{{ $status }}'"
+                                        class="h-10 px-1 text-sm font-bold rounded-xl border transition-colors">{{ $button['label'] }}</button>
+                                @endforeach
+                            </div>
                         </div>
                     </div>
                 @endforeach

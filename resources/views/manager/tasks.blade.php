@@ -1,4 +1,4 @@
-<x-layouts.role-shell>
+<x-layouts.role-shell :title="__('المهام')">
     <x-slot name="header">
         <div class="flex items-center gap-3">
             <div class="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg">

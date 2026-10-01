@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" dir="rtl">
+<html lang="ar" dir="rtl">
 
 <head>
     @include('partials.head')
@@ -124,18 +124,23 @@
         <x-layouts.app.desktop-header />
     </flux:header>
 
-    <flux:main class="!p-1 !pb-32 md:!p-8 md:!pb-32 lg:!pb-8 min-w-0">
+    <flux:main class="!px-3 !pt-2 !pb-32 md:!p-8 md:!pb-32 lg:!pb-8 min-w-0">
         {{ $slot }}
     </flux:main>
 
+    {{-- One bar at the foot of a phone screen at most: a page's own bar (the
+         gamification one) takes the place of the role's everyday one. --}}
     @if(str_contains(request()->url(), '/teacher/'))
         <x-teacher-bottom-nav />
+    @elseif(trim((string) ($bottomNav ?? '')) !== '')
+        {{ $bottomNav }}
+    @elseif(request()->routeIs('student.*') && ! request()->routeIs('student.complete-profile'))
+        <x-student-bottom-nav />
     @endif
 
-    {{ $bottomNav ?? '' }}
-
     @persist('toast')
-        <flux:toast />
+        {{-- Lifted clear of the phone bottom bar, which would otherwise sit on top of it. --}}
+        <flux:toast class="max-lg:pb-24" />
     @endpersist
 
     @fluxScripts

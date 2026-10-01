@@ -1,4 +1,4 @@
-<x-layouts.role-shell>
+<x-layouts.role-shell :title="__('متابعة تحضير الحلقات')">
     <x-slot:sidebar>
         @include('manager.sidebar-nav')
     </x-slot:sidebar>

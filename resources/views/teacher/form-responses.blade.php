@@ -1,4 +1,4 @@
-<x-layouts.role-shell>
+<x-layouts.role-shell :title="__('ردود النموذج')">
     <x-slot:sidebar>
         @include('teacher.sidebar-nav')
     </x-slot:sidebar>

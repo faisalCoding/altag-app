@@ -1,4 +1,4 @@
-<x-layouts.role-shell>
+<x-layouts.role-shell :title="__('تفاصيل الابن')">
     <x-slot:sidebar>
         @include('guardian.sidebar-nav')
     </x-slot:sidebar>

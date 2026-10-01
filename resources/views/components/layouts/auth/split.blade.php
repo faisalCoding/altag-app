@@ -11,7 +11,7 @@
     picks a panel, only how dark the ground is.
 --}}
 <!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" dir="rtl" class="light">
+<html lang="ar" dir="rtl" class="light">
 
 <head>
     @include('partials.head')

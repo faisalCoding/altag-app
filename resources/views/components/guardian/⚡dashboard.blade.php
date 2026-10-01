@@ -114,10 +114,10 @@ new class extends Component
         </div>
     </div>
 
-    <div class="grid auto-rows-min gap-4 md:grid-cols-3">
-        <div class="relative overflow-hidden rounded-2xl border border-zinc-100 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6">
-            <div class="flex items-center gap-4">
-                <div class="p-3 bg-blue-100 text-blue-600 rounded-lg dark:bg-blue-900/30 dark:text-blue-400">
+    <div class="grid grid-cols-2 gap-3 md:gap-4">
+        <div class="relative overflow-hidden rounded-2xl border border-zinc-100 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4 md:p-6">
+            <div class="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-4">
+                <div class="p-2 md:p-3 bg-blue-100 text-blue-600 rounded-lg dark:bg-blue-900/30 dark:text-blue-400">
                     <flux:icon icon="users" class="size-6" />
                 </div>
                 <div>
@@ -127,9 +127,9 @@ new class extends Component
             </div>
         </div>
 
-        <div class="relative overflow-hidden rounded-2xl border border-zinc-100 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6">
-            <div class="flex items-center gap-4">
-                <div class="p-3 bg-green-100 text-green-600 rounded-lg dark:bg-green-900/30 dark:text-green-400">
+        <div class="relative overflow-hidden rounded-2xl border border-zinc-100 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4 md:p-6">
+            <div class="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-4">
+                <div class="p-2 md:p-3 bg-green-100 text-green-600 rounded-lg dark:bg-green-900/30 dark:text-green-400">
                     <flux:icon icon="check-circle" class="size-6" />
                 </div>
                 <div>
@@ -142,10 +142,149 @@ new class extends Component
         </div>
     </div>
 
+    {{-- First after the summary: the children are what a parent opens this page for. --}}
+    <div class="relative h-full flex-1 rounded-2xl border border-zinc-100 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4 md:p-6">
+        <h2 class="text-lg font-bold mb-4">بيانات الأبناء</h2>
+
+        <div class="space-y-4">
+            @forelse($this->children as $child)
+                @php
+                    $student = $child['model'];
+                    $todayPlanDay = $child['today'];
+                    $lastScored = $child['lastScored'];
+                    $presentCount = $child['presentCount'];
+                    $totalCount = $child['totalCount'];
+                    $memorizedPages = $child['memorizedPages'];
+                    $percentage = $child['percentage'];
+                @endphp
+
+                <div class="p-3 md:p-4 rounded-xl bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800">
+
+                    {{-- Header row --}}
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+                        <div class="flex items-center gap-3 min-w-0">
+                            <div class="p-2 bg-zinc-200 dark:bg-zinc-700 rounded-lg">
+                                <flux:icon icon="academic-cap" class="size-5 text-zinc-600 dark:text-zinc-300" />
+                            </div>
+                            <div>
+                                <h4 class="font-semibold text-zinc-900 dark:text-zinc-100">{{ $student->name }}</h4>
+                                <p class="text-xs text-zinc-500">
+                                    {{ $student->circle?->name ?? 'لم تُحدَّد حلقة بعد' }}
+                                </p>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 sm:flex items-center gap-2">
+                            <a href="{{ route('guardian.student.challenge.create', $student->id) }}"
+                                class="inline-flex items-center justify-center gap-1.5 px-3 py-2 sm:py-1.5 text-xs font-medium rounded-lg bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 transition-colors">
+                                <flux:icon icon="trophy" class="size-3.5" />
+                                مكافأة جديدة
+                            </a>
+                            <a href="{{ route('guardian.student', $student->id) }}"
+                                class="inline-flex items-center justify-center gap-1.5 px-3 py-2 sm:py-1.5 text-xs font-medium rounded-lg bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-500/20 transition-colors">
+                                التفاصيل
+                                <flux:icon icon="arrow-left" class="size-3.5" />
+                            </a>
+                        </div>
+                    </div>
+
+                    {{-- Stats row --}}
+                    <div class="grid grid-cols-3 gap-2 md:gap-3 mb-4">
+
+                        {{-- Today's task --}}
+                        <div class="rounded-lg bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 p-2.5 md:p-3">
+                            <p class="text-xs text-zinc-500 mb-1 flex items-center gap-1 leading-snug">
+                                <flux:icon icon="calendar-days" class="size-3.5" />
+                                مهمة اليوم
+                            </p>
+                            @if($todayPlanDay && $todayPlanDay->fromAyah)
+                                <p class="text-xs font-medium text-zinc-800 dark:text-zinc-200 leading-relaxed">
+                                    {{ $todayPlanDay->fromAyah->surah->name_arabic }}
+                                    {{ $todayPlanDay->fromAyah->verse_number }}-{{ $todayPlanDay->toAyah->verse_number }}
+                                </p>
+                            @else
+                                <p class="text-xs text-zinc-400">لا توجد مهمة</p>
+                            @endif
+                        </div>
+
+                        {{-- Last score --}}
+                        <div class="rounded-lg bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 p-2.5 md:p-3">
+                            <p class="text-xs text-zinc-500 mb-1 flex items-center gap-1 leading-snug">
+                                <flux:icon icon="star" class="size-3.5" />
+                                آخر تقييم
+                            </p>
+                            @if($lastScored)
+                                @php
+                                    $scoreColor = match ($lastScored->hifz_achievement) {
+                                        3 => 'text-emerald-600 dark:text-emerald-400',
+                                        2 => 'text-amber-600 dark:text-amber-400',
+                                        default => 'text-red-600 dark:text-red-400',
+                                    };
+                                    $scoreLabel = match ($lastScored->hifz_achievement) {
+                                        3 => 'ممتاز',
+                                        2 => 'جيد',
+                                        default => 'ضعيف',
+                                    };
+                                @endphp
+                                <div class="flex items-center gap-1.5">
+                                    <span class="text-xs font-bold {{ $scoreColor }}">{{ $scoreLabel }}</span>
+                                    <span class="text-xs text-zinc-400">({{ $lastScored->date->diffForHumans() }})</span>
+                                </div>
+                            @else
+                                <p class="text-xs text-zinc-400">لا يوجد بعد</p>
+                            @endif
+                        </div>
+
+                        {{-- Weekly attendance --}}
+                        <div class="rounded-lg bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 p-2.5 md:p-3">
+                            <p class="text-xs text-zinc-500 mb-1 flex items-center gap-1 leading-snug">
+                                <flux:icon icon="clock" class="size-3.5" />
+                                هذا الأسبوع
+                            </p>
+                            @if($totalCount > 0)
+                                <p class="text-xs font-medium text-zinc-800 dark:text-zinc-200">
+                                    {{ $presentCount }}/{{ $totalCount }} أيام
+                                </p>
+                            @else
+                                <p class="text-xs text-zinc-400">لا توجد بيانات</p>
+                            @endif
+                        </div>
+                    </div>
+
+                    {{-- Memorization progress --}}
+                    <div>
+                        <div class="flex items-center justify-between mb-1.5">
+                            <span class="text-xs text-zinc-500 flex items-center gap-1">
+                                <flux:icon icon="book-open" class="size-3.5" />
+                                نسبة المحفوظ من القرآن الكريم
+                            </span>
+                            <div class="flex items-center gap-2">
+                                <span class="text-xs text-zinc-500">{{ number_format($memorizedPages) }} صفحة</span>
+                                <span class="text-sm font-bold text-emerald-600 dark:text-emerald-400">{{ $percentage }}%</span>
+                            </div>
+                        </div>
+                        <div class="w-full bg-zinc-200 dark:bg-zinc-700 rounded-full h-2 overflow-hidden">
+                            <div class="h-2 rounded-full bg-gradient-to-r from-emerald-400 to-emerald-600 transition-all duration-500"
+                                style="width: {{ min($percentage, 100) }}%"></div>
+                        </div>
+                        @if($memorizedPages > 0)
+                            <p class="text-xs text-zinc-400 mt-1">
+                                ≈ {{ floor($memorizedPages / 20) }} جزء من 30
+                            </p>
+                        @endif
+                    </div>
+                </div>
+            @empty
+                <div class="text-center py-8 text-zinc-500">
+                    لا يوجد أبناء مسجلين حالياً
+                </div>
+            @endforelse
+        </div>
+    </div>
+
     @php
         $unreadCount = $this->notifications->whereNull('read_at')->count();
     @endphp
-    <div class="relative rounded-2xl border border-zinc-100 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6">
+    <div class="relative rounded-2xl border border-zinc-100 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4 md:p-6">
         <div class="flex items-center justify-between mb-4">
             <h2 class="text-lg font-bold flex items-center gap-2">
                 <flux:icon icon="bell" class="size-5" />
@@ -191,144 +330,6 @@ new class extends Component
                 </div>
             @empty
                 <div class="text-center py-6 text-sm text-zinc-400">لا توجد تنبيهات حالياً</div>
-            @endforelse
-        </div>
-    </div>
-
-    <div class="relative h-full flex-1 rounded-2xl border border-zinc-100 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6">
-        <h2 class="text-lg font-bold mb-4">بيانات الأبناء</h2>
-
-        <div class="space-y-4">
-            @forelse($this->children as $child)
-                @php
-                    $student = $child['model'];
-                    $todayPlanDay = $child['today'];
-                    $lastScored = $child['lastScored'];
-                    $presentCount = $child['presentCount'];
-                    $totalCount = $child['totalCount'];
-                    $memorizedPages = $child['memorizedPages'];
-                    $percentage = $child['percentage'];
-                @endphp
-
-                <div class="p-4 rounded-xl bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800">
-
-                    {{-- Header row --}}
-                    <div class="flex items-center justify-between mb-4">
-                        <div class="flex items-center gap-3">
-                            <div class="p-2 bg-zinc-200 dark:bg-zinc-700 rounded-lg">
-                                <flux:icon icon="academic-cap" class="size-5 text-zinc-600 dark:text-zinc-300" />
-                            </div>
-                            <div>
-                                <h4 class="font-semibold text-zinc-900 dark:text-zinc-100">{{ $student->name }}</h4>
-                                <p class="text-xs text-zinc-500">
-                                    {{ $student->circle?->name ?? 'لم تُحدَّد حلقة بعد' }}
-                                </p>
-                            </div>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <a href="{{ route('guardian.student.challenge.create', $student->id) }}"
-                                class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 transition-colors">
-                                <flux:icon icon="trophy" class="size-3.5" />
-                                مكافأة جديدة
-                            </a>
-                            <a href="{{ route('guardian.student', $student->id) }}"
-                                class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-500/20 transition-colors">
-                                التفاصيل
-                                <flux:icon icon="arrow-left" class="size-3.5" />
-                            </a>
-                        </div>
-                    </div>
-
-                    {{-- Stats row --}}
-                    <div class="grid grid-cols-3 gap-3 mb-4">
-
-                        {{-- Today's task --}}
-                        <div class="rounded-lg bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 p-3">
-                            <p class="text-xs text-zinc-500 mb-1 flex items-center gap-1">
-                                <flux:icon icon="calendar-days" class="size-3.5" />
-                                مهمة اليوم
-                            </p>
-                            @if($todayPlanDay && $todayPlanDay->fromAyah)
-                                <p class="text-xs font-medium text-zinc-800 dark:text-zinc-200 leading-relaxed">
-                                    {{ $todayPlanDay->fromAyah->surah->name_arabic }}
-                                    {{ $todayPlanDay->fromAyah->verse_number }}-{{ $todayPlanDay->toAyah->verse_number }}
-                                </p>
-                            @else
-                                <p class="text-xs text-zinc-400">لا توجد مهمة</p>
-                            @endif
-                        </div>
-
-                        {{-- Last score --}}
-                        <div class="rounded-lg bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 p-3">
-                            <p class="text-xs text-zinc-500 mb-1 flex items-center gap-1">
-                                <flux:icon icon="star" class="size-3.5" />
-                                آخر تقييم
-                            </p>
-                            @if($lastScored)
-                                @php
-                                    $scoreColor = match ($lastScored->hifz_achievement) {
-                                        3 => 'text-emerald-600 dark:text-emerald-400',
-                                        2 => 'text-amber-600 dark:text-amber-400',
-                                        default => 'text-red-600 dark:text-red-400',
-                                    };
-                                    $scoreLabel = match ($lastScored->hifz_achievement) {
-                                        3 => 'ممتاز',
-                                        2 => 'جيد',
-                                        default => 'ضعيف',
-                                    };
-                                @endphp
-                                <div class="flex items-center gap-1.5">
-                                    <span class="text-xs font-bold {{ $scoreColor }}">{{ $scoreLabel }}</span>
-                                    <span class="text-xs text-zinc-400">({{ $lastScored->date->diffForHumans() }})</span>
-                                </div>
-                            @else
-                                <p class="text-xs text-zinc-400">لا يوجد بعد</p>
-                            @endif
-                        </div>
-
-                        {{-- Weekly attendance --}}
-                        <div class="rounded-lg bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 p-3">
-                            <p class="text-xs text-zinc-500 mb-1 flex items-center gap-1">
-                                <flux:icon icon="clock" class="size-3.5" />
-                                هذا الأسبوع
-                            </p>
-                            @if($totalCount > 0)
-                                <p class="text-xs font-medium text-zinc-800 dark:text-zinc-200">
-                                    {{ $presentCount }}/{{ $totalCount }} أيام
-                                </p>
-                            @else
-                                <p class="text-xs text-zinc-400">لا توجد بيانات</p>
-                            @endif
-                        </div>
-                    </div>
-
-                    {{-- Memorization progress --}}
-                    <div>
-                        <div class="flex items-center justify-between mb-1.5">
-                            <span class="text-xs text-zinc-500 flex items-center gap-1">
-                                <flux:icon icon="book-open" class="size-3.5" />
-                                نسبة المحفوظ من القرآن الكريم
-                            </span>
-                            <div class="flex items-center gap-2">
-                                <span class="text-xs text-zinc-500">{{ number_format($memorizedPages) }} صفحة</span>
-                                <span class="text-sm font-bold text-emerald-600 dark:text-emerald-400">{{ $percentage }}%</span>
-                            </div>
-                        </div>
-                        <div class="w-full bg-zinc-200 dark:bg-zinc-700 rounded-full h-2 overflow-hidden">
-                            <div class="h-2 rounded-full bg-gradient-to-r from-emerald-400 to-emerald-600 transition-all duration-500"
-                                style="width: {{ min($percentage, 100) }}%"></div>
-                        </div>
-                        @if($memorizedPages > 0)
-                            <p class="text-xs text-zinc-400 mt-1">
-                                ≈ {{ floor($memorizedPages / 20) }} جزء من 30
-                            </p>
-                        @endif
-                    </div>
-                </div>
-            @empty
-                <div class="text-center py-8 text-zinc-500">
-                    لا يوجد أبناء مسجلين حالياً
-                </div>
             @endforelse
         </div>
     </div>
