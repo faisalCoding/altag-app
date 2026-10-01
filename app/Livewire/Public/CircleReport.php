@@ -6,20 +6,27 @@ use App\Models\Circle;
 use App\Models\Stage;
 use App\Services\CircleReportService;
 use Illuminate\Http\Request;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 
 class CircleReport extends Component
 {
+    #[Locked]
     public ?int $circleId = null;
 
+    #[Locked]
     public ?int $stageId = null;
 
+    #[Locked]
     public string $scope = 'circle';
 
+    #[Locked]
     public string $studentId = '';
 
+    #[Locked]
     public string $fromDate = '';
 
+    #[Locked]
     public string $toDate = '';
 
     public function mount(Request $request): void

@@ -2358,3 +2358,23 @@ it('offers the plan links on the gamification dashboard as well', function () {
         ->assertSee('عرض وطباعة')
         ->assertSee(route('student.plan.print', ['kind' => 'quran', 'id' => $plan->id]), false);
 });
+
+it('draws an uploaded coin image without letting its path break out of the tag', function () {
+    $leaderboard = Leaderboard::create([
+        'circle_id' => $this->circle->id,
+        'title' => 'مسابقة العملة المرفوعة',
+        'competition_type' => 'gamification',
+        'start_date' => now()->subDays(2),
+        'end_date' => now()->addDays(2),
+        'is_active' => true,
+        'settings' => [],
+    ]);
+    $leaderboard->circles()->attach($this->circle->id);
+
+    $html = Livewire::test('student.gamification-dashboard')
+        ->instance()
+        ->renderEmoji('coins/x" onerror="alert(1).webp');
+
+    expect($html)->not->toContain('" onerror="')
+        ->and($html)->toContain('&quot; onerror=&quot;');
+});

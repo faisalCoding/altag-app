@@ -57,9 +57,11 @@ new class extends Component
             foreach ($assistant->stream($input) as $event) {
                 if ($event instanceof TextDelta) {
                     $fullReply .= $event->delta;
+                    // Streamed text lands through innerHTML, and the reply can
+                    // quote anything the tools read — names, form answers.
                     $this->stream(
                         to: "chat-reply-{$replyIndex}",
-                        content: $event->delta,
+                        content: e($event->delta),
                     );
                 }
             }
@@ -123,7 +125,7 @@ new class extends Component
 
                 <div class="flex flex-col {{ $message['role'] === 'user' ? 'items-end' : 'items-start' }} max-w-[80%]">
                     <div class="px-4 py-3 rounded-2xl {{ $message['role'] === 'user' ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 rounded-tl-none' }}">
-                        <div class="prose prose-sm dark:prose-invert max-w-none text-right whitespace-pre-wrap wrap-break-word leading-relaxed" @if($message['role'] === 'ai') wire:stream="chat-reply-{{ $index }}" @endif>{!! $message['content'] !!}</div>
+                        <div class="prose prose-sm dark:prose-invert max-w-none text-right whitespace-pre-wrap wrap-break-word leading-relaxed" @if($message['role'] === 'ai') wire:stream="chat-reply-{{ $index }}" @endif>{{ $message['content'] }}</div>
                     </div>
                 </div>
             </div>

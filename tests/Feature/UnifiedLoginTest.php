@@ -88,3 +88,24 @@ it('rejects invalid credentials with a generic error', function () {
 
     expect(auth()->check())->toBeFalse();
 });
+
+it('makes a guesser wait after five wrong passwords, even when the sixth is right', function () {
+    $teacher = Teacher::factory()->create(['is_approved' => true]);
+
+    foreach (range(1, 5) as $attempt) {
+        Livewire::test(Login::class)
+            ->set('email', $teacher->email)
+            ->set('password', 'wrong-password')
+            ->call('login')
+            ->assertHasErrors('email');
+    }
+
+    Livewire::test(Login::class)
+        ->set('email', $teacher->email)
+        ->set('password', 'password')
+        ->call('login')
+        ->assertHasErrors('email')
+        ->assertSee('محاولات دخول كثيرة');
+
+    $this->assertGuest('teacher');
+});

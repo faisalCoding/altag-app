@@ -6,9 +6,11 @@ use App\Models\Student;
 use App\Models\StudentPlan;
 use App\Models\StudentPlanDay;
 use Illuminate\Support\Facades\Auth;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 
 new class extends Component {
+    #[Locked]
     public $studentId;
     public $student;
     public $studentPlans;
@@ -67,6 +69,7 @@ new class extends Component {
     {
         // Load unachieved days (hifz_achievement is null) for this plan
         $this->planDays = StudentPlanDay::where('student_plan_id', $planId)
+            ->whereHas('plan', fn ($plan) => $plan->where('student_id', $this->studentId))
             ->whereNull('hifz_achievement')
             ->orderBy('date')
             ->get()

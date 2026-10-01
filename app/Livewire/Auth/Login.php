@@ -9,6 +9,8 @@ use App\Models\Student;
 use App\Models\Supervisor;
 use App\Models\Teacher;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Str;
 use Illuminate\Support\Timebox;
 use Illuminate\Validation\ValidationException;
 use Livewire\Component;
@@ -58,6 +60,18 @@ class Login extends Component
             'password' => ['required', 'string'],
         ]);
 
+        // Five wrong passwords a minute for one email from one address, then
+        // a wait — enough for a forgetful user, too few to guess with.
+        $throttleKey = Str::transliterate(Str::lower($this->email).'|'.request()->ip());
+
+        if (RateLimiter::tooManyAttempts($throttleKey, 5)) {
+            throw ValidationException::withMessages([
+                'email' => __('محاولات دخول كثيرة. أعد المحاولة بعد :seconds ثانية.', [
+                    'seconds' => RateLimiter::availableIn($throttleKey),
+                ]),
+            ]);
+        }
+
         // Wrapped in our own timebox so an email that matches no guard at
         // all still takes the same ~200ms as a real account with a wrong
         // password — otherwise the response time itself would leak whether
@@ -78,6 +92,7 @@ class Login extends Component
         }, 200_000);
 
         if ($guard) {
+            RateLimiter::clear($throttleKey);
             session()->regenerate();
 
             if ($intended = $this->intendedUrlFor($guard)) {
@@ -86,6 +101,8 @@ class Login extends Component
 
             return redirect()->route("{$guard}.dashboard");
         }
+
+        RateLimiter::hit($throttleKey);
 
         throw ValidationException::withMessages([
             'email' => __('auth.failed'),

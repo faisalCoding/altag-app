@@ -10,6 +10,7 @@ use App\Models\StudentPlanDay;
 use App\Models\Teacher;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Livewire;
 
 uses(RefreshDatabase::class);
@@ -54,6 +55,14 @@ it('renders the create-challenge page via the single-file component', function (
     $this->get(route('guardian.student.challenge.create', $this->child->id))
         ->assertSuccessful();
 });
+
+it('keeps a guardian\'s challenge on their own child', function () {
+    $this->actingAs($this->guardian, 'guardian');
+    $stranger = Student::factory()->create(['circle_id' => $this->circle->id]);
+
+    Livewire::test('guardian.create-challenge', ['studentId' => $this->child->id])
+        ->set('studentId', $stranger->id);
+})->throws(CannotUpdateLockedPropertyException::class);
 
 it('shows the latest hifz score and this week attendance for a child', function () {
     // Two attendance records this week: one present (today), one absent (yesterday).

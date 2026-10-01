@@ -1,5 +1,6 @@
 <?php
 
+use App\Livewire\Public\CircleReport as PublicCircleReport;
 use App\Livewire\Supervisor\CircleReport as SupervisorCircleReport;
 use App\Livewire\Supervisor\StageReport;
 use App\Models\AcademicCalendarEvent;
@@ -31,6 +32,7 @@ use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\URL;
+use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Livewire;
 
 uses(RefreshDatabase::class);
@@ -462,3 +464,11 @@ it('renders the shared public report only with a valid signature', function () {
         'to' => $to->toDateString(),
     ]))->assertForbidden();
 });
+
+it('will not let a shared report link be pointed at another circle', function () {
+    $otherCircle = Circle::factory()->create();
+
+    Livewire::withQueryParams(['circle' => $this->circle->id, 'scope' => 'circle'])
+        ->test(PublicCircleReport::class)
+        ->set('circleId', $otherCircle->id);
+})->throws(CannotUpdateLockedPropertyException::class);

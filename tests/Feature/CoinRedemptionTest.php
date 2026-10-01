@@ -9,6 +9,7 @@ use App\Models\Stage;
 use App\Models\Student;
 use App\Services\GamificationService;
 use Illuminate\Support\Facades\URL;
+use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Livewire;
 
 beforeEach(function () {
@@ -122,3 +123,11 @@ it('does not affect standings XP when redeeming', function () {
 
     expect((int) $xpTotal)->toBe(150);
 });
+
+it('will not let a redemption link be pointed at another circle', function () {
+    $otherCircle = Circle::create(['name' => 'حلقة أخرى', 'stage_id' => $this->stage->id]);
+
+    Livewire::withQueryParams(['leaderboard' => $this->leaderboard->id, 'circle' => $this->circle->id])
+        ->test(CoinRedemption::class)
+        ->set('circleId', $otherCircle->id);
+})->throws(CannotUpdateLockedPropertyException::class);

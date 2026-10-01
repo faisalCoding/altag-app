@@ -11,6 +11,7 @@ use Flux\Flux;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 
 /**
@@ -23,8 +24,10 @@ use Livewire\Component;
  */
 class CoinRedemption extends Component
 {
+    #[Locked]
     public int $leaderboardId;
 
+    #[Locked]
     public int $circleId;
 
     public ?int $redeemStudentId = null;

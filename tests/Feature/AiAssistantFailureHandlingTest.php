@@ -158,3 +158,10 @@ it('ignores an empty chat submission', function () {
         ->call('ask')
         ->assertCount('messages', 1);
 });
+
+it('shows chat text as text, never as markup', function () {
+    Livewire::test('manager.ai-assistant')
+        ->set('messages', [['role' => 'ai', 'content' => '<img src=x onerror=alert(1)>']])
+        ->assertDontSeeHtml('<img src=x onerror=alert(1)>')
+        ->assertSeeHtml('&lt;img src=x onerror=alert(1)&gt;');
+});

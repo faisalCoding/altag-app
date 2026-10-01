@@ -10,6 +10,7 @@ use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 
 /**
@@ -23,6 +24,7 @@ use Livewire\Component;
  */
 class ResultsDisplay extends Component
 {
+    #[Locked]
     public int $leaderboardId;
 
     /** Last day counted in both ranking ranges. */

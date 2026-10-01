@@ -1231,7 +1231,7 @@ new class extends Component {
     {
         if (str_contains((string)$emoji, '/') || str_ends_with((string)$emoji, '.webp')) {
             $url = \Illuminate\Support\Facades\Storage::url($emoji);
-            return '<img src="' . $url . '" class="' . $class . '" alt="" />';
+            return '<img src="' . e($url) . '" class="' . e($class) . '" alt="" />';
         }
 
         $cleanEmoji = trim((string)$emoji);

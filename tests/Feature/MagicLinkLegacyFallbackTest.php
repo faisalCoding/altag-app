@@ -78,3 +78,16 @@ it('returns 404 for a legacy token whose row was never migrated', function () {
 
     $this->get('/teacher-magic/unmigrated-token')->assertNotFound();
 });
+
+it('follows a teacher link onward only within this site', function () {
+    $teacher = Teacher::factory()->create(['access_token' => 'onward-token', 'is_approved' => true, 'is_data_completed' => true]);
+    $attendance = route('teacher.attendance', ['date' => '2026-10-01']);
+
+    $this->get(route('teacher.magic-link', ['token' => 'onward-token', 'redirect' => $attendance]))
+        ->assertRedirect($attendance);
+
+    auth()->guard('teacher')->logout();
+
+    $this->get(route('teacher.magic-link', ['token' => 'onward-token', 'redirect' => 'https://evil.example/login']))
+        ->assertRedirect(route('teacher.dashboard'));
+});

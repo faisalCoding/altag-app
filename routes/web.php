@@ -356,8 +356,12 @@ Route::get('/teacher-magic/{token}', function ($token) {
         return redirect()->route('teacher.complete-profile');
     }
 
-    if (request()->has('redirect')) {
-        return redirect()->to(request()->query('redirect'));
+    // Only back into this site — the link travels over WhatsApp, and an
+    // outside address here would let anyone dress a phishing page as ours.
+    $redirect = request()->query('redirect');
+
+    if (is_string($redirect) && parse_url($redirect, PHP_URL_HOST) === request()->getHost()) {
+        return redirect()->to($redirect);
     }
 
     return redirect()->route('teacher.dashboard');
