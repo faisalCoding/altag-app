@@ -2,12 +2,17 @@
 
 use App\Models\Attendance;
 use App\Models\Circle;
+use App\Models\Leaderboard;
+use App\Models\LeaderboardCriterion;
+use App\Models\LeaderboardScore;
 use App\Models\Stage;
 use App\Models\Student;
 use App\Models\StudentStatusHistory;
+use App\Models\Supervisor;
 use App\Models\Teacher;
 use App\Support\HijriDate;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 
 beforeEach(function () {
     Carbon::setTestNow('2026-07-08 10:00:00'); // Wednesday, a working day.
@@ -83,6 +88,77 @@ it('sends the approved students of the teacher\'s circles with their status hist
         ->assertJsonPath('data.students.0.joined_at_hijri', HijriDate::full('2026-06-01'))
         ->assertJsonPath('data.students.0.status_histories.0.status', 'suspended')
         ->assertJsonPath('data.students.0.status_histories.0.start_date', '2026-06-20');
+});
+
+it('sends the competition each circle grades in: the supervisor\'s primary one, else the teacher\'s own', function () {
+    $ownCircle = Circle::factory()->create(['stage_id' => $this->stage->id]);
+    $this->teacher->circles()->attach($ownCircle->id);
+
+    $supervisorCompetition = Leaderboard::create([
+        'circle_id' => $this->circle->id, 'title' => 'مسابقة المرحلة', 'competition_type' => 'gamification',
+        'start_date' => '2026-07-01', 'end_date' => '2026-07-31', 'is_active_for_grading' => true,
+        'supervisor_id' => Supervisor::factory()->create()->id, 'settings' => ['extra_points_enabled' => true],
+    ]);
+    $supervisorCompetition->circles()->attach($this->circle->id);
+    LeaderboardCriterion::create(['leaderboard_id' => $supervisorCompetition->id, 'name' => 'الحفظ المتقن', 'points' => 5, 'is_enthusiasm_trigger' => true]);
+
+    $teacherCompetition = Leaderboard::create([
+        'circle_id' => $ownCircle->id, 'title' => 'مسابقة الحلقة', 'competition_type' => 'normal',
+        'start_date' => '2026-07-01', 'end_date' => '2026-07-31', 'is_active_for_grading' => true, 'settings' => [],
+    ]);
+    Leaderboard::create([
+        'circle_id' => $this->circle->id, 'title' => 'ليست أساسية', 'competition_type' => 'normal',
+        'start_date' => '2026-07-01', 'end_date' => '2026-07-31', 'is_active_for_grading' => false, 'settings' => [],
+    ]);
+
+    $competitions = collect($this->withToken($this->token)->getJson('/api/v1/teacher/sync')->json('data.competitions'))->keyBy('id');
+
+    expect($competitions->keys()->all())->toEqualCanonicalizing([$supervisorCompetition->id, $teacherCompetition->id])
+        ->and($competitions[$supervisorCompetition->id])->toMatchArray([
+            'title' => 'مسابقة المرحلة',
+            'start_date' => '2026-07-01',
+            'end_date' => '2026-07-31',
+            'extra_points_enabled' => true,
+            'circle_ids' => [$this->circle->id],
+        ])
+        ->and($competitions[$supervisorCompetition->id]['criteria'][0])->toMatchArray([
+            'name' => 'الحفظ المتقن',
+            'points' => 5,
+            'is_enthusiasm_trigger' => true,
+        ])
+        ->and($competitions[$teacherCompetition->id]['circle_ids'])->toBe([$ownCircle->id]);
+});
+
+it('sends the window\'s scores and extra points in those competitions', function () {
+    $student = Student::factory()->create(['circle_id' => $this->circle->id]);
+    $competition = Leaderboard::create([
+        'circle_id' => $this->circle->id, 'title' => 'مسابقة الحلقة', 'competition_type' => 'normal',
+        'start_date' => '2026-07-01', 'end_date' => '2026-07-31', 'is_active_for_grading' => true,
+        'settings' => ['extra_points_enabled' => true],
+    ]);
+    $criterion = LeaderboardCriterion::create(['leaderboard_id' => $competition->id, 'name' => 'المراجعة', 'points' => 3]);
+
+    LeaderboardScore::create(['leaderboard_id' => $competition->id, 'leaderboard_criterion_id' => $criterion->id, 'student_id' => $student->id, 'date' => '2026-07-07']);
+    DB::table('leaderboard_extra_points')->insert([
+        'leaderboard_id' => $competition->id, 'student_id' => $student->id, 'date' => '2026-07-07',
+        'points' => 2, 'notes' => 'انضباط', 'uuid' => null,
+    ]);
+
+    $response = $this->withToken($this->token)->getJson('/api/v1/teacher/sync');
+
+    expect($response->json('data.scores'))->toBe([[
+        'competition_id' => $competition->id,
+        'criterion_id' => $criterion->id,
+        'student_id' => $student->id,
+        'date' => '2026-07-07',
+    ]])
+        ->and($response->json('data.extra_points.0'))->toMatchArray([
+            'competition_id' => $competition->id,
+            'student_id' => $student->id,
+            'date' => '2026-07-07',
+            'points' => 2,
+            'notes' => 'انضباط',
+        ]);
 });
 
 it('sends the window\'s attendance of those students, whichever circle took it', function () {

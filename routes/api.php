@@ -4,6 +4,8 @@ use App\Http\Controllers\Api\Teacher\AttendanceController;
 use App\Http\Controllers\Api\Teacher\AuthController;
 use App\Http\Controllers\Api\V1\Teacher\AttendanceChangeController;
 use App\Http\Controllers\Api\V1\Teacher\AuthController as V1AuthController;
+use App\Http\Controllers\Api\V1\Teacher\ExtraPointChangeController;
+use App\Http\Controllers\Api\V1\Teacher\ScoreChangeController;
 use App\Http\Controllers\Api\V1\Teacher\SyncController;
 use Illuminate\Support\Facades\Route;
 
@@ -29,6 +31,11 @@ Route::prefix('v1/teacher')->name('api.v1.teacher.')->group(function () {
         Route::middleware(['teacher.api:teacher.attendance', 'throttle:120,1'])->group(function () {
             Route::get('/sync', SyncController::class)->name('sync');
             Route::post('/attendance/changes', [AttendanceChangeController::class, 'store'])->name('attendance.changes.store');
+        });
+
+        Route::middleware(['teacher.api:teacher.grade-items', 'throttle:120,1'])->group(function () {
+            Route::post('/scores/changes', [ScoreChangeController::class, 'store'])->name('scores.changes.store');
+            Route::post('/extra-points/changes', [ExtraPointChangeController::class, 'store'])->name('extra-points.changes.store');
         });
     });
 });
