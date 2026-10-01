@@ -5,11 +5,13 @@ namespace App\Livewire\Supervisor;
 use App\Models\Leaderboard;
 use App\Services\LeaderboardService;
 use Illuminate\Support\Facades\Auth;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\Url;
 use Livewire\Component;
 
 class CompetitionStandings extends Component
 {
+    #[Locked]
     public int $competitionId;
 
     #[Url]

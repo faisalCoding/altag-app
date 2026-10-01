@@ -7,6 +7,7 @@ use App\Models\HadithChapter;
 use App\Models\HadithLine;
 use App\Models\HadithText;
 use Flux\Flux;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 
 class ManageHadiths extends Component
@@ -20,9 +21,11 @@ class ManageHadiths extends Component
 
     public string $newTextDescription = '';
 
+    #[Locked]
     public ?int $editingTextId = null;
 
     // Hadith Form Fields
+    #[Locked]
     public ?int $editingHadithId = null;
 
     public ?int $hadithChapterId = null;
@@ -39,6 +42,7 @@ class ManageHadiths extends Component
     public string $linesText = '';
 
     // Lines Management Fields
+    #[Locked]
     public ?int $selectedHadithId = null;
 
     // New Line Fields
@@ -47,6 +51,7 @@ class ManageHadiths extends Component
     public string $newLineText = '';
 
     // Editing Line Fields
+    #[Locked]
     public ?int $editingLineId = null;
 
     public ?int $editingLineNumber = null;

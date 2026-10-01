@@ -6,9 +6,11 @@ use App\Models\Screen;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 use Livewire\Component;
+use Livewire\Attributes\Locked;
 
 new class extends Component
 {
+    #[Locked]
     public ?int $activeRoleId = null;
 
     public string $newRoleLabel = '';

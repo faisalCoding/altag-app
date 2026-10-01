@@ -6,6 +6,7 @@ use App\Models\Stage;
 use Carbon\Carbon;
 use Flux\Flux;
 use Livewire\Attributes\Computed;
+use Livewire\Attributes\Locked;
 
 new class extends Component {
     public $year;
@@ -14,6 +15,7 @@ new class extends Component {
     public $dayEvents = [];
 
     // Form properties
+    #[Locked]
     public $editingEventId = null;
     public $eventName = '';
     public $startDate = '';
@@ -43,6 +45,7 @@ new class extends Component {
     public $selectAll = false;
 
     // Attendance Period Form
+    #[Locked]
     public $editingPeriodId = null;
     public $hijriFromDate = '';
     public $hijriToDate = '';

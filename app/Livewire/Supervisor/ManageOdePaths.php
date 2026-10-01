@@ -7,6 +7,7 @@ use App\Models\Ode;
 use App\Models\OdePath;
 use App\Models\StudentOdePlan;
 use Flux\Flux;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 
 class ManageOdePaths extends Component
@@ -14,6 +15,7 @@ class ManageOdePaths extends Component
     public string $search = '';
 
     // Path form fields
+    #[Locked]
     public ?int $editingPathId = null;
 
     public ?int $odeId = null;
@@ -87,6 +89,7 @@ class ManageOdePaths extends Component
     }
 
     // Enrollment fields
+    #[Locked]
     public ?int $enrollingPathId = null;
 
     public array $selectedStudentIds = [];

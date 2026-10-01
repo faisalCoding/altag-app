@@ -8,6 +8,7 @@ use App\Models\Student;
 use App\Services\CircleReportService;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Support\Collection;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\Url as UrlParam;
 use Livewire\Component;
 
@@ -20,10 +21,12 @@ class CustomReport extends Component
 {
     /** @var array<int, string> Selected circle ids. */
     #[UrlParam(as: 'circles')]
+    #[Locked]
     public array $circleIds = [];
 
     /** @var array<int, string> Selected stage ids — every circle of the stage. */
     #[UrlParam(as: 'stages')]
+    #[Locked]
     public array $stageIds = [];
 
     #[UrlParam]

@@ -12,9 +12,11 @@ use Carbon\CarbonInterface;
 use Flux\Flux;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Component;
+use Livewire\Attributes\Locked;
 
 new class extends Component
 {
+    #[Locked]
     public $studentId;
 
     public $studentName;

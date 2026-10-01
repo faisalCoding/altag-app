@@ -8,6 +8,7 @@ use App\Models\Stage;
 use App\Models\Teacher;
 use App\Services\CircleMergeService;
 use Flux\Flux;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 
 class Circles extends Component
@@ -32,6 +33,7 @@ class Circles extends Component
 
     public $stage_id = null;
 
+    #[Locked]
     public $editingCircleId = null;
 
     public string $search = '';

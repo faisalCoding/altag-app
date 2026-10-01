@@ -9,6 +9,8 @@ use App\Models\Student;
 use App\Services\StudentStatusService;
 use Flux\Flux;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
 use Livewire\Component;
 use Livewire\WithPagination;
@@ -31,6 +33,7 @@ class Students extends Component
 
     public $circle_id = null;
 
+    #[Locked]
     public $editingStudentId = null;
 
     public string $search = '';
@@ -352,7 +355,8 @@ class Students extends Component
             'name' => 'required|string|max:255',
             'email' => 'required|email|unique:users,email,'.$this->editingStudentId,
             'circle_id' => 'nullable|exists:circles,id',
-            'guardian_id' => 'nullable|exists:users,id',
+            // A guardian, not merely any account: the id comes from a picker of guardians.
+            'guardian_id' => ['nullable', Rule::in(Guardian::query()->pluck('id')->all())],
             'editJoinedAt' => 'nullable|date',
         ]);
 

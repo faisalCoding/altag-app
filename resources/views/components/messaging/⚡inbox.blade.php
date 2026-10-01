@@ -6,9 +6,11 @@ use App\Models\Message;
 use App\Services\MessagingService;
 use Flux\Flux;
 use Livewire\Component;
+use Livewire\Attributes\Locked;
 
 new class extends Component
 {
+    #[Locked]
     public ?int $selectedConversationId = null;
 
     public string $newMessageBody = '';

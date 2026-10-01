@@ -128,7 +128,7 @@ it('does not duplicate path days when enrolling students', function () {
     ]);
 
     Livewire::test('supervisor.manage-ode-paths')
-        ->set('enrollingPathId', $this->odePath->id)
+        ->call('showEnrollModal', $this->odePath->id)
         ->set('selectedStudentIds', [$this->student->id])
         ->call('enrollStudents')
         ->assertHasNoErrors();

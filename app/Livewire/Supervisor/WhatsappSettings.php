@@ -4,6 +4,7 @@ namespace App\Livewire\Supervisor;
 
 use App\Support\WhatsappGateway;
 use Illuminate\Support\Facades\Http;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 
 class WhatsappSettings extends Component
@@ -14,6 +15,7 @@ class WhatsappSettings extends Component
 
     public $qrCode = null;
 
+    #[Locked]
     public string $clientId = '';
 
     public function mount(): void

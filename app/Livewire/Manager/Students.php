@@ -9,6 +9,7 @@ use App\Models\Student;
 use App\Support\HijriDate;
 use Flux\Flux;
 use Illuminate\Support\Str;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
 use Livewire\Component;
 use Livewire\WithPagination;
@@ -25,6 +26,7 @@ class Students extends Component
 
     public $circle_id = null;
 
+    #[Locked]
     public $editingStudentId = null;
 
     public string $search = '';

@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Auth;
 use Livewire\Component;
 use Livewire\WithPagination;
 use Illuminate\Support\Carbon;
+use Livewire\Attributes\Locked;
 
 new class extends Component {
     use WithPagination;
@@ -14,6 +15,7 @@ new class extends Component {
     public $search = '';
 
     public $showModal = false;
+    #[Locked]
     public $editingId = null;
 
     public $studentId = null;

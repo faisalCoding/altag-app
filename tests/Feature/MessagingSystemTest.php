@@ -145,7 +145,7 @@ it('prevents sending a message into a conversation the user does not belong to',
     $this->actingAs($studentB, 'student');
 
     Livewire::test('messaging.inbox')
-        ->set('selectedConversationId', $conversation->id)
+        ->call('selectConversation', $conversation->id)
         ->set('newMessageBody', 'محاولة تطفل')
         ->call('sendMessage');
 

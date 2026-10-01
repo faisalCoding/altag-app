@@ -4,6 +4,7 @@ use Livewire\Component;
 use Livewire\WithPagination;
 use App\Models\StudentPlan;
 use Illuminate\Support\Facades\Auth;
+use Livewire\Attributes\Locked;
 
 new class extends Component {
     use WithPagination;
@@ -27,6 +28,7 @@ new class extends Component {
 
     public $showStudentModal = false;
     public $modalAction = ''; // 'change' or 'duplicate'
+    #[Locked]
     public $selectedPlanId = null;
     public $selectedNewStudentId = null;
     public $studentsList = [];
@@ -61,7 +63,10 @@ new class extends Component {
     public function executeStudentAction()
     {
         $rules = [
-            'selectedNewStudentId' => 'required|exists:users,id',
+            // One of the teacher's own students: the plan moves or copies to them.
+            'selectedNewStudentId' => ['required', \Illuminate\Validation\Rule::in(
+                \App\Models\Student::whereIn('circle_id', Auth::guard('teacher')->user()->circles()->pluck('circles.id'))->pluck('id')->all()
+            )],
         ];
         $messages = [
             'selectedNewStudentId.required' => 'يرجى اختيار طالب',

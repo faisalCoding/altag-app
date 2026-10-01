@@ -19,6 +19,7 @@ new class extends Component {
     public $planDays = [];
 
     // Selected day IDs as range [firstId, lastId]
+    #[Locked]
     public $selectedDayIds = [];
 
     // Candidate next exams based on relationships

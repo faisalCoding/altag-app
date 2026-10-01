@@ -5,6 +5,7 @@ use App\Models\Staff;
 use Flux\Flux;
 use Illuminate\Support\Facades\Hash;
 use Livewire\Component;
+use Livewire\Attributes\Locked;
 
 new class extends Component
 {
@@ -18,6 +19,7 @@ new class extends Component
 
     public ?int $selectedRoleId = null;
 
+    #[Locked]
     public ?int $editingStaffId = null;
 
     public function mount(): void

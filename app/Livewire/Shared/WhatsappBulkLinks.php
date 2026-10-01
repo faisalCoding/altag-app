@@ -8,6 +8,7 @@ use App\Models\Student;
 use Flux\Flux;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 
 /**
@@ -21,6 +22,7 @@ use Livewire\Component;
  */
 class WhatsappBulkLinks extends Component
 {
+    #[Locked]
     public string $clientId;
 
     public string $sendType = 'guardian_link_to_guardian';

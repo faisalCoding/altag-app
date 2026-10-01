@@ -30,10 +30,12 @@ use App\Models\Teacher;
 use App\Services\GamificationService;
 use App\Services\LeaderboardService;
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Livewire;
 
 uses(RefreshDatabase::class);
@@ -975,8 +977,9 @@ it('triggers streaks only based on enabled individual enthusiasm triggers', func
 it('manages gamification team tasks, prevents date overlaps, and awards/adjusts/removes team rewards', function () {
     $this->actingAs($this->supervisor, 'supervisor');
 
-    // Create a teacher
+    // A teacher of the competition's circle — the only kind the form offers
     $teacher = Teacher::factory()->create();
+    $teacher->circles()->attach($this->circle->id);
 
     // Create a team first
     $team = GamificationTeam::create([
@@ -1929,4 +1932,68 @@ it('offers the hand-out button only on a badge that is handed out by name', func
 
     // Flux renders the call in both wire:click and wire:target, so count buttons.
     expect(substr_count($html, 'wire:click="openGrantBadge'))->toBe(1);
+});
+
+it('keeps a supervisor to the rows of the competition they opened', function () {
+    $this->actingAs($this->supervisor, 'supervisor');
+
+    $otherSupervisor = Supervisor::factory()->create();
+    $foreign = Leaderboard::create([
+        'circle_id' => $this->circle->id,
+        'supervisor_id' => $otherSupervisor->id,
+        'title' => 'مسابقة مشرف آخر',
+        'competition_type' => 'gamification',
+        'start_date' => now()->subDays(5),
+        'end_date' => now()->addDays(5),
+        'is_active' => true,
+        'settings' => [],
+    ]);
+    $foreignTeam = GamificationTeam::create(['leaderboard_id' => $foreign->id, 'name' => 'فريق غريب', 'color' => '#000000']);
+    $foreignBadge = GamificationBadge::create([
+        'leaderboard_id' => $foreign->id, 'name' => 'وسام غريب', 'icon' => 'star', 'badge_type' => 'manual',
+        'requirement_value' => 0, 'reward_xp' => 0, 'reward_coins' => 0,
+    ]);
+
+    $component = Livewire::test(ManageGamification::class, ['competitionId' => $this->leaderboard->id]);
+
+    expect(fn () => $component->call('deleteTeam', $foreignTeam->id))->toThrow(ModelNotFoundException::class)
+        ->and(fn () => $component->call('deleteBadge', $foreignBadge->id))->toThrow(ModelNotFoundException::class)
+        ->and(fn () => $component->set('competitionId', $foreign->id))->toThrow(CannotUpdateLockedPropertyException::class);
+
+    expect(GamificationTeam::whereKey($foreignTeam->id)->exists())->toBeTrue()
+        ->and(GamificationBadge::whereKey($foreignBadge->id)->exists())->toBeTrue();
+});
+
+it('will not put a student from another circle on a team', function () {
+    $this->actingAs($this->supervisor, 'supervisor');
+
+    $outsider = Student::factory()->create([
+        'circle_id' => Circle::create(['name' => 'حلقة خارجية', 'stage_id' => $this->stage->id])->id,
+    ]);
+
+    Livewire::test(ManageGamification::class, ['competitionId' => $this->leaderboard->id])
+        ->call('createTeam')
+        ->set('team_name', 'فريق الاختبار')
+        ->set('team_color', '#123456')
+        ->set('team_student_ids', [(string) $outsider->id])
+        ->call('saveTeam')
+        ->assertHasErrors('team_student_ids.0');
+});
+
+it('lets a teacher open the grading of only the tasks handed to them', function () {
+    $mine = Teacher::factory()->create();
+    $mine->circles()->attach($this->circle->id);
+    $someoneElse = Teacher::factory()->create();
+
+    $team = GamificationTeam::create(['leaderboard_id' => $this->leaderboard->id, 'name' => 'فريق', 'color' => '#000000']);
+    $task = GamificationTeamTask::create(['leaderboard_id' => $this->leaderboard->id, 'name' => 'مهمة', 'coins_reward' => 10]);
+    $theirs = GamificationTeamTaskAssignment::create([
+        'team_task_id' => $task->id, 'team_id' => $team->id, 'teacher_id' => $someoneElse->id,
+        'start_date' => now(), 'end_date' => now()->addDay(), 'status' => 'pending',
+    ]);
+
+    $this->actingAs($mine, 'teacher');
+
+    expect(fn () => Livewire::test('teacher.dashboard')->call('editGrading', $theirs->id))
+        ->toThrow(ModelNotFoundException::class);
 });

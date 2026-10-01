@@ -8,6 +8,7 @@ use App\Models\Teacher;
 use Flux\Flux;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 
 class Teachers extends Component
@@ -46,6 +47,7 @@ class Teachers extends Component
         'can_manage_gamification_tracks' => true,
     ];
 
+    #[Locked]
     public $editingTeacherId = null;
 
     public string $quickName = '';

@@ -10,6 +10,7 @@ use App\Models\Stage;
 use App\Models\Student;
 use App\Models\Supervisor;
 use App\Models\Teacher;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
@@ -203,7 +204,7 @@ it('allows supervisor to link response to existing student', function () {
 
     // Link response to existing student, adopting response name
     Livewire::test(FormResponses::class, ['formId' => $form->id])
-        ->set('selectedResponseId', $response->id)
+        ->call('openLinkModal', $response->id)
         ->set('linkStudentId', $this->student->id)
         ->set('linkNameOption', 'response')
         ->call('linkToExistingStudent')
@@ -520,4 +521,34 @@ it('handles other option submission for select and multiselect fields', function
     expect($response)->not->toBeNull();
     expect($response->answers['f_sel'])->toBe('أخرى: أخضر مخصص');
     expect($response->answers['f_multi'])->toBe(['البرمجة', 'أخرى: القراءة الحرة']);
+});
+
+it('links a response only to one of the supervisor\'s own students, and only within the open form', function () {
+    $form = Form::create([
+        'supervisor_id' => $this->supervisor->id, 'title' => 'نموذج النطاق', 'slug' => 'scope-form', 'color' => '#14b8a6',
+        'fields' => [['id' => 'f_name', 'type' => 'text', 'label' => 'الاسم', 'required' => true, 'is_student_name' => true]],
+    ]);
+    $otherForm = Form::create([
+        'supervisor_id' => Supervisor::factory()->create()->id, 'title' => 'نموذج آخر', 'slug' => 'other-form', 'color' => '#14b8a6',
+        'fields' => [['id' => 'f_name', 'type' => 'text', 'label' => 'الاسم', 'required' => true, 'is_student_name' => true]],
+    ]);
+    $response = FormResponse::create(['form_id' => $form->id, 'answers' => ['f_name' => 'طالب']]);
+    $foreignResponse = FormResponse::create(['form_id' => $otherForm->id, 'answers' => ['f_name' => 'غريب']]);
+    $outsider = Student::factory()->create([
+        'circle_id' => Circle::create(['name' => 'حلقة مرحلة أخرى', 'stage_id' => Stage::create(['name' => 'مرحلة أخرى'])->id])->id,
+    ]);
+
+    $this->actingAs($this->supervisor, 'supervisor');
+
+    Livewire::test(FormResponses::class, ['formId' => $form->id])
+        ->call('openLinkModal', $response->id)
+        ->set('linkStudentId', $outsider->id)
+        ->call('linkToExistingStudent')
+        ->assertHasErrors('linkStudentId');
+
+    expect(fn () => Livewire::test(FormResponses::class, ['formId' => $form->id])->call('openCreateModal', $foreignResponse->id))
+        ->toThrow(ModelNotFoundException::class);
+
+    expect($response->fresh()->student_id)->toBeNull()
+        ->and($foreignResponse->fresh()->student_id)->toBeNull();
 });

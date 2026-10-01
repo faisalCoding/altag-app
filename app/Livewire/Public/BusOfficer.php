@@ -11,6 +11,7 @@ use App\Services\BusBookingService;
 use App\Support\HijriDate;
 use Flux\Flux;
 use Illuminate\Support\Carbon;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 
 /**
@@ -29,14 +30,17 @@ class BusOfficer extends Component
     public string $filter = 'waiting';
 
     // ── the booking whose checklist is open ─────────────────────────────────
+    #[Locked]
     public ?int $receivingId = null;
 
     /** @var array<int, int|string> */
     public array $doneItems = [];
 
     // ── the ruling being made, if any ───────────────────────────────────────
+    #[Locked]
     public ?int $rulingBookingId = null;
 
+    #[Locked]
     public ?int $rulingStageId = null;
 
     public string $rulingStanding = StageBusStanding::PREPAY;

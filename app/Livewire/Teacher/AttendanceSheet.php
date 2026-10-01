@@ -19,6 +19,7 @@ use Flux\Flux;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Computed;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -36,6 +37,7 @@ class AttendanceSheet extends Component
 {
     public const STATUSES = ['present', 'absent', 'late', 'excused'];
 
+    #[Locked]
     public ?int $circleId = null;
 
     /** The Hijri month on screen, as the Unix timestamp of its first day. */

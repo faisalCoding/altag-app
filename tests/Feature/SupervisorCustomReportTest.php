@@ -86,8 +86,8 @@ it('toggles a selection off again', function () {
 
 it('ignores circles and stages outside the supervisor scope', function () {
     Livewire::test(CustomReport::class)
-        ->set('circleIds', [(string) $this->foreignCircle->id])
-        ->set('stageIds', [(string) $this->foreignStage->id])
+        ->call('toggleCircle', $this->foreignCircle->id)
+        ->call('toggleStage', $this->foreignStage->id)
         ->assertViewHas('hasSelection', false)
         ->assertViewHas('students', fn ($students) => $students->isEmpty());
 });

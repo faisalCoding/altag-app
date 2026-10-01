@@ -17,6 +17,7 @@ use Illuminate\Support\Str;
 use Intervention\Image\Drivers\Gd\Driver;
 use Intervention\Image\Encoders\WebpEncoder;
 use Intervention\Image\ImageManager;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 use Livewire\WithFileUploads;
 
@@ -24,6 +25,7 @@ class FormBuilder extends Component
 {
     use WithFileUploads;
 
+    #[Locked]
     public ?int $formId = null;
 
     public bool $isEditing = false;

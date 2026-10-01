@@ -270,7 +270,7 @@ it('does not duplicate path days when enrolling student', function () {
 
     // Run the enrollment component test
     Livewire::test('supervisor.manage-hadith-paths')
-        ->set('enrollingPathId', $this->hadithPath->id)
+        ->call('showEnrollModal', $this->hadithPath->id)
         ->set('selectedStudentIds', [$this->student->id])
         ->call('enrollStudents')
         ->assertHasNoErrors();

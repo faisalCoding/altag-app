@@ -7,6 +7,7 @@ use App\Models\Circle;
 use App\Models\Teacher;
 use App\Services\CircleMergeService;
 use Flux\Flux;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 
 class Circles extends Component
@@ -27,6 +28,7 @@ class Circles extends Component
 
     public string $description = '';
 
+    #[Locked]
     public $editingCircleId = null;
 
     public $stage_id = null;

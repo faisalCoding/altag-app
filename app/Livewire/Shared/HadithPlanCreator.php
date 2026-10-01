@@ -9,6 +9,7 @@ use App\Models\HadithPathDay;
 use App\Models\StudentHadithAchievement;
 use Flux\Flux;
 use Illuminate\Support\Carbon;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 
 class HadithPlanCreator extends Component
@@ -18,6 +19,7 @@ class HadithPlanCreator extends Component
     // Form inputs
     public ?int $hadithPathId = null;
 
+    #[Locked]
     public ?int $hadithTextId = null;
 
     public string $startDate = '';

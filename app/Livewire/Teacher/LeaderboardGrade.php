@@ -2,8 +2,10 @@
 
 namespace App\Livewire\Teacher;
 
+use App\Models\GamificationBadge;
 use App\Models\GamificationTransaction;
 use App\Models\Leaderboard;
+use App\Models\LeaderboardCriterion;
 use App\Models\LeaderboardScore;
 use App\Models\Student;
 use App\Services\GamificationService;
@@ -12,6 +14,7 @@ use Flux\Flux;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
 use Livewire\Component;
 
@@ -23,6 +26,7 @@ class LeaderboardGrade extends Component
         // Livewire automatically re-renders
     }
 
+    #[Locked]
     public $leaderboardId;
 
     public $date;
@@ -35,12 +39,39 @@ class LeaderboardGrade extends Component
         $this->leaderboardId = $leaderboardId;
         $this->date = now()->format('Y-m-d');
 
+        // The id comes from the address bar: grade only a competition that
+        // runs in one of this teacher's circles.
+        abort_unless($this->teachesInCompetition(), 404);
+
         // Reconcile badge awards once on load so any student who already meets a
         // requirement (e.g. a badge added or edited after they qualified) gets a
         // pending-approval row and surfaces in the teacher's approval list.
         foreach ($this->participatingStudents() as $student) {
             GamificationService::syncStudentBadges($student->id, $this->leaderboardId);
         }
+    }
+
+    private function teachesInCompetition(): bool
+    {
+        $leaderboard = Leaderboard::with('circles')->find($this->leaderboardId);
+        $teacher = auth()->guard('teacher')->user();
+
+        if (! $leaderboard || ! $teacher) {
+            return false;
+        }
+
+        $leaderboardCircleIds = $leaderboard->circles->pluck('id')->push($leaderboard->circle_id)->filter();
+
+        return $teacher->circles()->whereIn('circles.id', $leaderboardCircleIds)->exists();
+    }
+
+    /**
+     * Every action that names a student by id is held to the students this
+     * page lists, so an edited request cannot score someone else's student.
+     */
+    private function ensureParticipant(int $studentId): void
+    {
+        abort_unless($this->participatingStudents()->contains('id', $studentId), 404);
     }
 
     /**
@@ -75,6 +106,9 @@ class LeaderboardGrade extends Component
 
     public function toggleScore($studentId, $criterionId, $points)
     {
+        $this->ensureParticipant((int) $studentId);
+        abort_unless(LeaderboardCriterion::where('leaderboard_id', $this->leaderboardId)->whereKey($criterionId)->exists(), 404);
+
         $score = LeaderboardScore::where('leaderboard_id', $this->leaderboardId)
             ->where('student_id', $studentId)
             ->where('leaderboard_criterion_id', $criterionId)
@@ -105,6 +139,8 @@ class LeaderboardGrade extends Component
 
     public function saveExtraPoints(int $studentId, int|float $amount, string $notes): void
     {
+        $this->ensureParticipant($studentId);
+
         $this->validate([
             'date' => 'required|date',
         ]);
@@ -130,12 +166,18 @@ class LeaderboardGrade extends Component
 
     public function deleteExtraPoints($id)
     {
-        DB::table('leaderboard_extra_points')->where('id', $id)->delete();
+        DB::table('leaderboard_extra_points')
+            ->where('leaderboard_id', $this->leaderboardId)
+            ->whereIn('student_id', $this->participatingStudents()->pluck('id'))
+            ->where('id', $id)
+            ->delete();
         GamificationService::syncStudentExtraPointsXP($id);
     }
 
     public function approveBadge(int $badgeId, int $studentId): void
     {
+        $this->ensureCompetitionBadge($badgeId, $studentId);
+
         DB::table('gamification_badge_student')
             ->where('badge_id', $badgeId)
             ->where('student_id', $studentId)
@@ -149,12 +191,20 @@ class LeaderboardGrade extends Component
 
     public function rejectBadge(int $badgeId, int $studentId): void
     {
+        $this->ensureCompetitionBadge($badgeId, $studentId);
+
         DB::table('gamification_badge_student')
             ->where('badge_id', $badgeId)
             ->where('student_id', $studentId)
             ->delete();
 
         Flux::toast('تم رفض منح الوسام', variant: 'neutral');
+    }
+
+    private function ensureCompetitionBadge(int $badgeId, int $studentId): void
+    {
+        $this->ensureParticipant($studentId);
+        abort_unless(GamificationBadge::where('leaderboard_id', $this->leaderboardId)->whereKey($badgeId)->exists(), 404);
     }
 
     public function render()

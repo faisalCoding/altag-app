@@ -10,11 +10,15 @@ use App\Services\QuranPlanService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Computed;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\Url;
+use Illuminate\Validation\Rule;
 
 new class extends Component {
+    #[Locked]
     public $userLevel; // 'teacher' or 'student'
     #[Url]
+    #[Locked]
     public $edit = null;
 
     #[Url]
@@ -63,8 +67,16 @@ new class extends Component {
         $this->memorizedUpToSurah = 1;
         $this->memorizedUpToVerse = 7;
 
+        // ?studentId= and ?edit= arrive in the address bar: a teacher may only
+        // name a student of their own circles, a student only themselves.
+        if ($this->studentId && ! in_array((int) $this->studentId, $this->allowedStudentIds(), true)) {
+            $this->studentId = null;
+        }
+
         if ($this->edit) {
-            $plan = StudentPlan::with('days.fromAyah', 'days.toAyah', 'days.reviewFromAyah', 'days.reviewToAyah')->findOrFail($this->edit);
+            $plan = StudentPlan::with('days.fromAyah', 'days.toAyah', 'days.reviewFromAyah', 'days.reviewToAyah')
+                ->whereIn('student_id', $this->allowedStudentIds())
+                ->findOrFail($this->edit);
             $this->studentId = $plan->student_id;
             $this->startDate = $plan->start_date->format('Y-m-d');
             $this->daysCount = $plan->days_count;
@@ -118,6 +130,24 @@ new class extends Component {
         }
 
         $this->checkAttendancePeriod();
+    }
+
+    /**
+     * The students whose plans this user may make or change.
+     *
+     * @return array<int, int>
+     */
+    private function allowedStudentIds(): array
+    {
+        if ($this->userLevel === 'student') {
+            return [(int) Auth::guard('student')->id()];
+        }
+
+        $teacher = Auth::guard('teacher')->user();
+
+        return $teacher
+            ? Student::whereIn('circle_id', $teacher->circles()->pluck('circles.id'))->pluck('id')->map(fn ($id) => (int) $id)->all()
+            : [];
     }
 
     #[Computed]
@@ -437,7 +467,7 @@ new class extends Component {
     public function generateDays()
     {
         $this->validate([
-            'studentId' => 'required',
+            'studentId' => ['required', Rule::in($this->allowedStudentIds())],
             'startDate' => 'required|date',
             'daysCount' => 'required|integer|min:1|max:100',
             'activeDays' => 'required|array|min:1',
@@ -839,12 +869,12 @@ new class extends Component {
     public function save()
     {
         $this->validate([
-            'studentId' => 'required',
+            'studentId' => ['required', Rule::in($this->allowedStudentIds())],
             'planDays' => 'required|array|min:1',
         ]);
 
         if ($this->edit) {
-            $plan = StudentPlan::findOrFail($this->edit);
+            $plan = StudentPlan::whereIn('student_id', $this->allowedStudentIds())->findOrFail($this->edit);
             $plan->update([
                 'start_date' => $this->startDate,
                 'days_count' => $this->daysCount,

@@ -13,11 +13,13 @@ use Carbon\Carbon;
 use Flux\Flux;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class FormResponses extends Component
 {
+    #[Locked]
     public int $formId;
 
     public Form $form;
@@ -27,6 +29,7 @@ class FormResponses extends Component
     // Single student account creation modal state
     public bool $showCreateModal = false;
 
+    #[Locked]
     public ?int $selectedResponseId = null;
 
     public string $newStudentName = '';
@@ -66,6 +69,7 @@ class FormResponses extends Component
     public bool $bulkSelectedOnly = false;
 
     /** @var array<int, int> snapshot of response ids the bulk run is scoped to */
+    #[Locked]
     public array $bulkScopeIds = [];
 
     /** @var array<string, string|null> attribute => form field id */
@@ -321,7 +325,7 @@ class FormResponses extends Component
     {
         $this->resetValidation();
         $this->selectedResponseId = $responseId;
-        $response = FormResponse::findOrFail($responseId);
+        $response = FormResponse::where('form_id', $this->form->id)->findOrFail($responseId);
         $map = $this->guessFieldMap();
 
         $this->newStudentName = trim((string) $this->extractAnswer($response, $map['name']));
@@ -355,7 +359,7 @@ class FormResponses extends Component
             'targetStageId.in' => 'المرحلة المختارة خارج نطاق صلاحياتك.',
         ]);
 
-        $response = FormResponse::findOrFail($this->selectedResponseId);
+        $response = FormResponse::where('form_id', $this->form->id)->findOrFail($this->selectedResponseId);
 
         $this->createStudent($response, [
             'name' => $this->newStudentName,
@@ -384,12 +388,13 @@ class FormResponses extends Component
     public function linkToExistingStudent(): void
     {
         $this->validate([
-            'linkStudentId' => 'required|exists:users,id',
+            // Only a student the picker offers: one in the supervisor's own circles.
+            'linkStudentId' => ['required', Rule::in(Student::whereIn('circle_id', $this->supervisorCircleIds())->pluck('id')->all())],
             'linkNameOption' => 'required|in:existing,response',
         ]);
 
         $student = Student::findOrFail($this->linkStudentId);
-        $response = FormResponse::findOrFail($this->selectedResponseId);
+        $response = FormResponse::where('form_id', $this->form->id)->findOrFail($this->selectedResponseId);
 
         if ($this->linkNameOption === 'response') {
             $nameField = collect($this->form->fields)->firstWhere('is_student_name', true);
@@ -547,7 +552,7 @@ class FormResponses extends Component
 
         $created = 0;
         foreach ($this->bulkReady as $row) {
-            $response = FormResponse::find($row['response_id']);
+            $response = FormResponse::where('form_id', $this->form->id)->find($row['response_id']);
             if (! $response || $response->student_id) {
                 continue;
             }
@@ -590,7 +595,7 @@ class FormResponses extends Component
             return;
         }
 
-        $response = FormResponse::find($responseId);
+        $response = FormResponse::where('form_id', $this->form->id)->find($responseId);
         if (! $response || $response->student_id) {
             return;
         }

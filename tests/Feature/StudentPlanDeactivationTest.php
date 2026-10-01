@@ -3,9 +3,11 @@
 use App\Models\Circle;
 use App\Models\Student;
 use App\Models\StudentPlan;
+use App\Models\StudentPlanDay;
 use App\Models\Teacher;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Livewire;
 
 uses(RefreshDatabase::class);
@@ -191,4 +193,59 @@ it('never selects an inactive plan in the student tasmeeh card', function () {
     ])
         ->assertOk()
         ->assertViewHas('activePlan', null);
+});
+
+it('grades only a day of the student on the card, and only with a real grade', function () {
+    $day = StudentPlanDay::create(['student_plan_id' => $this->plan->id, 'date' => now()->toDateString(), 'day_name' => 'الأحد']);
+
+    $stranger = Student::factory()->create(['circle_id' => Circle::factory()->create()->id]);
+    $strangerPlan = StudentPlan::create([
+        'student_id' => $stranger->id, 'start_date' => now(), 'days_count' => 1, 'active_days' => [0],
+        'description' => 'خطة غيره', 'status' => 'active', 'plan_type' => 'hifz', 'direction' => 'forward',
+        'is_approved' => true, 'created_by_role' => 'teacher',
+    ]);
+    $strangerDay = StudentPlanDay::create(['student_plan_id' => $strangerPlan->id, 'date' => now()->toDateString(), 'day_name' => 'الأحد']);
+
+    $card = fn () => Livewire::test('teacher.⚡student-tasmeeh-card', [
+        'student' => $this->student,
+        'sPlans' => StudentPlan::where('student_id', $this->student->id)->get(),
+        'activePlanId' => $this->plan->id,
+    ]);
+
+    $card()->call('saveAchievement', $strangerDay->id, 'hifz', 3)->assertNotFound();
+    $card()->call('saveAchievement', $day->id, 'hifz', 99)->assertStatus(422);
+    $card()->call('saveAchievement', $day->id, 'hifz', 3)->assertSuccessful();
+
+    expect($strangerDay->fresh()->hifz_achievement)->toBeNull()
+        ->and($day->fresh()->hifz_achievement)->toBe(3);
+});
+
+it('opens for editing only a plan of a student the user may plan for', function () {
+    $stranger = Student::factory()->create(['circle_id' => Circle::factory()->create()->id]);
+    $strangersPlan = StudentPlan::create([
+        'student_id' => $stranger->id, 'start_date' => now(), 'days_count' => 1, 'active_days' => [0],
+        'description' => 'خطة طالب آخر', 'status' => 'active', 'plan_type' => 'hifz', 'direction' => 'forward',
+        'is_approved' => true, 'created_by_role' => 'student',
+    ]);
+
+    // A student naming another student's plan in ?edit=.
+    $this->actingAs($this->student, 'student');
+    expect(fn () => Livewire::withQueryParams(['edit' => $strangersPlan->id])->test('shared.plan-creator'))
+        ->toThrow(ModelNotFoundException::class);
+
+    // …and trying to pass themselves off as a teacher.
+    expect(fn () => Livewire::withQueryParams([])->test('shared.plan-creator')->set('userLevel', 'teacher'))
+        ->toThrow(CannotUpdateLockedPropertyException::class);
+});
+
+it('moves a plan only to one of the teacher\'s own students', function () {
+    $stranger = Student::factory()->create(['circle_id' => Circle::factory()->create()->id]);
+
+    Livewire::test('teacher.⚡student-plans-list')
+        ->call('openStudentModal', $this->plan->id, 'change')
+        ->set('selectedNewStudentId', $stranger->id)
+        ->call('executeStudentAction')
+        ->assertHasErrors('selectedNewStudentId');
+
+    expect($this->plan->fresh()->student_id)->toBe($this->student->id);
 });

@@ -30,6 +30,7 @@ class CoinRedemption extends Component
     #[Locked]
     public int $circleId;
 
+    #[Locked]
     public ?int $redeemStudentId = null;
 
     public $redeemAmount = '';

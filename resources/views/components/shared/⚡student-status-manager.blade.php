@@ -9,10 +9,12 @@ use Flux\Flux;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\On;
 use Livewire\Component;
+use Livewire\Attributes\Locked;
 
 new class extends Component {
     public $showModal = false;
 
+    #[Locked]
     public $studentId = null;
 
     public $newStatus = 'active';
@@ -165,6 +167,7 @@ new class extends Component {
     /** @var array{status: string, start_date: string, notes: string}|null */
     public ?array $editingHistory = null;
 
+    #[Locked]
     public ?int $editingHistoryId = null;
 
     public function editHistory(int $historyId): void

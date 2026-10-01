@@ -5,6 +5,7 @@ use App\Models\AcademicCalendarEvent;
 use Carbon\Carbon;
 use Flux\Flux;
 use Livewire\Attributes\Computed;
+use Livewire\Attributes\Locked;
 
 new class extends Component {
     public $year;
@@ -13,6 +14,7 @@ new class extends Component {
     public $dayEvents = [];
 
     // Form properties
+    #[Locked]
     public $editingEventId = null;
     public $eventName = '';
     public $startDate = '';
@@ -128,9 +130,21 @@ new class extends Component {
         Flux::modal('attendance-period-modal')->close();
     }
 
+    /**
+     * An event or period the acting supervisor created — the only kind the
+     * save and bulk actions would let them change, so the single ones keep
+     * the same rule rather than taking any id they are handed.
+     */
+    private function ownEvent($id): AcademicCalendarEvent
+    {
+        return AcademicCalendarEvent::where('created_by_id', auth()->id())
+            ->where('created_by_type', get_class(auth()->user()))
+            ->findOrFail($id);
+    }
+
     public function deletePeriod($id)
     {
-        AcademicCalendarEvent::findOrFail($id)->delete();
+        $this->ownEvent($id)->delete();
         $this->dispatch('notify', variant: 'success', title: 'تم الحذف', description: 'تم حذف فترة الدوام.');
     }
 
@@ -186,7 +200,7 @@ new class extends Component {
 
     public function editEvent($id)
     {
-        $event = AcademicCalendarEvent::findOrFail($id);
+        $event = $this->ownEvent($id);
         $this->editingEventId = $event->id;
         $this->eventName = $event->event_name;
         $this->startDate = $event->start_date->format('Y-m-d');
@@ -255,7 +269,11 @@ new class extends Component {
 
     public function completeTask($taskId)
     {
-        $task = \App\Models\Task::findOrFail($taskId);
+        $user = auth()->user();
+        $task = \App\Models\Task::where(function ($query) use ($user) {
+            $query->where('created_by_id', $user->id)->where('created_by_type', get_class($user))
+                ->orWhere(fn ($assigned) => $assigned->where('assigned_to_id', $user->id)->where('assigned_to_type', get_class($user)));
+        })->findOrFail($taskId);
         $task->update(['status' => 'completed']);
         
         // Refresh dayEvents array
@@ -271,7 +289,7 @@ new class extends Component {
 
     public function deleteEvent($id)
     {
-        AcademicCalendarEvent::findOrFail($id)->delete();
+        $this->ownEvent($id)->delete();
         $this->dayEvents = array_filter($this->dayEvents, fn($e) => $e['id'] != $id);
         
         if (empty($this->dayEvents)) {
@@ -653,7 +671,9 @@ new class extends Component {
                                             <div class="size-2 rounded-full bg-emerald-500"></div>
                                             <span class="font-bold text-sm text-emerald-900 dark:text-emerald-100">{{ $period->event_name }}</span>
                                         </div>
-                                        <flux:button variant="ghost" size="xs" icon="x-mark" class="text-emerald-600 hover:text-red-500" wire:click="deletePeriod({{ $period->id }})" wire:confirm="هل أنت متأكد من حذف فترة الدوام هذه؟" />
+                                        @if($period->created_by_id == auth()->id() && $period->created_by_type == get_class(auth()->user()))
+                                            <flux:button variant="ghost" size="xs" icon="x-mark" class="text-emerald-600 hover:text-red-500" wire:click="deletePeriod({{ $period->id }})" wire:confirm="هل أنت متأكد من حذف فترة الدوام هذه؟" />
+                                        @endif
                                     </div>
                                     
                                     @if($period->description)

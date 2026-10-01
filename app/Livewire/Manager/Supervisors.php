@@ -9,6 +9,7 @@ use App\Support\HijriDate;
 use Flux\Flux;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 
 class Supervisors extends Component
@@ -29,6 +30,7 @@ class Supervisors extends Component
 
     public string $password = '';
 
+    #[Locked]
     public $editingSupervisorId = null;
 
     public string $quickName = '';

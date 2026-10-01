@@ -7,6 +7,7 @@ use App\Models\HadithPath;
 use App\Models\HadithText;
 use App\Models\StudentHadithPlan;
 use Flux\Flux;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 
 class ManageHadithPaths extends Component
@@ -14,6 +15,7 @@ class ManageHadithPaths extends Component
     public string $search = '';
 
     // Path form fields
+    #[Locked]
     public ?int $editingPathId = null;
 
     public ?int $hadithTextId = null;
@@ -99,6 +101,7 @@ class ManageHadithPaths extends Component
     }
 
     // Enrollment fields
+    #[Locked]
     public ?int $enrollingPathId = null;
 
     public array $selectedStudentIds = [];

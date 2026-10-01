@@ -118,8 +118,7 @@ it('shows a student in the register on the very day they joined', function () {
 });
 
 it('gives a row in the month sheet to a student who joined on its last day', function () {
-    $sheet = Livewire::test(AttendanceSheet::class)
-        ->set('circleId', $this->circle->id);
+    $sheet = Livewire::test(AttendanceSheet::class, ['circleId' => $this->circle->id]);
 
     // The sheet works in Hijri months, so the boundary is asked of the sheet
     // itself rather than guessed at from a Gregorian calendar.
@@ -132,7 +131,7 @@ it('gives a row in the month sheet to a student who joined on its last day', fun
         'status' => 'active',
     ]);
 
-    $sheet->set('circleId', null)->set('circleId', $this->circle->id);
+    $sheet = Livewire::test(AttendanceSheet::class, ['circleId' => $this->circle->id]);
 
     expect($sheet->instance()->students->pluck('id'))->toContain($student->id);
 });

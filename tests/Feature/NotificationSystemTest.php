@@ -1,10 +1,10 @@
 <?php
 
 use App\Models\AppNotification;
+use App\Models\Ayah;
 use App\Models\Circle;
 use App\Models\Conversation;
 use App\Models\ExamLevel;
-use App\Models\Guardian;
 use App\Models\Manager;
 use App\Models\Stage;
 use App\Models\Student;
@@ -12,7 +12,6 @@ use App\Models\StudentExam;
 use App\Models\StudentPlan;
 use App\Models\StudentPlanDay;
 use App\Models\Surah;
-use App\Models\Ayah;
 use App\Models\Teacher;
 use App\Services\NotificationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -161,7 +160,7 @@ it('notifies the recipient when a new message is sent', function () {
     $this->actingAs($this->student, 'student');
 
     Livewire::test('messaging.inbox')
-        ->set('selectedConversationId', $conversation->id)
+        ->call('selectConversation', $conversation->id)
         ->set('newMessageBody', 'السلام عليكم')
         ->call('sendMessage');
 

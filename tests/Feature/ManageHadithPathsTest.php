@@ -80,7 +80,7 @@ it('can enroll selected students in the path', function () {
     $selected = [$this->student1->id, $this->student3->id];
 
     Livewire::test(ManageHadithPaths::class)
-        ->set('enrollingPathId', $this->hadithPath->id)
+        ->call('showEnrollModal', $this->hadithPath->id)
         ->set('selectedStudentIds', array_map('strval', $selected))
         ->call('enrollStudents')
         ->assertHasNoErrors();

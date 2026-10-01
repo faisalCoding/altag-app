@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Flux\Flux;
+use Livewire\Attributes\Locked;
 
 new class extends Component {
     use WithPagination;
@@ -45,6 +46,7 @@ new class extends Component {
     public $viewingStudent = null;
     public $editName = '';
     public $editPhone = '';
+    #[Locked]
     public $editCircleId = null;
     public $editJoinedAt = '';
     public $stats = [];

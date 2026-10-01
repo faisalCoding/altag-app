@@ -9,6 +9,7 @@ use App\Models\OdeVerse;
 use App\Models\StudentOdeAchievement;
 use Flux\Flux;
 use Illuminate\Support\Carbon;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 
 class OdePlanCreator extends Component
@@ -18,6 +19,7 @@ class OdePlanCreator extends Component
     // Form inputs
     public ?int $odePathId = null;
 
+    #[Locked]
     public ?int $odeId = null;
 
     public string $startDate = '';

@@ -5,6 +5,7 @@ use App\Models\Surah;
 use App\Models\Ayah;
 use Livewire\Component;
 use Livewire\WithPagination;
+use Livewire\Attributes\Locked;
 
 new class extends Component {
     use WithPagination;
@@ -12,6 +13,7 @@ new class extends Component {
     public $search = '';
 
     public $showModal = false;
+    #[Locked]
     public $editingId = null;
 
     public $name = '';

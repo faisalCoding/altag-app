@@ -16,17 +16,20 @@ use App\Models\GamificationTrack;
 use App\Services\GamificationService;
 use Flux\Flux;
 use Livewire\Attributes\Reactive;
+use Livewire\Attributes\Locked;
 
 new class extends Component {
     public $student;
 
     public $sPlans;
 
+    #[Locked]
     public $activePlanId;
 
     #[Reactive]
     public $gradedAtDate;
 
+    #[Locked]
     public $selectedPlanId;
 
     public function mount($student, $sPlans, $activePlanId)
@@ -39,11 +42,34 @@ new class extends Component {
 
     public function selectPlan($planId)
     {
+        if ($planId !== null && ! StudentPlan::where('student_id', $this->student->id)->whereKey($planId)->exists()) {
+            return;
+        }
+
         $this->selectedPlanId = $planId;
+    }
+
+    /**
+     * A grade is one of the four buttons — excellent, good, acceptable or not
+     * heard — for one of the two parts. Anything else is an edited request.
+     */
+    private function ensureValidGrade($type, $value): void
+    {
+        abort_unless(in_array($type, ['hifz', 'review'], true), 422);
+        abort_unless($value === null || in_array((int) $value, [1, 2, 3], true), 422);
     }
 
     public function saveAchievement($dayId, $type, $value)
     {
+        $this->ensureValidGrade($type, $value);
+
+        // The day must belong to one of this card's student's plans: the id
+        // arrives from the browser, and any day of any student would update.
+        abort_unless(
+            StudentPlanDay::whereKey($dayId)->whereHas('plan', fn ($plan) => $plan->where('student_id', $this->student->id))->exists(),
+            404
+        );
+
         $updateData = [];
         $gradeTime = now();
         if ($this->gradedAtDate) {
@@ -90,6 +116,8 @@ new class extends Component {
 
     public function saveOdeAchievement($pathDayId, $type, $value)
     {
+        $this->ensureValidGrade($type, $value);
+
         // Find the student's active ode plan
         $activeOdePlan = StudentOdePlan::where('student_id', $this->student->id)
             ->where('status', 'active')
@@ -99,6 +127,8 @@ new class extends Component {
             Flux::toast('لا توجد خطة منظومة نشطة لهذا الطالب', variant: 'danger');
             return;
         }
+
+        abort_unless(OdePathDay::whereKey($pathDayId)->where('ode_path_id', $activeOdePlan->ode_path_id)->exists(), 404);
 
         $updateData = [];
         $gradeTime = now();
@@ -148,6 +178,8 @@ new class extends Component {
 
     public function saveHadithAchievement($pathDayId, $type, $value)
     {
+        $this->ensureValidGrade($type, $value);
+
         // Find the student's active hadith plan
         $activeHadithPlan = StudentHadithPlan::where('student_id', $this->student->id)
             ->where('status', 'active')
@@ -157,6 +189,8 @@ new class extends Component {
             Flux::toast('لا توجد خطة حديث نشطة لهذا الطالب', variant: 'danger');
             return;
         }
+
+        abort_unless(\App\Models\HadithPathDay::whereKey($pathDayId)->where('hadith_path_id', $activeHadithPlan->hadith_path_id)->exists(), 404);
 
         $updateData = [];
         $gradeTime = now();

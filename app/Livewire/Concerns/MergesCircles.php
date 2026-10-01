@@ -8,6 +8,7 @@ use App\Services\CircleMergeService;
 use App\Services\StudentPromotionService;
 use Flux\Flux;
 use Illuminate\Support\Facades\Auth;
+use Livewire\Attributes\Locked;
 
 /**
  * The merge dialogue, shared by the manager's circles screen and the
@@ -16,6 +17,7 @@ use Illuminate\Support\Facades\Auth;
  */
 trait MergesCircles
 {
+    #[Locked]
     public ?int $mergeSourceId = null;
 
     public ?int $mergeTargetId = null;

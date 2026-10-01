@@ -9,6 +9,7 @@ use App\Models\BusHandoverItem;
 use App\Models\Setting;
 use App\Services\BusBookingService;
 use Flux\Flux;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 
 /**
@@ -32,6 +33,7 @@ class BusBookings extends Component
     public int $feeDeadlineWeekday = 4;
 
     // ── bus being added or edited ───────────────────────────────────────────
+    #[Locked]
     public ?int $editingBusId = null;
 
     public string $busName = '';
@@ -41,6 +43,7 @@ class BusBookings extends Component
     public int $busFee = 0;
 
     // ── handover item being added or edited ─────────────────────────────────
+    #[Locked]
     public ?int $editingItemId = null;
 
     public string $itemLabel = '';

@@ -12,6 +12,7 @@ use App\Services\BusBookingService;
 use App\Support\HijriDate;
 use Flux\Flux;
 use Illuminate\Support\Carbon;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 
 /**
@@ -28,6 +29,7 @@ class BusBooking extends Component
 
     public int $step = 1;
 
+    #[Locked]
     public ?int $stageId = null;
 
     public string $date = '';
@@ -38,6 +40,7 @@ class BusBooking extends Component
     public bool $agreed = false;
 
     /** The booking just made, while its success screen is up. */
+    #[Locked]
     public ?int $bookedId = null;
 
     public function mount(string $token, BusBookingService $bookings): void

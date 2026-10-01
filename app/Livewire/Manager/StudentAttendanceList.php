@@ -7,10 +7,12 @@ use App\Models\Circle;
 use App\Models\Student;
 use App\Support\HijriDate;
 use Flux\Flux;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 
 class StudentAttendanceList extends Component
 {
+    #[Locked]
     public $circleId;
 
     public $date;

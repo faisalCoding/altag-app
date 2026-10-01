@@ -6,10 +6,12 @@ use Illuminate\Support\Facades\Auth;
 use App\Models\StudentPlan;
 use App\Models\StudentPlanDay;
 use Carbon\Carbon;
+use Livewire\Attributes\Locked;
 
 new class extends Component {
     use WithPagination;
 
+    #[Locked]
     public $planId;
 
     public function with()

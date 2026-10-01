@@ -6,8 +6,10 @@ use App\Models\AcademicCalendarEvent;
 use Flux\Flux;
 use Livewire\Attributes\Computed;
 use Livewire\Component;
+use Livewire\Attributes\Locked;
 
 new class extends Component {
+    #[Locked]
     public $selectingDueDateTaskId = null;
     public $hijriYear;
     public $hijriMonth;
@@ -318,6 +320,16 @@ new class extends Component {
 
     public function updateTaskAssignee($taskId, $type, $id)
     {
+        // The type is stored as a morph class and later instantiated, so it
+        // may only be one the picker offers, naming someone it lists.
+        if ($type || $id) {
+            $group = $this->assignableUsers()[$type] ?? null;
+
+            if (! $group || ! $group['users']->contains('id', (int) $id)) {
+                return;
+            }
+        }
+
         $task = Task::findOrFail($taskId);
         if ($this->canEdit($task)) {
             $task->update([

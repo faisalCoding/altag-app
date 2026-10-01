@@ -4,10 +4,12 @@ namespace App\Livewire\Teacher;
 
 use App\Models\Leaderboard;
 use App\Services\LeaderboardService;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 
 class LeaderboardReport extends Component
 {
+    #[Locked]
     public $leaderboardId;
 
     public function mount($leaderboardId)

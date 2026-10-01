@@ -5,6 +5,7 @@ namespace App\Livewire\Supervisor;
 use App\Models\Ode;
 use App\Models\OdeVerse;
 use Flux\Flux;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 
 class ManageOdes extends Component
@@ -12,6 +13,7 @@ class ManageOdes extends Component
     public string $search = '';
 
     // Ode Form Fields
+    #[Locked]
     public ?int $editingOdeId = null;
 
     public string $name = '';
@@ -19,6 +21,7 @@ class ManageOdes extends Component
     public string $description = '';
 
     // Verses Management Fields
+    #[Locked]
     public ?int $selectedOdeId = null;
 
     // New Verse Fields
@@ -29,6 +32,7 @@ class ManageOdes extends Component
     public string $newAjuz = '';
 
     // Editing Verse Fields
+    #[Locked]
     public ?int $editingVerseId = null;
 
     public ?int $editingVerseNumber = null;

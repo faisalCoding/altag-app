@@ -5,10 +5,12 @@ namespace App\Livewire\Teacher;
 use App\Models\Leaderboard;
 use App\Models\LeaderboardCriterion;
 use Illuminate\Support\Facades\Auth;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 
 class Leaderboards extends Component
 {
+    #[Locked]
     public $circleId;
 
     public $leaderboards = [];
@@ -20,6 +22,7 @@ class Leaderboards extends Component
 
     public $showModal = false;
 
+    #[Locked]
     public $leaderboardId = null;
 
     // Form fields
@@ -76,6 +79,7 @@ class Leaderboards extends Component
         ];
     }
 
+    #[Locked]
     public $circleIds = [];
 
     public function mount()
@@ -87,6 +91,18 @@ class Leaderboards extends Component
             $this->circleId = $this->circleIds[0];
             $this->loadLeaderboards();
         }
+    }
+
+    /**
+     * A competition this teacher set up for one of their own circles — the
+     * only kind the list offers to edit, pause or delete. A supervisor's
+     * competition is never one, though it may include the same circles.
+     */
+    private function ownLeaderboard($id): Leaderboard
+    {
+        return Leaderboard::whereIn('circle_id', $this->circleIds)
+            ->whereNull('supervisor_id')
+            ->findOrFail($id);
     }
 
     public function loadLeaderboards()
@@ -140,7 +156,7 @@ class Leaderboards extends Component
     public function edit($id)
     {
         $this->resetValidation();
-        $leaderboard = Leaderboard::with('criteria')->findOrFail($id);
+        $leaderboard = $this->ownLeaderboard($id)->load('criteria');
 
         $this->leaderboardId = $leaderboard->id;
         $this->title = $leaderboard->title;
@@ -189,7 +205,7 @@ class Leaderboards extends Component
 
     public function toggleActive($id)
     {
-        $board = Leaderboard::findOrFail($id);
+        $board = $this->ownLeaderboard($id);
         $board->is_active = ! $board->is_active;
         $board->save();
         $this->loadLeaderboards();
@@ -270,7 +286,7 @@ class Leaderboards extends Component
 
     public function deleteLeaderboard($id)
     {
-        Leaderboard::findOrFail($id)->delete();
+        $this->ownLeaderboard($id)->delete();
         $this->loadLeaderboards();
     }
 

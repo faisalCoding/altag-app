@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Storage;
 use Intervention\Image\Drivers\Gd\Driver;
 use Intervention\Image\Encoders\WebpEncoder;
 use Intervention\Image\ImageManager;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 use Livewire\WithFileUploads;
 
@@ -30,6 +31,7 @@ class Competitions extends Component
 
     public bool $isEditing = false;
 
+    #[Locked]
     public $editingId = null;
 
     public int $currentStep = 1;

@@ -5,6 +5,7 @@ namespace App\Livewire\Manager;
 use App\Models\Stage;
 use App\Models\Supervisor;
 use Flux\Flux;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 
 class Stages extends Component
@@ -17,6 +18,7 @@ class Stages extends Component
 
     public string $description = '';
 
+    #[Locked]
     public $editingStageId = null;
 
     public array $selectedSupervisors = [];

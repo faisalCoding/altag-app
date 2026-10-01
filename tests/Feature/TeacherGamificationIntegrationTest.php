@@ -2,6 +2,7 @@
 
 use App\Livewire\Teacher\Attendance;
 use App\Livewire\Teacher\LeaderboardGrade;
+use App\Livewire\Teacher\Leaderboards;
 use App\Models\AcademicCalendarEvent;
 use App\Models\Attendance as AttendanceModel;
 use App\Models\Circle;
@@ -15,6 +16,7 @@ use App\Models\Stage;
 use App\Models\Student;
 use App\Models\Teacher;
 use App\Services\GamificationService;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
@@ -239,4 +241,45 @@ it('surfaces a newly-qualifying badge for approval when the teacher opens the gr
         ->where('student_id', $this->student->id)
         ->where('status', 'pending_approval')
         ->exists())->toBeTrue();
+});
+
+it('keeps a teacher to the competitions of their own circles', function () {
+    $this->actingAs($this->teacher, 'teacher');
+
+    $elsewhere = Circle::create(['name' => 'حلقة معلم آخر', 'stage_id' => $this->stage->id]);
+    $foreign = Leaderboard::create([
+        'circle_id' => $elsewhere->id, 'title' => 'مسابقة حلقة أخرى', 'competition_type' => 'standard',
+        'start_date' => now()->subDay(), 'end_date' => now()->addDay(), 'is_active' => true, 'settings' => [],
+    ]);
+
+    // Opening the grading page of another circle's competition by its id.
+    $this->get(route('teacher.leaderboards.grade', $foreign->id))->assertNotFound();
+
+    // Pausing or deleting it from the teacher's own list.
+    $list = Livewire::test(Leaderboards::class);
+    expect(fn () => $list->call('deleteLeaderboard', $foreign->id))->toThrow(ModelNotFoundException::class);
+    expect(fn () => $list->call('toggleActive', $foreign->id))->toThrow(ModelNotFoundException::class);
+
+    expect($foreign->fresh())->not->toBeNull()->is_active->toBeTrue();
+});
+
+it('scores only the students the grading page lists', function () {
+    $this->actingAs($this->teacher, 'teacher');
+
+    $criterion = LeaderboardCriterion::create(['leaderboard_id' => $this->leaderboard->id, 'name' => 'التبكير', 'points' => 5]);
+    $stranger = Student::factory()->create([
+        'circle_id' => Circle::create(['name' => 'حلقة بعيدة', 'stage_id' => $this->stage->id])->id,
+        'status' => 'active',
+    ]);
+
+    Livewire::test(LeaderboardGrade::class, ['leaderboardId' => $this->leaderboard->id])
+        ->call('toggleScore', $stranger->id, $criterion->id, 5)
+        ->assertNotFound();
+
+    Livewire::test(LeaderboardGrade::class, ['leaderboardId' => $this->leaderboard->id])
+        ->call('toggleScore', $this->student->id, $criterion->id, 5)
+        ->assertSuccessful();
+
+    expect(LeaderboardScore::where('student_id', $stranger->id)->exists())->toBeFalse()
+        ->and(LeaderboardScore::where('student_id', $this->student->id)->exists())->toBeTrue();
 });

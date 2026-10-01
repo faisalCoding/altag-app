@@ -9,6 +9,7 @@ use App\Support\HijriDate;
 use Flux\Flux;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 
 class Teachers extends Component
@@ -27,6 +28,7 @@ class Teachers extends Component
 
     public array $selectedCircles = [];
 
+    #[Locked]
     public $editingTeacherId = null;
 
     public string $quickName = '';

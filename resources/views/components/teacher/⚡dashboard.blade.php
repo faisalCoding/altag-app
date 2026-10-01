@@ -6,18 +6,29 @@ use App\Models\StudentPlanDay;
 use App\Services\TeacherCompetitionService;
 use Illuminate\Support\Facades\Auth;
 use Carbon\Carbon;
+use Livewire\Attributes\Locked;
 
 new class extends Component {
     public bool $showGradingModal = false;
+    #[Locked]
     public $selectedAssignmentId = null;
     public array $gradingScores = [];
     public string $gradingNotes = '';
     public $calculatedGrade = null;
 
+    /**
+     * Only the tasks handed to this teacher to grade — the list shows no
+     * others, and the id arrives from the browser.
+     */
+    private function ownAssignments()
+    {
+        return \App\Models\GamificationTeamTaskAssignment::where('teacher_id', auth()->guard('teacher')->id());
+    }
+
     public function editGrading($assignmentId): void
     {
-        $this->selectedAssignmentId = $assignmentId;
-        $assignment = \App\Models\GamificationTeamTaskAssignment::with(['task.criteria', 'scores'])->findOrFail($assignmentId);
+        $assignment = $this->ownAssignments()->with(['task.criteria', 'scores'])->findOrFail($assignmentId);
+        $this->selectedAssignmentId = $assignment->id;
         
         $this->gradingScores = [];
         foreach ($assignment->task->criteria as $criterion) {
@@ -31,7 +42,7 @@ new class extends Component {
 
     public function updatedGradingScores(): void
     {
-        $assignment = \App\Models\GamificationTeamTaskAssignment::with('task.criteria')->find($this->selectedAssignmentId);
+        $assignment = $this->ownAssignments()->with('task.criteria')->find($this->selectedAssignmentId);
         if ($assignment && $assignment->task->criteria->isNotEmpty()) {
             $totalScore = 0;
             $count = 0;
@@ -54,7 +65,7 @@ new class extends Component {
 
     public function saveGrading(): void
     {
-        $assignment = \App\Models\GamificationTeamTaskAssignment::with('task.criteria')->findOrFail($this->selectedAssignmentId);
+        $assignment = $this->ownAssignments()->with('task.criteria')->findOrFail($this->selectedAssignmentId);
         $hasCriteria = $assignment->task->criteria->isNotEmpty();
 
         if ($hasCriteria) {

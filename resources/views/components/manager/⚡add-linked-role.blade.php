@@ -5,11 +5,13 @@ use App\Services\MessagingService;
 use Flux\Flux;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Component;
+use Livewire\Attributes\Locked;
 
 new class extends Component
 {
     public string $sourceGuard;
 
+    #[Locked]
     public int $sourceId;
 
     public string $sourceName;

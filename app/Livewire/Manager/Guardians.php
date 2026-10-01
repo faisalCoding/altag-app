@@ -9,6 +9,7 @@ use App\Support\HijriDate;
 use Flux\Flux;
 use Illuminate\Support\Str;
 use Livewire\Attributes\Computed;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 
 class Guardians extends Component
@@ -23,6 +24,7 @@ class Guardians extends Component
 
     public string $phone = '';
 
+    #[Locked]
     public $editingGuardianId = null;
 
     public string $search = '';

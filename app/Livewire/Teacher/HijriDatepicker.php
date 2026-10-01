@@ -6,6 +6,7 @@ use App\Models\Attendance as AttendanceModel;
 use App\Models\Student;
 use App\Support\HijriDate;
 use Carbon\Carbon;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\Modelable;
 use Livewire\Component;
 
@@ -14,6 +15,7 @@ class HijriDatepicker extends Component
     #[Modelable]
     public $date;
 
+    #[Locked]
     public $circleId;
 
     // State for the currently viewed calendar month
