@@ -91,3 +91,14 @@ it('follows a teacher link onward only within this site', function () {
     $this->get(route('teacher.magic-link', ['token' => 'onward-token', 'redirect' => 'https://evil.example/login']))
         ->assertRedirect(route('teacher.dashboard'));
 });
+
+it('starts a fresh session when a magic link signs someone in', function () {
+    Teacher::factory()->create(['access_token' => 'fresh-session-token', 'is_approved' => true, 'is_data_completed' => true]);
+
+    $this->startSession();
+    $before = session()->getId();
+
+    $this->get('/teacher-magic/fresh-session-token')->assertRedirect(route('teacher.dashboard'));
+
+    expect(session()->getId())->not->toBe($before);
+});

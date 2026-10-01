@@ -7,7 +7,9 @@ use App\Models\FormResponse;
 use App\Models\User;
 use App\Services\SurveyAssignmentService;
 use App\Support\SurveyFieldTypes;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 use Intervention\Image\Drivers\Gd\Driver;
 use Intervention\Image\Encoders\WebpEncoder;
 use Intervention\Image\ImageManager;
@@ -152,6 +154,21 @@ class FormSubmit extends Component
         }
 
         $this->validate($rules, $messages);
+
+        // The link is public and travels by WhatsApp: twenty accepted answers
+        // per form from one address in ten minutes is room for a family
+        // registering every child, and a wall against a flood.
+        $throttleKey = 'form-submit:'.$this->form->id.'|'.request()->ip();
+
+        if (RateLimiter::tooManyAttempts($throttleKey, 20)) {
+            throw ValidationException::withMessages([
+                'submit' => __('وصلتنا ردود كثيرة من جهازك خلال وقت قصير. أعد المحاولة بعد :minutes دقيقة.', [
+                    'minutes' => (int) ceil(RateLimiter::availableIn($throttleKey) / 60),
+                ]),
+            ]);
+        }
+
+        RateLimiter::hit($throttleKey, 600);
 
         // Process final answers
         $finalAnswers = [];

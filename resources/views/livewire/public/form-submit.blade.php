@@ -531,6 +531,7 @@
                                 <span wire:loading.remove>تقديم الرد والبيانات</span>
                                 <span wire:loading>جاري معالجة ورفع الرد...</span>
                             </flux:button>
+                            <flux:error name="submit" class="mt-3 text-center" />
                         </div>
                     </form>
                 </div>

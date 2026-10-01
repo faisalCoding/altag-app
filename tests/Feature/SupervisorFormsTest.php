@@ -552,3 +552,24 @@ it('links a response only to one of the supervisor\'s own students, and only wit
     expect($response->fresh()->student_id)->toBeNull()
         ->and($foreignResponse->fresh()->student_id)->toBeNull();
 });
+
+it('holds off a flood of answers to a public form from one address', function () {
+    $form = Form::create([
+        'supervisor_id' => $this->supervisor->id, 'title' => 'نموذج مفتوح', 'slug' => 'flood-form', 'color' => '#ef4444',
+        'fields' => [['id' => 'f_name', 'type' => 'text', 'label' => 'الاسم', 'required' => true]],
+    ]);
+
+    foreach (range(1, 20) as $i) {
+        Livewire::test(FormSubmit::class, ['slug' => 'flood-form'])
+            ->set('answers.f_name', "رد {$i}")
+            ->call('submit')
+            ->assertHasNoErrors();
+    }
+
+    Livewire::test(FormSubmit::class, ['slug' => 'flood-form'])
+        ->set('answers.f_name', 'رد زائد')
+        ->call('submit')
+        ->assertHasErrors('submit');
+
+    expect(FormResponse::where('form_id', $form->id)->count())->toBe(20);
+});

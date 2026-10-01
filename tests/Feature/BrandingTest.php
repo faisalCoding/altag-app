@@ -317,3 +317,27 @@ it('leaves no brand colour written by hand in a gradient', function () {
 
     expect($carriers)->toBeEmpty("these paint with a brand colour Tailwind cannot follow: {$carriers->implode(', ')}");
 });
+
+it('lets the app be added to a phone under the academy\'s own name and colour', function () {
+    Branding::setSiteName('أكاديمية الاختبار');
+    Branding::setColor('#1b5e20');
+
+    $manifest = $this->get('/manifest.json')
+        ->assertSuccessful()
+        ->assertHeader('Content-Type', 'application/json')
+        ->json();
+
+    expect($manifest['name'])->toBe('أكاديمية الاختبار')
+        ->and($manifest['theme_color'])->toBe('#1b5e20')
+        ->and($manifest['dir'])->toBe('rtl')
+        ->and($manifest['display'])->toBe('standalone');
+
+    foreach ($manifest['icons'] as $icon) {
+        expect(file_exists(public_path(ltrim($icon['src'], '/'))))->toBeTrue($icon['src']);
+    }
+
+    $this->actingAs(Manager::factory()->create(), 'manager')
+        ->get(route('manager.dashboard'))
+        ->assertSee('<link rel="manifest" href="/manifest.json">', false)
+        ->assertSee('<meta name="theme-color" content="#1b5e20">', false);
+});

@@ -21,6 +21,7 @@ use App\Models\Supervisor;
 use App\Models\Surah;
 use App\Models\Teacher;
 use App\Services\MessagingService;
+use App\Support\Branding;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Mccarlosen\LaravelMpdf\Facades\LaravelMpdf;
@@ -343,6 +344,7 @@ Route::get('/magic/{token}', function ($token) {
     $student = Student::findByAccessToken($token) ?? abort(404);
 
     auth()->guard('student')->login($student);
+    request()->session()->regenerate();
 
     return redirect()->route('student.dashboard');
 })->name('magic-link');
@@ -351,6 +353,7 @@ Route::get('/teacher-magic/{token}', function ($token) {
     $teacher = Teacher::findByAccessToken($token) ?? abort(404);
 
     auth()->guard('teacher')->login($teacher);
+    request()->session()->regenerate();
 
     if (! $teacher->is_data_completed) {
         return redirect()->route('teacher.complete-profile');
@@ -371,6 +374,7 @@ Route::get('/supervisor-magic/{token}', function ($token) {
     $supervisor = Supervisor::findByAccessToken($token) ?? abort(404);
 
     auth()->guard('supervisor')->login($supervisor);
+    request()->session()->regenerate();
 
     return redirect()->route('supervisor.dashboard');
 })->name('supervisor.magic-link');
@@ -379,6 +383,7 @@ Route::get('/guardian-magic/{token}', function ($token) {
     $guardian = Guardian::findByAccessToken($token) ?? abort(404);
 
     auth()->guard('guardian')->login($guardian);
+    request()->session()->regenerate();
 
     // If you add a complete profile step for guardians later, handle it here.
     return redirect()->route('guardian.dashboard');
@@ -391,9 +396,35 @@ Route::get('/magic/{token}/login-as', function ($token) {
 
     $student = Student::findByAccessToken($token) ?? abort(404);
     auth()->guard('student')->login($student);
+    request()->session()->regenerate();
 
     return redirect()->route('student.dashboard');
 })->name('magic-link.login-as');
+
+// Added to a phone's home screen, the app opens on its own under the name
+// and colour the manager chose — so the manifest is drawn, not a static file.
+Route::get('/manifest.json', function () {
+    $name = Branding::siteName();
+
+    return response()->json([
+        'name' => $name,
+        'short_name' => $name,
+        'description' => 'منصة الحلقات: التحضير والتسميع والخطط والتقارير.',
+        'lang' => 'ar',
+        'dir' => 'rtl',
+        'start_url' => '/',
+        'scope' => '/',
+        'display' => 'standalone',
+        'orientation' => 'portrait',
+        'background_color' => '#ffffff',
+        'theme_color' => Branding::color(),
+        'icons' => [
+            ['src' => '/icon-192.png', 'sizes' => '192x192', 'type' => 'image/png', 'purpose' => 'any'],
+            ['src' => '/icon-512.png', 'sizes' => '512x512', 'type' => 'image/png', 'purpose' => 'any'],
+            ['src' => '/icon-maskable-512.png', 'sizes' => '512x512', 'type' => 'image/png', 'purpose' => 'maskable'],
+        ],
+    ], 200, ['Cache-Control' => 'public, max-age=3600'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+})->name('manifest');
 
 Route::get('/quran-json', function () {
     return response()->json(Surah::with('ayahs')->get(), 200, [], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
