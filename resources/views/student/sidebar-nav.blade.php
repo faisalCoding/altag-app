@@ -31,6 +31,11 @@
             {{ __('التقويم') }}
         </flux:sidebar.item>
     @endif
+    @if(\App\Support\RolePages::isEnabled('student', 'student.schedule'))
+        <flux:sidebar.item class="[&_svg]:bg-[#16a6bd] hover:[&_svg]:bg-[#0e8a9e]" icon="calendar-days" :href="route('student.schedule')" :current="request()->routeIs('student.schedule*')" wire:navigate>
+            {{ __('جدول البرنامج') }}
+        </flux:sidebar.item>
+    @endif
     @if(\App\Support\RolePages::isEnabled('student', 'student.attendance'))
         <flux:sidebar.item class="[&_svg]:bg-[#10b981] hover:[&_svg]:bg-[#059669]" icon="clipboard-document-check" :href="route('student.attendance')" :current="request()->routeIs('student.attendance')" wire:navigate>
             {{ __('سجل الانضباط') }}
