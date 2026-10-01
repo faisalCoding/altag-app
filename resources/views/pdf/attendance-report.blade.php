@@ -36,12 +36,16 @@
 
         .brandbar { height: 3px; background-color: {{ $brand }}; }
 
-        .head { padding: 10px 0 6px 0; }
+        /* The width is load-bearing: without it mPDF shrinks the table to its
+           content, and in a right-to-left page that bunches the whole header
+           against the right edge with the rest of the line left empty. */
+        .head { width: 100%; padding: 10px 0 6px 0; }
         .head td { border: none; padding: 0; vertical-align: middle; }
         .head .logo { width: 56px; }
+        .head .title { width: 44%; }
         .head h1 { font-size: 14px; margin: 0; font-weight: bold; color: {{ $brandDark }}; }
         .head .academy { font-size: 9px; color: #71717a; margin: 2px 0 0 0; }
-        .head .meta { text-align: left; font-size: 8px; color: #71717a; line-height: 1.6; }
+        .head .meta { width: 44%; text-align: left; font-size: 8px; color: #71717a; line-height: 1.6; }
 
         table.grid { width: 100%; border-collapse: collapse; }
         table.grid th, table.grid td {
@@ -93,7 +97,7 @@
         {{-- Sized with the attribute, not with CSS: mPDF reads the attribute and
              ignores the rule, and the logo came out filling the page. --}}
         <td class="logo"><img src="{{ Branding::logoFilePath() }}" width="48" alt=""></td>
-        <td>
+        <td class="title">
             <h1>تقرير الحضور والغياب</h1>
             <p class="academy">{{ Branding::siteName() }}</p>
         </td>

@@ -107,3 +107,33 @@ function invade_names(array $stageIds): string
 
     return $method->invoke($component);
 }
+
+it('spreads the printed header across the page instead of bunching it right', function () {
+    // mPDF shrinks a table with no width to its content, and on a right-to-left
+    // page that piles the logo, the title and the dates against the right edge
+    // with the rest of the line empty. Invisible without rendering the sheet.
+    $html = view('pdf.attendance-report', [
+        'dates' => ['2026-09-24'],
+        'groupedCircles' => collect(),
+        'attendanceData' => [],
+        'fromDate' => '2026-09-24',
+        'toDate' => '2026-09-24',
+        'stageNames' => 'كل المراحل',
+    ])->render();
+
+    expect($html)->toMatch('/\.head\s*\{[^}]*width:\s*100%/');
+});
+
+it('sizes the printed logo with the attribute mPDF actually reads', function () {
+    // A CSS height on the image is ignored, and the logo filled the page.
+    $html = view('pdf.attendance-report', [
+        'dates' => ['2026-09-24'],
+        'groupedCircles' => collect(),
+        'attendanceData' => [],
+        'fromDate' => '2026-09-24',
+        'toDate' => '2026-09-24',
+        'stageNames' => 'كل المراحل',
+    ])->render();
+
+    expect($html)->toMatch('/<img[^>]+width="\d+"/');
+});
