@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['name', 'description', 'level', 'position', 'require_edit_reason'])]
+#[Fillable(['name', 'description', 'level', 'position', 'require_edit_reason', 'whatsapp_group_url'])]
 class Stage extends Model
 {
     /** @use HasFactory<StageFactory> */

@@ -3,6 +3,7 @@
 namespace App\Livewire\Supervisor;
 
 use App\Models\Stage;
+use App\Rules\WhatsappGroupLink;
 use Flux\Flux;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
@@ -20,6 +21,9 @@ class Settings extends Component
     /** @var array<int, bool> stage id => requires a reason on an off-day edit */
     public array $requireEditReason = [];
 
+    /** @var array<int, string> stage id => the WhatsApp group its absence messages go to */
+    public array $whatsappGroupUrls = [];
+
     public function mount(): void
     {
         $this->loadStages();
@@ -27,8 +31,14 @@ class Settings extends Component
 
     public function loadStages(): void
     {
-        $this->requireEditReason = $this->stages()
+        $stages = $this->stages();
+
+        $this->requireEditReason = $stages
             ->mapWithKeys(fn (Stage $stage) => [$stage->id => (bool) $stage->require_edit_reason])
+            ->all();
+
+        $this->whatsappGroupUrls = $stages
+            ->mapWithKeys(fn (Stage $stage) => [$stage->id => (string) $stage->whatsapp_group_url])
             ->all();
     }
 
@@ -54,6 +64,37 @@ class Settings extends Component
             $stage->require_edit_reason
                 ? __('صار ذكر السبب إلزامياً في «'.$stage->name.'».')
                 : __('أُلغي إلزام ذكر السبب في «'.$stage->name.'».'),
+            variant: 'success',
+        );
+    }
+
+    /**
+     * Save the WhatsApp group a stage's teachers paste their absence message
+     * into, or clear it when the field is emptied. A circle given a group of
+     * its own on the circles page keeps that one.
+     */
+    public function saveWhatsappGroupUrl(int $stageId): void
+    {
+        $stage = $this->stages()->firstWhere('id', $stageId);
+
+        if (! $stage) {
+            Flux::toast(__('هذه المرحلة خارج نطاق صلاحياتك.'), variant: 'danger');
+
+            return;
+        }
+
+        $this->whatsappGroupUrls[$stageId] = WhatsappGroupLink::format($this->whatsappGroupUrls[$stageId] ?? null) ?? '';
+
+        $this->validate([
+            "whatsappGroupUrls.{$stageId}" => ['nullable', 'string', 'max:255', new WhatsappGroupLink],
+        ]);
+
+        $stage->update(['whatsapp_group_url' => $this->whatsappGroupUrls[$stageId] ?: null]);
+
+        Flux::toast(
+            $stage->whatsapp_group_url
+                ? __('حُفظت مجموعة الواتساب لـ «:stage».', ['stage' => $stage->name])
+                : __('أُزيلت مجموعة الواتساب من «:stage».', ['stage' => $stage->name]),
             variant: 'success',
         );
     }

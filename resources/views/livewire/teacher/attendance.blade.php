@@ -205,16 +205,22 @@ Livewire fires only on: markStatus | updateStatus | markAllPresent | loadStudent
 
                     {{-- Absent, excused and late under one header, ready to paste.
                          Held while a status is still saving so the copy never
-                         lags the roll the teacher sees. --}}
+                         lags the roll the teacher sees. With a group set by the
+                         supervisor it is a link: the click copies, then the
+                         group opens in a new tab for the message to be pasted. --}}
                     <flux:button x-show="markedCount > 0" x-data="{ copied: false }" size="sm"
                         data-msg="{{ $this->absenceSummaryMessage() }}"
+                        :href="$this->whatsappGroupUrl ?: null"
+                        :target="$this->whatsappGroupUrl ? '_blank' : null"
+                        :rel="$this->whatsappGroupUrl ? 'noopener noreferrer' : null"
                         x-bind:disabled="syncing.length > 0"
+                        x-bind:class="{ 'pointer-events-none opacity-50': syncing.length > 0 }"
                         x-on:click="navigator.clipboard.writeText($el.dataset.msg).then(() => { copied = true; setTimeout(() => copied = false, 2000); })"
-                        title="نسخ رسالة بأسماء الغائبين والمستأذنين والمتأخرين">
+                        :title="$this->whatsappGroupUrl ? 'نسخ رسالة الغياب ثم فتح مجموعة الواتساب للصقها فيها' : 'نسخ رسالة بأسماء الغائبين والمستأذنين والمتأخرين'">
                         <span class="flex items-center gap-1">
-                            <flux:icon x-show="!copied" icon="clipboard-document" class="size-4" />
+                            <flux:icon x-show="!copied" icon="{{ $this->whatsappGroupUrl ? 'chat-bubble-left-right' : 'clipboard-document' }}" class="size-4" />
                             <flux:icon x-cloak x-show="copied" icon="check" class="size-4 text-green-500" />
-                            <span x-show="!copied">نسخ رسالة الغياب</span>
+                            <span x-show="!copied">{{ $this->whatsappGroupUrl ? 'نسخ وفتح المجموعة' : 'نسخ رسالة الغياب' }}</span>
                             <span x-cloak x-show="copied">تم النسخ</span>
                         </span>
                     </flux:button>

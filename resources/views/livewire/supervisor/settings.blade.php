@@ -41,4 +41,39 @@
             @endforelse
         </div>
     </div>
+
+    @if ($stages->isNotEmpty())
+        <div class="flex items-center gap-3 pt-2">
+            <div class="p-2 rounded-lg bg-zinc-50 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+                <flux:icon icon="chat-bubble-left-right" />
+            </div>
+            <div>
+                <flux:heading size="lg" class="font-bold text-zinc-900 dark:text-white">مجموعة الواتساب لرسالة الغياب</flux:heading>
+                <flux:subheading>حين ينسخ المعلم رسالة الغياب تُفتح هذه المجموعة ليلصقها فيها</flux:subheading>
+            </div>
+        </div>
+
+        <div class="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-100 dark:border-zinc-800 shadow-xs overflow-hidden">
+            <div class="divide-y divide-zinc-100 dark:divide-zinc-800">
+                @foreach ($stages as $stage)
+                    <form wire:key="stage-whatsapp-{{ $stage->id }}" wire:submit="saveWhatsappGroupUrl({{ $stage->id }})"
+                        class="px-4 py-3.5 space-y-2">
+                        <div class="text-sm font-bold text-zinc-800 dark:text-zinc-100 truncate">{{ $stage->name }}</div>
+                        <div class="flex items-start gap-2">
+                            <div class="flex-1 min-w-0">
+                                <flux:input wire:model="whatsappGroupUrls.{{ $stage->id }}" dir="ltr"
+                                    placeholder="https://chat.whatsapp.com/..." aria-label="رابط مجموعة {{ $stage->name }}" />
+                            </div>
+                            <flux:button type="submit" variant="primary" class="shrink-0">حفظ</flux:button>
+                        </div>
+                        <flux:error name="whatsappGroupUrls.{{ $stage->id }}" />
+                    </form>
+                @endforeach
+            </div>
+        </div>
+
+        <p class="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
+            اترك الحقل فارغاً لتُنسخ الرسالة فقط. ولحلقة بعينها مجموعة خاصة بها تُضاف من صفحة الحلقات، فتُفتح بدل مجموعة المرحلة.
+        </p>
+    @endif
 </div>

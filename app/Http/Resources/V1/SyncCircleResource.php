@@ -39,6 +39,9 @@ class SyncCircleResource extends JsonResource
             ] : null,
             // Unanswered keeps the requirement, as the sheet reads it.
             'require_edit_reason' => $this->stage?->require_edit_reason ?? true,
+            // Opened once the absence message is copied: the circle's own
+            // group, else its stage's; null copies only.
+            'whatsapp_group_url' => $this->effective_whatsapp_group_url,
             'working_days' => $this->workingDays,
         ];
     }

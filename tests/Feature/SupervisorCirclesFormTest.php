@@ -147,3 +147,46 @@ it('does not let a supervisor view the roster of a circle outside their scope', 
 
     Livewire::test(Circles::class)->call('viewStudents', $otherCircle->id);
 })->throws(ModelNotFoundException::class);
+
+it('gives a circle a WhatsApp group of its own, and hands it back to the stage when cleared', function () {
+    $stage = Stage::create(['name' => 'المرحلة الأولى']);
+    $circle = Circle::create(['name' => 'حلقة الفجر', 'stage_id' => $stage->id]);
+    $supervisor = Supervisor::factory()->create(['is_approved' => true]);
+    $supervisor->stages()->attach($stage->id);
+
+    $this->actingAs($supervisor, 'supervisor');
+
+    Livewire::test(Circles::class)
+        ->call('edit', $circle->id)
+        ->set('whatsapp_group_url', 'chat.whatsapp.com/AbCdEfGhIjKlMnOpQrStUv')
+        ->call('save')
+        ->assertHasNoErrors();
+
+    expect($circle->fresh()->whatsapp_group_url)->toBe('https://chat.whatsapp.com/AbCdEfGhIjKlMnOpQrStUv');
+
+    Livewire::test(Circles::class)
+        ->call('edit', $circle->id)
+        ->assertSet('whatsapp_group_url', 'https://chat.whatsapp.com/AbCdEfGhIjKlMnOpQrStUv')
+        ->set('whatsapp_group_url', '')
+        ->call('save')
+        ->assertHasNoErrors();
+
+    expect($circle->fresh()->whatsapp_group_url)->toBeNull();
+});
+
+it('refuses a circle group link that is not a WhatsApp invitation', function () {
+    $stage = Stage::create(['name' => 'المرحلة الأولى']);
+    $circle = Circle::create(['name' => 'حلقة الفجر', 'stage_id' => $stage->id]);
+    $supervisor = Supervisor::factory()->create(['is_approved' => true]);
+    $supervisor->stages()->attach($stage->id);
+
+    $this->actingAs($supervisor, 'supervisor');
+
+    Livewire::test(Circles::class)
+        ->call('edit', $circle->id)
+        ->set('whatsapp_group_url', 'https://example.com/group')
+        ->call('save')
+        ->assertHasErrors('whatsapp_group_url');
+
+    expect($circle->fresh()->whatsapp_group_url)->toBeNull();
+});

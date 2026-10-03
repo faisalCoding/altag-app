@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['name', 'description', 'stage_id', 'level'])]
+#[Fillable(['name', 'description', 'stage_id', 'level', 'whatsapp_group_url'])]
 class Circle extends Model
 {
     /** @use HasFactory<CircleFactory> */
@@ -20,6 +20,15 @@ class Circle extends Model
     public function stage(): BelongsTo
     {
         return $this->belongsTo(Stage::class);
+    }
+
+    /**
+     * The WhatsApp group the teacher's absence message goes to: the circle's
+     * own when the supervisor gave it one, otherwise its stage's.
+     */
+    public function getEffectiveWhatsappGroupUrlAttribute(): ?string
+    {
+        return $this->whatsapp_group_url ?: $this->stage?->whatsapp_group_url;
     }
 
     /** @return BelongsToMany<Teacher, $this> */

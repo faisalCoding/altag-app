@@ -513,6 +513,19 @@ class Attendance extends Component
     }
 
     /**
+     * The WhatsApp group the absence message is pasted into, opened as soon
+     * as it is copied: the circle's own group, else its stage's. Empty when
+     * there is none, leaving the button copying only — empty rather than
+     * null because Livewire keeps a computed value for the request only once
+     * it is set, and the page reads this one several times.
+     */
+    #[Computed]
+    public function whatsappGroupUrl(): string
+    {
+        return collect($this->circles)->firstWhere('id', $this->selectedCircle)?->effective_whatsapp_group_url ?? '';
+    }
+
+    /**
      * The working times the calendar holds for this circle's stage today, so
      * the teacher sees when the circle is due rather than being asked to type
      * how long it ran.

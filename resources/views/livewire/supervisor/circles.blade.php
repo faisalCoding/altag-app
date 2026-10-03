@@ -113,6 +113,9 @@
                 </flux:select>
                 <flux:input label="اسم الحلقة" wire:model="name" placeholder="مثال: حلقة ابن كثير" required />
                 <flux:textarea label="وصف الحلقة (اختياري)" wire:model="description" placeholder="وصف موجز للحلقة..." />
+                <flux:input label="مجموعة واتساب خاصة بالحلقة (اختياري)" wire:model="whatsapp_group_url" dir="ltr"
+                    placeholder="https://chat.whatsapp.com/..."
+                    description:trailing="تُفتح بعد نسخ رسالة الغياب بدل مجموعة المرحلة. اتركه فارغاً لتُستخدم مجموعة المرحلة." />
             </div>
 
             <div class="space-y-2">

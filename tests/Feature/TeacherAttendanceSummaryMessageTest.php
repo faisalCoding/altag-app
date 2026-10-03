@@ -108,3 +108,32 @@ it('offers the copy button on the attendance page', function () {
         ->assertSee('نسخ رسالة الغياب')
         ->assertSeeHtml('data-msg="الحلقة: حلقة الفجر');
 });
+
+it('opens the stage\'s WhatsApp group once the message is copied', function () {
+    $this->circle->stage->update(['whatsapp_group_url' => 'https://chat.whatsapp.com/StageGroup1234567890']);
+    Student::factory()->create(['circle_id' => $this->circle->id]);
+
+    Livewire::test(Attendance::class)
+        ->assertSee('نسخ وفتح المجموعة')
+        ->assertSeeHtml('href="https://chat.whatsapp.com/StageGroup1234567890"')
+        ->assertSeeHtml('target="_blank"');
+});
+
+it('opens the circle\'s own group in place of its stage\'s', function () {
+    $this->circle->stage->update(['whatsapp_group_url' => 'https://chat.whatsapp.com/StageGroup1234567890']);
+    $this->circle->update(['whatsapp_group_url' => 'https://chat.whatsapp.com/CircleGroup123456789']);
+    Student::factory()->create(['circle_id' => $this->circle->id]);
+
+    Livewire::test(Attendance::class)
+        ->assertSeeHtml('href="https://chat.whatsapp.com/CircleGroup123456789"')
+        ->assertDontSeeHtml('StageGroup1234567890');
+});
+
+it('only copies when the supervisor has set no group', function () {
+    Student::factory()->create(['circle_id' => $this->circle->id]);
+
+    Livewire::test(Attendance::class)
+        ->assertSee('نسخ رسالة الغياب')
+        ->assertDontSeeHtml('chat.whatsapp.com')
+        ->assertDontSeeHtml('target="_blank"');
+});

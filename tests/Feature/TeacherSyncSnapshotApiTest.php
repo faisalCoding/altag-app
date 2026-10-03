@@ -187,3 +187,20 @@ it('sends the window\'s attendance of those students, whichever circle took it',
         ])
         ->and($attendances[1])->toMatchArray(['date' => '2026-07-08', 'status' => 'present']);
 });
+
+it('sends each circle the WhatsApp group its absence message opens: its own, else its stage\'s', function () {
+    $this->stage->update(['whatsapp_group_url' => 'https://chat.whatsapp.com/StageGroup1234567890']);
+    $ownGroup = Circle::factory()->create([
+        'stage_id' => $this->stage->id,
+        'whatsapp_group_url' => 'https://chat.whatsapp.com/CircleGroup123456789',
+    ]);
+    $noGroup = Circle::factory()->create(['stage_id' => Stage::factory()->create()->id]);
+    $this->teacher->circles()->attach([$ownGroup->id, $noGroup->id]);
+
+    $groups = collect($this->withToken($this->token)->getJson('/api/v1/teacher/sync')->assertSuccessful()->json('data.circles'))
+        ->pluck('whatsapp_group_url', 'id');
+
+    expect($groups[$this->circle->id])->toBe('https://chat.whatsapp.com/StageGroup1234567890')
+        ->and($groups[$ownGroup->id])->toBe('https://chat.whatsapp.com/CircleGroup123456789')
+        ->and($groups[$noGroup->id])->toBeNull();
+});

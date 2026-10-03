@@ -5,6 +5,7 @@ namespace App\Livewire\Supervisor;
 use App\Livewire\Concerns\MergesCircles;
 use App\Models\Circle;
 use App\Models\Teacher;
+use App\Rules\WhatsappGroupLink;
 use App\Services\CircleMergeService;
 use Flux\Flux;
 use Livewire\Attributes\Locked;
@@ -27,6 +28,9 @@ class Circles extends Component
     public string $name = '';
 
     public string $description = '';
+
+    /** The circle's own WhatsApp group; blank leaves its stage's group in use. */
+    public string $whatsapp_group_url = '';
 
     #[Locked]
     public $editingCircleId = null;
@@ -110,7 +114,7 @@ class Circles extends Component
             return;
         }
 
-        $this->reset(['name', 'description', 'editingCircleId', 'selectedTeachers', 'stage_id']);
+        $this->reset(['name', 'description', 'whatsapp_group_url', 'editingCircleId', 'selectedTeachers', 'stage_id']);
 
         // Auto-select if there's only one stage
         if ($stages->count() === 1) {
@@ -128,6 +132,7 @@ class Circles extends Component
         $this->editingCircleId = $circle->id;
         $this->name = $circle->name;
         $this->description = $circle->description ?? '';
+        $this->whatsapp_group_url = $circle->whatsapp_group_url ?? '';
         $this->stage_id = $circle->stage_id;
         $this->selectedTeachers = $circle->teachers->pluck('id')->toArray();
 
@@ -154,9 +159,12 @@ class Circles extends Component
 
     public function save(): void
     {
+        $this->whatsapp_group_url = WhatsappGroupLink::format($this->whatsapp_group_url) ?? '';
+
         $this->validate([
             'name' => 'required|string|max:255',
             'description' => 'nullable|string',
+            'whatsapp_group_url' => ['nullable', 'string', 'max:255', new WhatsappGroupLink],
             'stage_id' => 'required|exists:stages,id',
         ]);
 
@@ -174,6 +182,7 @@ class Circles extends Component
             $circle->update([
                 'name' => $this->name,
                 'description' => $this->description,
+                'whatsapp_group_url' => $this->whatsapp_group_url ?: null,
                 'stage_id' => $this->stage_id,
             ]);
             $message = __('تم تحديث الحلقة بنجاح');
@@ -181,6 +190,7 @@ class Circles extends Component
             $circle = Circle::create([
                 'name' => $this->name,
                 'description' => $this->description,
+                'whatsapp_group_url' => $this->whatsapp_group_url ?: null,
                 'stage_id' => $this->stage_id,
             ]);
             $message = __('تم إضافة الحلقة بنجاح');
@@ -197,14 +207,14 @@ class Circles extends Component
         $circle->teachers()->sync($validTeachers);
 
         Flux::toast($message, variant: 'success');
-        $this->reset(['name', 'description', 'editingCircleId', 'selectedTeachers', 'stage_id']);
+        $this->reset(['name', 'description', 'whatsapp_group_url', 'editingCircleId', 'selectedTeachers', 'stage_id']);
         $this->loadData();
         Flux::modal('circle-modal')->close();
     }
 
     public function cancel(): void
     {
-        $this->reset(['name', 'description', 'editingCircleId', 'selectedTeachers', 'stage_id']);
+        $this->reset(['name', 'description', 'whatsapp_group_url', 'editingCircleId', 'selectedTeachers', 'stage_id']);
     }
 
     public function render(CircleMergeService $merges)
