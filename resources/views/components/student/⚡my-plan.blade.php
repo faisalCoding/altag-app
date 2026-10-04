@@ -19,7 +19,7 @@ new class extends Component {
         $totalDays = $plans->sum('days_count');
         $gradedDays = StudentPlanDay::whereIn('student_plan_id', $plans->pluck('id'))
             ->where(function ($q) {
-                $q->whereNotNull('hifz_achievement')->orWhereNotNull('review_achievement');
+                $q->where('hifz_achievement', '>=', 1)->orWhere('review_achievement', '>=', 1);
             })
             ->count();
         $overallPercentage = $totalDays > 0 ? round(min($gradedDays, $totalDays) / $totalDays * 100, 1) : 0;
@@ -141,6 +141,7 @@ new class extends Component {
                                 :excellent="$distribution['excellent']"
                                 :good="$distribution['good']"
                                 :weak="$distribution['weak']"
+                                :not-heard="$distribution['not_heard']"
                                 :size="72" />
                         </div>
 

@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Models\FreeRecitation;
 use App\Models\GamificationTransaction;
 use App\Models\Student;
 use App\Models\StudentHadithAchievement;
@@ -59,15 +60,20 @@ class DiagnoseStudentPoints extends Command
             }
         }
 
-        // Break down every memorization source: hifz/review, odes, and hadith.
+        // Break down every memorization source: hifz/review, odes, hadith and free
+        // recitations. Quran sources count recited grades only: a «لم يسمع» (0)
+        // earns nothing, so it must not look like a grading that lost its points.
         $graded = fn ($q) => $q->whereNotNull('hifz_achievement')->orWhereNotNull('review_achievement');
+        $recited = fn ($q) => $q->where('hifz_achievement', '>=', 1)->orWhere('review_achievement', '>=', 1);
         $sources = [
             ['label' => 'الحفظ/المراجعة', 'class' => StudentPlanDay::class,
-                'graded' => StudentPlanDay::whereHas('plan', fn ($q) => $q->where('student_id', $student->id))->where($graded)->count()],
+                'graded' => StudentPlanDay::whereHas('plan', fn ($q) => $q->where('student_id', $student->id))->where($recited)->count()],
             ['label' => 'المنظومات', 'class' => StudentOdeAchievement::class,
                 'graded' => StudentOdeAchievement::whereHas('plan', fn ($q) => $q->where('student_id', $student->id))->where($graded)->count()],
             ['label' => 'الأحاديث', 'class' => StudentHadithAchievement::class,
                 'graded' => StudentHadithAchievement::whereHas('plan', fn ($q) => $q->where('student_id', $student->id))->where($graded)->count()],
+            ['label' => 'تسميع حر', 'class' => FreeRecitation::class,
+                'graded' => FreeRecitation::where('student_id', $student->id)->recited()->count()],
         ];
 
         $totalGraded = 0;

@@ -54,7 +54,8 @@ class GuardianWeeklyDigest extends Command
                     $scoreLabel = match ($lastScored->get($student->id)?->hifz_achievement) {
                         3 => 'ممتاز',
                         2 => 'جيد',
-                        1 => 'ضعيف',
+                        1 => 'مقبول',
+                        0 => 'لم يسمع',
                         default => 'لا يوجد',
                     };
 

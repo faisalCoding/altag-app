@@ -44,4 +44,20 @@ class ExamLevel extends Model
     {
         return $this->hasOne(ExamLevel::class, 'previous_level_id');
     }
+
+    /**
+     * How many juz the level covers from where it starts — the number teachers
+     * call it by ("اختبار جزء النبأ والملك" is 2). Levels run from الناس by
+     * default, so the count is taken back from juz 30. Null without an end.
+     */
+    public function juzCount(): ?int
+    {
+        $end = $this->endAyah;
+
+        if ($end === null || $end->juz_number === null) {
+            return null;
+        }
+
+        return $this->direction === 'baqarah_to_nas' ? (int) $end->juz_number : 31 - (int) $end->juz_number;
+    }
 }

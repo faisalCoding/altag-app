@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\AppNotification;
 use App\Models\Ayah;
 use App\Models\Circle;
 use App\Models\Student;
@@ -135,7 +136,7 @@ it('drives the grade highlight from client state so a tap shows at once', functi
 
     // The selected state is bound to Alpine, not baked in by the server.
     expect($html)->toContain('hifz.achievement === 3 ?')
-        ->and($html)->toContain('review.achievement === null ?');
+        ->and($html)->toContain('review.achievement === 0 ?');
 });
 
 /**
@@ -240,4 +241,71 @@ it('leaves no grade button waiting on a server round trip to highlight', functio
     // The old markup disabled every grade button until the server replied.
     expect($html)->not->toContain('syncingTask')
         ->and($html)->not->toContain('disabled:cursor-wait');
+});
+
+/**
+ * «لم يسمع» is now a grade of its own (0), kept apart from a day not graded
+ * yet (null): it is stamped like any grade, earns nothing and notifies no one.
+ */
+it('stores «لم يسمع» as 0, apart from not graded', function () {
+    $day = StudentPlanDay::where('student_plan_id', $this->plan->id)->first();
+    $card = fn () => Livewire::test('teacher.⚡student-tasmeeh-card', [
+        'student' => $this->student,
+        'sPlans' => StudentPlan::where('student_id', $this->student->id)->latest()->get(),
+        'activePlanId' => $this->plan->id,
+    ]);
+
+    $card()->call('saveAchievement', $day->id, 'hifz', 0)->assertSuccessful();
+
+    $day->refresh();
+    expect($day->hifz_achievement)->toBe(0)
+        ->and($day->hifz_graded_at)->not->toBeNull()
+        ->and($day->hifz_recorded_by)->toBe($this->teacher->id)
+        ->and(AppNotification::count())->toBe(0);
+
+    $card()->call('saveAchievement', $day->id, 'hifz', null)->assertSuccessful();
+
+    $day->refresh();
+    expect($day->hifz_achievement)->toBeNull()
+        ->and($day->hifz_graded_at)->toBeNull();
+});
+
+it('refuses anything that is not a grade', function (mixed $value) {
+    $day = StudentPlanDay::where('student_plan_id', $this->plan->id)->first();
+
+    Livewire::test('teacher.⚡student-tasmeeh-card', [
+        'student' => $this->student,
+        'sPlans' => StudentPlan::where('student_id', $this->student->id)->latest()->get(),
+        'activePlanId' => $this->plan->id,
+    ])->call('saveAchievement', $day->id, 'hifz', $value)->assertStatus(422);
+
+    expect($day->fresh()->hifz_achievement)->toBeNull();
+})->with(['four' => 4, 'text' => 'abc', 'empty' => '', 'minus' => -1]);
+
+it('shows what was actually recited when it differs from the wird', function () {
+    $day = StudentPlanDay::where('student_plan_id', $this->plan->id)->first();
+    $day->update(['hifz_recited_from_ayah_id' => 1, 'hifz_recited_to_ayah_id' => 1]);
+
+    $html = Livewire::test('teacher.⚡student-tasmeeh-card', [
+        'student' => $this->student,
+        'sPlans' => StudentPlan::where('student_id', $this->student->id)->latest()->get(),
+        'activePlanId' => $this->plan->id,
+    ])->html();
+
+    expect($html)->toContain('المُسمَّع فعلياً:')
+        ->and($html)->toContain('recited_range');
+});
+
+it('opens on a day marked «لم يسمع», which the student still owes', function () {
+    $days = StudentPlanDay::where('student_plan_id', $this->plan->id)->orderBy('date')->get();
+    $days[0]->update(['hifz_achievement' => 3, 'review_achievement' => 3, 'hifz_graded_at' => now(), 'review_graded_at' => now()]);
+    $days[1]->update(['hifz_achievement' => 0, 'review_achievement' => 0, 'hifz_graded_at' => now(), 'review_graded_at' => now()]);
+
+    $html = Livewire::test('teacher.⚡student-tasmeeh-card', [
+        'student' => $this->student,
+        'sPlans' => StudentPlan::where('student_id', $this->student->id)->latest()->get(),
+        'activePlanId' => $this->plan->id,
+    ])->html();
+
+    expect($html)->toContain('activeDayId: '.$days[1]->id);
 });

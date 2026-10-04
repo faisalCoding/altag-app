@@ -126,7 +126,7 @@ new class extends Component {
                         if ($day->from_ayah_id) {
                             $hasTasks = true;
                             $totalRequired++;
-                            if ($day->hifz_achievement !== null) {
+                            if ($day->isRecited('hifz')) {
                                 $completedCount++;
                                 $hasAnyAchievement = true;
                             }
@@ -134,7 +134,7 @@ new class extends Component {
                         if ($day->review_from_ayah_id) {
                             $hasTasks = true;
                             $totalRequired++;
-                            if ($day->review_achievement !== null) {
+                            if ($day->isRecited('review')) {
                                 $completedCount++;
                                 $hasAnyAchievement = true;
                             }

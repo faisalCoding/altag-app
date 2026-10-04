@@ -50,18 +50,24 @@ new class extends Component {
     }
 
     /**
-     * A grade is one of the four buttons — excellent, good, acceptable or not
-     * heard — for one of the two parts. Anything else is an edited request.
+     * A grade is one of the buttons — excellent, good, acceptable, or not
+     * graded — for one of the two parts. The Quran also has «لم يسمع» (0), kept
+     * apart from not graded; odes and mutun store it as not graded. Anything
+     * else is an edited request.
      */
-    private function ensureValidGrade($type, $value): void
+    private function ensureValidGrade($type, $value, bool $allowNotHeard = false): void
     {
         abort_unless(in_array($type, ['hifz', 'review'], true), 422);
-        abort_unless($value === null || in_array((int) $value, [1, 2, 3], true), 422);
+
+        $allowed = $allowNotHeard ? ['0', '1', '2', '3'] : ['1', '2', '3'];
+
+        abort_unless($value === null || ((is_int($value) || is_string($value)) && in_array((string) $value, $allowed, true)), 422);
     }
 
     public function saveAchievement($dayId, $type, $value)
     {
-        $this->ensureValidGrade($type, $value);
+        $this->ensureValidGrade($type, $value, allowNotHeard: true);
+        $value = $value === null ? null : (int) $value;
 
         // The day must belong to one of this card's student's plans: the id
         // arrives from the browser, and any day of any student would update.
@@ -80,21 +86,35 @@ new class extends Component {
             }
         }
 
-        if ($type === 'hifz') {
-            $updateData['hifz_achievement'] = $value;
-            $updateData['hifz_graded_at'] = $value !== null ? $gradeTime : null;
-        } elseif ($type === 'review') {
-            $updateData['review_achievement'] = $value;
-            $updateData['review_graded_at'] = $value !== null ? $gradeTime : null;
+        $updateData["{$type}_achievement"] = $value;
+        $updateData["{$type}_graded_at"] = $value !== null ? $gradeTime : null;
+        $updateData["{$type}_recorded_by"] = auth()->id();
+
+        // The teacher app writes plan days under the same per-day lock — both
+        // parts share one points row — so a web grade and a phone grade of
+        // the same day can never race into duplicate points.
+        try {
+            $day = \Illuminate\Support\Facades\Cache::lock(\App\Services\TasmeehChangeService::dayLockKey((int) $dayId), 10)->block(5, function () use ($dayId, $updateData) {
+                StudentPlanDay::where('id', $dayId)->update($updateData);
+
+                $day = StudentPlanDay::find($dayId);
+
+                if ($day) {
+                    \App\Services\GamificationService::syncStudentPlanDayXP($day);
+                }
+
+                return $day;
+            });
+        } catch (\Illuminate\Contracts\Cache\LockTimeoutException) {
+            // The phone is writing this day right now; nothing was saved.
+            Flux::toast('لم يُحفظ التقييم: يجري تعديل هذا اليوم من جهاز آخر، أعد المحاولة.', variant: 'danger');
+
+            return;
         }
 
-        StudentPlanDay::where('id', $dayId)->update($updateData);
-
-        $day = StudentPlanDay::find($dayId);
         if ($day) {
-            \App\Services\GamificationService::syncStudentPlanDayXP($day);
-
-            if ($value !== null) {
+            // «لم يسمع» is not news worth a notification.
+            if ($value !== null && $value >= 1) {
                 $label = $type === 'hifz' ? 'الحفظ' : 'المراجعة';
                 \App\Services\NotificationService::notify(
                     'student',
@@ -537,7 +557,7 @@ new class extends Component {
             if (app()->bound('tasmeeh_days_cache')) {
                 $days = app('tasmeeh_days_cache')->get($activePlan->id) ?? collect();
             } else {
-                $days = StudentPlanDay::with(['fromAyah.surah', 'toAyah.surah', 'reviewFromAyah.surah', 'reviewToAyah.surah', 'plan'])
+                $days = StudentPlanDay::with(['fromAyah.surah', 'toAyah.surah', 'reviewFromAyah.surah', 'reviewToAyah.surah', 'hifzRecitedFromAyah.surah', 'hifzRecitedToAyah.surah', 'reviewRecitedFromAyah.surah', 'reviewRecitedToAyah.surah', 'plan'])
                     ->where('student_plan_id', $activePlan->id)
                     ->orderBy('date', 'asc')
                     ->get();
@@ -546,13 +566,14 @@ new class extends Component {
             if ($days->isNotEmpty()) {
                 $dayIds = $days->pluck('id')->toArray();
 
+                // A day marked «لم يسمع» is still owed, so it stays the one to open.
                 $oldestIncomplete = $days->first(function ($day) use ($activePlan) {
                     if ($activePlan->plan_type === 'hifz') {
-                        return is_null($day->hifz_achievement);
+                        return ! $day->isRecited('hifz');
                     } elseif ($activePlan->plan_type === 'review') {
-                        return is_null($day->review_achievement);
+                        return ! $day->isRecited('review');
                     } else {
-                        return is_null($day->hifz_achievement) || is_null($day->review_achievement);
+                        return ! $day->isRecited('hifz') || ! $day->isRecited('review');
                     }
                 });
 
@@ -771,8 +792,8 @@ new class extends Component {
     @php
         /**
          * The four grades, with the classes for the selected and unselected
-         * states. "لم يسمع" is the null value, which JavaScript compares with
-         * === just as happily as the numbers do.
+         * states. For odes and mutun "لم يسمع" is the null value, which
+         * JavaScript compares with === just as happily as the numbers do.
          */
         $gradeChoices = [
             ['js' => '3', 'label' => __('ممتاز'), 'active' => 'border-green-500 bg-green-50 dark:bg-green-500/20 text-green-700 dark:text-green-300', 'inactive' => 'border-zinc-200 dark:border-zinc-700 hover:border-green-200 bg-white dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300'],
@@ -780,6 +801,14 @@ new class extends Component {
             ['js' => '1', 'label' => __('مقبول'), 'active' => 'border-amber-500 bg-amber-50 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300', 'inactive' => 'border-zinc-200 dark:border-zinc-700 hover:border-amber-200 bg-white dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300'],
             ['js' => 'null', 'label' => __('لم يسمع'), 'active' => 'border-red-500 bg-red-50 dark:bg-red-500/20 text-red-700 dark:text-red-300', 'inactive' => 'border-zinc-200 dark:border-zinc-700 hover:border-red-200 bg-white dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300'],
         ];
+
+        /**
+         * The Quran keeps "لم يسمع" as a grade of its own (0), apart from a day
+         * not graded yet, so an ungraded day highlights nothing. Tapping the
+         * selected grade clears it.
+         */
+        $quranGradeChoices = $gradeChoices;
+        $quranGradeChoices[3]['js'] = '0';
     @endphp
 
     @if($sPlans->isNotEmpty())
@@ -868,6 +897,10 @@ new class extends Component {
                                 <flux:heading size="lg" class="{{ $section['heading'] }} mb-1 md:mb-2">{{ $section['label'] }}</flux:heading>
                                 <p class="text-zinc-700 dark:text-zinc-300 font-medium text-base md:text-lg leading-snug md:leading-relaxed"
                                     x-text="currentQuranDay()?.{{ $part }}.range || '{{ __('لا يوجد نص محدد') }}'"></p>
+                                {{-- Recorded from the teacher app when the student recited something other than the wird. --}}
+                                <p x-show="currentQuranDay()?.{{ $part }}.recited_range" x-cloak
+                                    class="text-xs md:text-sm font-medium text-amber-700 dark:text-amber-400 mt-1"
+                                    x-text="'{{ __('المُسمَّع فعلياً:') }} ' + currentQuranDay()?.{{ $part }}.recited_range"></p>
 
                                 {{-- One surah opens directly; several fold into a list. --}}
                                 <template x-if="currentQuranDay()?.{{ $part }}.links.length === 1">
@@ -904,9 +937,9 @@ new class extends Component {
                             <div>
                                 <flux:label class="mb-2 md:mb-3 text-xs md:text-sm font-semibold">{{ __('تقييم الإنجاز (التسميع)') }}</flux:label>
                                 <div class="grid grid-cols-4 gap-1.5 md:gap-2">
-                                    @foreach ($gradeChoices as $choice)
+                                    @foreach ($quranGradeChoices as $choice)
                                         <button type="button"
-                                            @click="const d = currentQuranDay(); d.{{ $part }}.achievement = {{ $choice['js'] }}; syncing = '{{ $part }}'; $wire.saveAchievement(d.id, '{{ $part }}', {{ $choice['js'] }}).finally(() => syncing = null)"
+                                            @click="const d = currentQuranDay(); const v = d.{{ $part }}.achievement === {{ $choice['js'] }} ? null : {{ $choice['js'] }}; d.{{ $part }}.achievement = v; syncing = '{{ $part }}'; $wire.saveAchievement(d.id, '{{ $part }}', v).finally(() => syncing = null)"
                                             class="px-1 py-2.5 md:p-3 rounded-lg md:rounded-xl border-2 transition-colors font-bold text-center text-xs md:text-base"
                                             :class="currentQuranDay()?.{{ $part }}.achievement === {{ $choice['js'] }} ? '{{ $choice['active'] }}' : '{{ $choice['inactive'] }}'">{{ $choice['label'] }}</button>
                                     @endforeach

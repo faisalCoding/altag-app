@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Models\FreeRecitation;
 use App\Models\GamificationTransaction;
 use App\Models\StudentHadithAchievement;
 use App\Models\StudentOdeAchievement;
@@ -12,7 +13,7 @@ use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
 
 #[Signature('gamification:recompute-plan-day-points')]
-#[Description('Re-sync gamification XP/coins for every graded hifz/review/ode/hadith record (idempotent backfill).')]
+#[Description('Re-sync gamification XP/coins for every graded hifz/review/ode/hadith/free-recitation record (idempotent backfill).')]
 class RecomputePlanDayPoints extends Command
 {
     /**
@@ -53,12 +54,23 @@ class RecomputePlanDayPoints extends Command
                 }
             });
 
+        FreeRecitation::query()->whereNotNull('achievement')->with('student')
+            ->chunkById(200, function ($recitations) use (&$count) {
+                foreach ($recitations as $recitation) {
+                    if ($recitation->student) {
+                        GamificationService::syncFreeRecitationXP($recitation);
+                        $count++;
+                    }
+                }
+            });
+
         // Purge orphaned transactions whose referenced record was deleted.
         $orphans = 0;
         foreach ([
             StudentPlanDay::class => StudentPlanDay::query()->pluck('id'),
             StudentOdeAchievement::class => StudentOdeAchievement::query()->pluck('id'),
             StudentHadithAchievement::class => StudentHadithAchievement::query()->pluck('id'),
+            FreeRecitation::class => FreeRecitation::query()->pluck('id'),
         ] as $type => $existingIds) {
             $orphanRefIds = GamificationTransaction::where('reference_type', $type)
                 ->whereNotIn('reference_id', $existingIds)
@@ -71,7 +83,7 @@ class RecomputePlanDayPoints extends Command
             }
         }
 
-        $this->info("Recomputed gamification points for {$count} graded records (plan days + odes + hadith).");
+        $this->info("Recomputed gamification points for {$count} graded records (plan days + odes + hadith + free recitations).");
         $this->info("Purged {$orphans} orphaned reference(s) whose record was deleted.");
 
         return self::SUCCESS;

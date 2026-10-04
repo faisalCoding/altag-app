@@ -95,6 +95,12 @@ new class extends Component {
                         'review_achievement' => null,
                         'hifz_graded_at' => null,
                         'review_graded_at' => null,
+                        'hifz_recited_from_ayah_id' => null,
+                        'hifz_recited_to_ayah_id' => null,
+                        'hifz_recorded_by' => null,
+                        'review_recited_from_ayah_id' => null,
+                        'review_recited_to_ayah_id' => null,
+                        'review_recorded_by' => null,
                     ]);
                 }
                 session()->flash('success', 'تم نقل الخطة للطالب ومسح الإنجازات السابقة بنجاح');
@@ -114,6 +120,12 @@ new class extends Component {
                 $newDay->review_achievement = null;
                 $newDay->hifz_graded_at = null;
                 $newDay->review_graded_at = null;
+                $newDay->hifz_recited_from_ayah_id = null;
+                $newDay->hifz_recited_to_ayah_id = null;
+                $newDay->hifz_recorded_by = null;
+                $newDay->review_recited_from_ayah_id = null;
+                $newDay->review_recited_to_ayah_id = null;
+                $newDay->review_recorded_by = null;
                 $newDay->save();
             }
             session()->flash('success', 'تم نسخ الخطة للطالب الجديد بنجاح');

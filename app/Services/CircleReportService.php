@@ -131,17 +131,17 @@ class CircleReportService
 
         $inRange = fn (?string $basis): bool => $basis !== null && $basis >= $fromDate && $basis <= $toDate;
 
-        // Quran plan days with hifz or review graded within the range.
+        // Quran plan days with hifz or review recited (a «لم يسمع» is not) within the range.
         $quranDays = StudentPlanDay::query()
             ->join('student_plans', 'student_plan_days.student_plan_id', '=', 'student_plans.id')
             ->whereIn('student_plans.student_id', $studentIds)
             ->where('student_plans.is_approved', true)
             ->where(function ($query) use ($fromDate, $toDate) {
                 $query->where(function ($q) use ($fromDate, $toDate) {
-                    $q->whereNotNull('student_plan_days.hifz_achievement')
+                    $q->where('student_plan_days.hifz_achievement', '>=', 1)
                         ->whereRaw('date(coalesce(student_plan_days.hifz_graded_at, student_plan_days.date)) between ? and ?', [$fromDate, $toDate]);
                 })->orWhere(function ($q) use ($fromDate, $toDate) {
-                    $q->whereNotNull('student_plan_days.review_achievement')
+                    $q->where('student_plan_days.review_achievement', '>=', 1)
                         ->whereRaw('date(coalesce(student_plan_days.review_graded_at, student_plan_days.date)) between ? and ?', [$fromDate, $toDate]);
                 });
             })
@@ -157,7 +157,7 @@ class CircleReportService
             }
 
             $hifzBasis = $day->hifz_graded_at?->toDateString() ?? $day->date?->toDateString();
-            if ($day->hifz_achievement !== null && $inRange($hifzBasis)) {
+            if ($day->isRecited('hifz') && $inRange($hifzBasis)) {
                 $per[$sid]['hifz_days']++;
                 $per[$sid]['hifz_score_sum'] += (int) $day->hifz_achievement;
                 if ($day->from_ayah_id && $day->to_ayah_id) {
@@ -166,7 +166,7 @@ class CircleReportService
             }
 
             $reviewBasis = $day->review_graded_at?->toDateString() ?? $day->date?->toDateString();
-            if ($day->review_achievement !== null && $inRange($reviewBasis)) {
+            if ($day->isRecited('review') && $inRange($reviewBasis)) {
                 $per[$sid]['review_days']++;
                 $per[$sid]['review_score_sum'] += (int) $day->review_achievement;
                 if ($day->review_from_ayah_id && $day->review_to_ayah_id) {

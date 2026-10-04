@@ -332,11 +332,16 @@ new class extends Component
 
         $entries = collect();
 
-        StudentPlanDay::with('plan', 'fromAyah.surah', 'toAyah.surah', 'reviewFromAyah.surah', 'reviewToAyah.surah')
+        // Every grading shows, «لم يسمع» (0) included; the range is what was
+        // actually recited when the teacher recorded one, else the scheduled wird.
+        StudentPlanDay::with(
+            'plan', 'fromAyah.surah', 'toAyah.surah', 'reviewFromAyah.surah', 'reviewToAyah.surah',
+            'hifzRecitedFromAyah.surah', 'hifzRecitedToAyah.surah', 'reviewRecitedFromAyah.surah', 'reviewRecitedToAyah.surah',
+        )
             ->whereHas('plan', fn ($q) => $q->where('student_id', $this->studentId))
             ->where(fn ($q) => $q->whereNotNull('hifz_achievement')->orWhereNotNull('review_achievement'))
             ->get()
-            ->each(fn ($day) => $this->pushParts($entries, 'quran', __('قرآن'), 'indigo', $day, $day->date, fn ($r, $p) => $r->formatRange($p, false)));
+            ->each(fn ($day) => $this->pushParts($entries, 'quran', __('قرآن'), 'indigo', $day, $day->date, fn ($r, $p) => $r->formatRecitedRange($p) ?? $r->formatRange($p, false)));
 
         StudentOdeAchievement::with('plan', 'pathDay')
             ->whereHas('plan', fn ($q) => $q->where('student_id', $this->studentId))

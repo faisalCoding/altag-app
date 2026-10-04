@@ -68,10 +68,10 @@ new class extends Component {
 
     public function loadPlanDays($planId)
     {
-        // Load unachieved days (hifz_achievement is null) for this plan
+        // Load unachieved days (not graded yet, or graded «لم يسمع») for this plan
         $this->planDays = StudentPlanDay::where('student_plan_id', $planId)
             ->whereHas('plan', fn ($plan) => $plan->where('student_id', $this->studentId))
-            ->whereNull('hifz_achievement')
+            ->where(fn ($q) => $q->whereNull('hifz_achievement')->orWhere('hifz_achievement', 0))
             ->orderBy('date')
             ->get()
             ->map(fn($d) => [

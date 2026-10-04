@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\AcademicCalendarEvent;
 use App\Models\Attendance;
+use App\Models\FreeRecitation;
 use App\Models\GamificationBadge;
 use App\Models\GamificationLevel;
 use App\Models\GamificationStoreItem;
@@ -174,8 +175,9 @@ class GamificationService
         $student = $day->plan->student;
         // Gate the competition on the grading date: grading during a competition
         // earns its points regardless of which scheduled plan day it is. Falls back
-        // to the day's own date only when it has not been graded yet.
-        $date = $day->hifz_graded_at ?? $day->review_graded_at ?? $day->date;
+        // to the day's own date only when it has not been graded yet, and a «لم يسمع»
+        // never dates the points, since it earns none.
+        $date = $day->gamificationDate();
         $leaderboards = self::getActiveLeaderboards($student, $date);
 
         // No competition covers this grading date — drop any stale points for the
@@ -192,45 +194,17 @@ class GamificationService
             $coinPoints = 0;
             $details = [];
 
-            // Hifz points
-            if (($settings['hifz_enabled'] ?? false) && $day->hifz_achievement !== null) {
-                $hifz = $day->hifz_achievement;
-                if ($hifz === 3 || $hifz === '3' || $hifz === 'excellent') {
-                    $xpPts = ($settings['hifz_excellent_xp'] ?? ($settings['hifz_excellent'] ?? 10));
-                    $coinPts = ($settings['hifz_excellent_coins'] ?? ($settings['hifz_excellent'] ?? 10));
-                    $xpPoints += $xpPts;
-                    $coinPoints += $coinPts;
-                    $details[] = "حفظ ممتاز (+{$xpPts} XP، +{$coinPts} عملة)";
-                } elseif ($hifz === 2 || $hifz === '2' || $hifz === 'good') {
-                    $xpPts = ($settings['hifz_good_xp'] ?? ($settings['hifz_good'] ?? 7));
-                    $coinPts = ($settings['hifz_good_coins'] ?? ($settings['hifz_good'] ?? 7));
-                    $xpPoints += $xpPts;
-                    $coinPoints += $coinPts;
-                    $details[] = "حفظ جيد (+{$xpPts} XP، +{$coinPts} عملة)";
-                } elseif ($hifz === 1 || $hifz === '1' || $hifz === 'acceptable') {
-                    $xpPts = ($settings['hifz_acceptable_xp'] ?? ($settings['hifz_acceptable'] ?? 4));
-                    $coinPts = ($settings['hifz_acceptable_coins'] ?? ($settings['hifz_acceptable'] ?? 4));
-                    $xpPoints += $xpPts;
-                    $coinPoints += $coinPts;
-                    $details[] = "حفظ مقبول (+{$xpPts} XP، +{$coinPts} عملة)";
+            foreach (['hifz', 'review'] as $part) {
+                if (! ($settings["{$part}_enabled"] ?? false)) {
+                    continue;
                 }
-            }
 
-            // Review points
-            if (($settings['review_enabled'] ?? false) && $day->review_achievement !== null) {
-                $review = $day->review_achievement;
-                if ($review === 3 || $review === '3' || $review === 'excellent') {
-                    $xpPts = ($settings['review_excellent_xp'] ?? ($settings['review_excellent'] ?? 5));
-                    $coinPts = ($settings['review_excellent_coins'] ?? ($settings['review_excellent'] ?? 5));
+                [$xpPts, $coinPts, $detail] = self::gradePoints($settings, $part, $day->{"{$part}_achievement"});
+
+                if ($detail !== null) {
                     $xpPoints += $xpPts;
                     $coinPoints += $coinPts;
-                    $details[] = "مراجعة ممتازة (+{$xpPts} XP، +{$coinPts} عملة)";
-                } elseif ($review === 2 || $review === '2' || $review === 1 || $review === 'good' || $review === 'acceptable') {
-                    $xpPts = ($settings['review_good_xp'] ?? ($settings['review_good'] ?? 3));
-                    $coinPts = ($settings['review_good_coins'] ?? ($settings['review_good'] ?? 3));
-                    $xpPoints += $xpPts;
-                    $coinPoints += $coinPts;
-                    $details[] = "مراجعة جيدة (+{$xpPts} XP، +{$coinPts} عملة)";
+                    $details[] = $detail;
                 }
             }
 
@@ -282,6 +256,216 @@ class GamificationService
             self::recalculateStudentState($student->id, $leaderboard->id);
             self::updateStudentStreak($student, $date, $leaderboard);
             self::syncStudentBadges($student->id, $leaderboard->id);
+        }
+
+        // Points the day still holds elsewhere: an excellent day corrected to
+        // «لم يسمع» a day later is dated by the correction, so the competition
+        // it was earned in no longer sees it.
+        $stale = self::staleTransactions(
+            StudentPlanDay::class,
+            $day->id,
+            $leaderboards->modelKeys(),
+            $date,
+            $day->isRecited('hifz') || $day->isRecited('review'),
+        );
+
+        if ($stale->isEmpty()) {
+            return;
+        }
+
+        GamificationTransaction::whereIn('id', $stale->pluck('id'))->delete();
+
+        foreach (Leaderboard::whereIn('id', $stale->pluck('leaderboard_id')->unique())->get() as $leaderboard) {
+            self::recalculateStudentState($student->id, $leaderboard->id);
+            self::updateStudentStreak($student, $date, $leaderboard);
+            self::syncStudentBadges($student->id, $leaderboard->id);
+        }
+    }
+
+    /**
+     * The points a graded record holds outside the competitions it was just
+     * synced in, which must go. Once it is no longer recited none of its
+     * points stand anywhere. While it is, only a running competition whose
+     * dates no longer include the grading date gives its points back: a
+     * paused competition, or one of a circle the student has left, keeps the
+     * standings it had.
+     *
+     * @param  array<int, int>  $syncedIds  Competitions whose points the sync itself settled.
+     * @return Collection<int, GamificationTransaction>
+     */
+    private static function staleTransactions(string $referenceType, int $referenceId, array $syncedIds, ?CarbonInterface $date, bool $recited): Collection
+    {
+        $candidates = GamificationTransaction::where('reference_type', $referenceType)
+            ->where('reference_id', $referenceId)
+            ->whereNotIn('leaderboard_id', $syncedIds)
+            ->with('leaderboard')
+            ->get();
+
+        if (! $recited || $date === null) {
+            return $candidates;
+        }
+
+        $day = $date->toDateString();
+
+        return $candidates->filter(function (GamificationTransaction $transaction) use ($day) {
+            $leaderboard = $transaction->leaderboard;
+
+            if (! $leaderboard || ! $leaderboard->is_active) {
+                return false;
+            }
+
+            $starts = Carbon::parse($leaderboard->start_date)->toDateString();
+            $ends = $leaderboard->end_date ? Carbon::parse($leaderboard->end_date)->toDateString() : null;
+
+            return $day < $starts || ($ends !== null && $day > $ends);
+        })->values();
+    }
+
+    /**
+     * Points for one graded part of a Quran recitation, shared by plan days and
+     * free recitations so both pay the same. Review has no separate «مقبول»
+     * tier: it pays as «جيد». «لم يسمع» (0) and ungraded (null) pay nothing.
+     *
+     * @param  array<string, mixed>  $settings
+     * @return array{0: int, 1: int, 2: string|null} XP, coins and the line for the description
+     */
+    private static function gradePoints(array $settings, string $part, mixed $grade): array
+    {
+        if ($part === 'hifz') {
+            $tier = match (true) {
+                $grade === 3 || $grade === '3' || $grade === 'excellent' => ['excellent', 10, 'حفظ ممتاز'],
+                $grade === 2 || $grade === '2' || $grade === 'good' => ['good', 7, 'حفظ جيد'],
+                $grade === 1 || $grade === '1' || $grade === 'acceptable' => ['acceptable', 4, 'حفظ مقبول'],
+                default => null,
+            };
+        } else {
+            $tier = match (true) {
+                $grade === 3 || $grade === '3' || $grade === 'excellent' => ['excellent', 5, 'مراجعة ممتازة'],
+                $grade === 2 || $grade === '2' || $grade === 1 || $grade === '1' || $grade === 'good' || $grade === 'acceptable' => ['good', 3, 'مراجعة جيدة'],
+                default => null,
+            };
+        }
+
+        if ($tier === null) {
+            return [0, 0, null];
+        }
+
+        [$key, $default, $label] = $tier;
+        $xp = $settings["{$part}_{$key}_xp"] ?? ($settings["{$part}_{$key}"] ?? $default);
+        $coins = $settings["{$part}_{$key}_coins"] ?? ($settings["{$part}_{$key}"] ?? $default);
+
+        return [$xp, $coins, "{$label} (+{$xp} XP، +{$coins} عملة)"];
+    }
+
+    /**
+     * Points for a free recitation (a student with no plan), paid exactly as a
+     * graded plan day: by the grading date, in every competition running then
+     * that rewards hifz or review. A «لم يسمع», an ungraded row or a grade moved
+     * out of a competition takes its points back.
+     */
+    public static function syncFreeRecitationXP(FreeRecitation $recitation, ?CarbonInterface $previouslyGradedAt = null): void
+    {
+        $student = $recitation->student;
+
+        if ($student === null) {
+            return;
+        }
+
+        $date = $recitation->graded_at;
+        $kept = [];
+
+        if ($date !== null && $recitation->isRecited()) {
+            foreach (self::getActiveLeaderboards($student, $date) as $leaderboard) {
+                $settings = $leaderboard->settings ?? [];
+
+                if (! ($settings["{$recitation->type}_enabled"] ?? false)) {
+                    continue;
+                }
+
+                [$xp, $coins, $detail] = self::gradePoints($settings, $recitation->type, $recitation->achievement);
+
+                if ($detail === null) {
+                    continue;
+                }
+
+                $multiplier = min(2, self::getMultiplierForStudent($student, $leaderboard->id, $date));
+                $finalXP = $xp * $multiplier;
+                $finalCoins = $coins * $multiplier;
+
+                if ($finalXP <= 0 && $finalCoins <= 0) {
+                    continue;
+                }
+
+                $description = 'تسميع حر: '.$detail.' ليوم '.$recitation->recited_on->format('Y-m-d');
+
+                if ($multiplier > 1) {
+                    $description .= ' [مضاعف النقاط نشط!]';
+                }
+
+                $transaction = GamificationTransaction::where('leaderboard_id', $leaderboard->id)
+                    ->where('student_id', $student->id)
+                    ->where('reference_type', FreeRecitation::class)
+                    ->where('reference_id', $recitation->id)
+                    ->first();
+
+                if ($transaction) {
+                    $transaction->update(['amount' => $finalCoins, 'xp_amount' => $finalXP, 'description' => $description]);
+                } else {
+                    GamificationTransaction::create([
+                        'leaderboard_id' => $leaderboard->id,
+                        'student_id' => $student->id,
+                        'type' => 'earn',
+                        'amount' => $finalCoins,
+                        'xp_amount' => $finalXP,
+                        'description' => $description,
+                        'reference_type' => FreeRecitation::class,
+                        'reference_id' => $recitation->id,
+                        'claimed_at' => self::resolveClaimedAt($leaderboard, (int) $finalCoins, (int) $finalXP),
+                    ]);
+                }
+
+                $kept[$leaderboard->id] = $leaderboard;
+            }
+        }
+
+        // Every competition running when it was graded is refreshed, as for a
+        // plan day: one that pays nothing for this part may still count it for
+        // the streak and badges. A grade just taken away is refreshed where it
+        // used to count.
+        $running = collect([$date, $previouslyGradedAt])
+            ->filter()
+            ->flatMap(fn ($gradedAt) => self::getActiveLeaderboards($student, $gradedAt))
+            ->keyBy('id')
+            ->all();
+
+        // Points left where the recitation no longer earns: a running
+        // competition that now pays nothing for it, or the rule plan days follow.
+        $stale = self::staleTransactions(FreeRecitation::class, $recitation->id, array_keys($kept), $date, $recitation->isRecited())
+            ->merge(
+                GamificationTransaction::where('reference_type', FreeRecitation::class)
+                    ->where('reference_id', $recitation->id)
+                    ->whereIn('leaderboard_id', array_diff(array_keys($running), array_keys($kept)))
+                    ->get(),
+            )
+            ->unique('id');
+
+        GamificationTransaction::whereIn('id', $stale->pluck('id'))->delete();
+
+        $touched = collect(array_keys($running))
+            ->merge(array_keys($kept))
+            ->merge($stale->pluck('leaderboard_id'))
+            ->unique();
+
+        foreach ($touched as $leaderboardId) {
+            $leaderboard = $kept[$leaderboardId] ?? $running[$leaderboardId] ?? Leaderboard::find($leaderboardId);
+
+            self::recalculateStudentState($student->id, $leaderboardId);
+
+            if ($leaderboard) {
+                self::updateStudentStreak($student, $date ?? $previouslyGradedAt ?? $recitation->recited_on, $leaderboard);
+            }
+
+            self::syncStudentBadges($student->id, $leaderboardId);
         }
     }
 
@@ -815,11 +999,12 @@ class GamificationService
 
             if ($dayPlan->isNotEmpty()) {
                 foreach ($dayPlan as $dp) {
-                    $hifzAch = $dp->hifz_achievement;
-                    $revAch = $dp->review_achievement;
+                    // Each part counts on the day it was graded, so a «لم يسمع»
+                    // given today cannot bring along a part graded yesterday.
+                    $gradedOn = fn (string $part) => ($dp->{"{$part}_graded_at"} ?? $dp->date)?->toDateString() === $dateStr;
 
-                    $hifzOk = $hifzTrigger && $hifzAch !== null && in_array($hifzAch, [1, 2, 3, '1', '2', '3', 'excellent', 'good', 'acceptable']);
-                    $revOk = $reviewTrigger && $revAch !== null && in_array($revAch, [1, 2, 3, '1', '2', '3', 'excellent', 'good', 'acceptable']);
+                    $hifzOk = $hifzTrigger && $dp->isRecited('hifz') && $gradedOn('hifz');
+                    $revOk = $reviewTrigger && $dp->isRecited('review') && $gradedOn('review');
 
                     if ($hifzOk || $revOk) {
                         $achievementMet = true;
@@ -827,6 +1012,17 @@ class GamificationService
                     }
                 }
             }
+        }
+
+        // 2a. A free recitation (no plan) graded that day counts as a plan day would.
+        if (! $achievementMet && ($hifzTrigger || $reviewTrigger)) {
+            $types = array_keys(array_filter(['hifz' => $hifzTrigger, 'review' => $reviewTrigger]));
+
+            $achievementMet = FreeRecitation::where('student_id', $student->id)
+                ->recited()
+                ->whereIn('type', $types)
+                ->whereDate('graded_at', $dateStr)
+                ->exists();
         }
 
         // 2b. Ode & Hadith Achievement Trigger
@@ -950,6 +1146,15 @@ class GamificationService
                 $evalPlanDays[$date][] = ['type' => 'review', 'achievement' => $dp->review_achievement];
             }
         }
+
+        // Free recitations (no plan) count by the day they were graded.
+        FreeRecitation::where('student_id', $student->id)
+            ->whereNotNull('graded_at')
+            ->whereBetween('graded_at', [$startDate, Carbon::parse($endDate)->endOfDay()])
+            ->get(['type', 'achievement', 'graded_at'])
+            ->each(function (FreeRecitation $recitation) use (&$evalPlanDays) {
+                $evalPlanDays[$recitation->graded_at->format('Y-m-d')][] = ['type' => $recitation->type, 'achievement' => $recitation->achievement];
+            });
 
         // Fetch ode achievements in range
         $evalOdeDays = [];
@@ -2043,6 +2248,15 @@ class GamificationService
                 }
             });
 
+        FreeRecitation::where('student_id', $student->id)
+            ->whereNotNull('achievement')
+            ->with('student')
+            ->chunkById(200, function ($recitations): void {
+                foreach ($recitations as $recitation) {
+                    self::syncFreeRecitationXP($recitation);
+                }
+            });
+
         StudentOdeAchievement::whereHas('plan', fn ($q) => $q->where('student_id', $student->id))
             ->where($graded)
             ->with(['plan.student', 'pathDay'])
@@ -2435,6 +2649,12 @@ class GamificationService
             ->toArray();
         $planDays = empty($planDayIds) ? collect() : StudentPlanDay::whereIn('id', $planDayIds)->get()->keyBy('id');
 
+        $freeIds = $transactions->where('reference_type', FreeRecitation::class)
+            ->pluck('reference_id')
+            ->unique()
+            ->toArray();
+        $freeRecitations = empty($freeIds) ? collect() : FreeRecitation::whereIn('id', $freeIds)->get()->keyBy('id');
+
         $scoreIds = $transactions->where('reference_type', LeaderboardScore::class)
             ->pluck('reference_id')
             ->unique()
@@ -2487,6 +2707,7 @@ class GamificationService
         $individualMultiplierEligibleTypes = [
             Attendance::class,
             StudentPlanDay::class,
+            FreeRecitation::class,
             LeaderboardScore::class,
             StudentOdeAchievement::class,
             StudentHadithAchievement::class,
@@ -2499,6 +2720,9 @@ class GamificationService
                 $date = $attendances->get($tx->reference_id)?->date;
             } elseif ($tx->reference_type === StudentPlanDay::class) {
                 $date = $planDays->get($tx->reference_id)?->date;
+            } elseif ($tx->reference_type === FreeRecitation::class) {
+                $free = $freeRecitations->get($tx->reference_id);
+                $date = $free ? ($free->graded_at ?? $free->recited_on) : null;
             } elseif ($tx->reference_type === LeaderboardScore::class) {
                 $date = $scores->get($tx->reference_id)?->date;
             } elseif ($tx->reference_type === StudentOdeAchievement::class) {
@@ -2742,6 +2966,9 @@ class GamificationService
         $planDayIds = $idsFor(StudentPlanDay::class);
         $planDays = empty($planDayIds) ? collect() : StudentPlanDay::whereIn('id', $planDayIds)->get()->keyBy('id');
 
+        $freeIds = $idsFor(FreeRecitation::class);
+        $freeRecitations = empty($freeIds) ? collect() : FreeRecitation::whereIn('id', $freeIds)->get()->keyBy('id');
+
         $scoreIds = $idsFor(LeaderboardScore::class);
         $scores = empty($scoreIds) ? collect() : LeaderboardScore::whereIn('id', $scoreIds)->get()->keyBy('id');
 
@@ -2763,7 +2990,10 @@ class GamificationService
                 $date = $attendances->get($tx->reference_id)?->date;
             } elseif ($tx->reference_type === StudentPlanDay::class) {
                 $day = $planDays->get($tx->reference_id);
-                $date = $day ? ($day->hifz_graded_at ?? $day->review_graded_at ?? $day->date) : null;
+                $date = $day?->gamificationDate();
+            } elseif ($tx->reference_type === FreeRecitation::class) {
+                $free = $freeRecitations->get($tx->reference_id);
+                $date = $free ? ($free->graded_at ?? $free->recited_on) : null;
             } elseif ($tx->reference_type === LeaderboardScore::class) {
                 $date = $scores->get($tx->reference_id)?->date;
             } elseif ($tx->reference_type === StudentOdeAchievement::class) {
@@ -3055,6 +3285,12 @@ class GamificationService
         $startDate = $leaderboard->start_date;
         $endDate = $leaderboard->end_date ?? now()->format('Y-m-d');
 
+        // Recitations by a student with no plan count as plan days do.
+        $freeRecitations = fn (string $type) => FreeRecitation::where('student_id', $studentId)
+            ->where('type', $type)
+            ->recited()
+            ->whereBetween('recited_on', [$startDate, $endDate]);
+
         switch ($badge->badge_type) {
             case 'streak_attendance':
             case 'attendance_streak':
@@ -3081,11 +3317,17 @@ class GamificationService
                     $q->where('student_id', $studentId)->where('is_approved', 1);
                 })
                     ->whereBetween('date', [$startDate, $endDate])
-                    ->whereIn('hifz_achievement', [1, 2, 3, '1', '2', '3', 'acceptable', 'good', 'excellent'])
+                    ->whereBetween('hifz_achievement', [1, 3])
                     ->orderBy('date', 'asc')
                     ->pluck('date')
                     ->map(fn ($d) => Carbon::parse($d)->format('Y-m-d'))
                     ->unique()
+                    ->values();
+
+                $dates = $dates
+                    ->merge($freeRecitations('hifz')->pluck('recited_on')->map(fn ($d) => Carbon::parse($d)->format('Y-m-d')))
+                    ->unique()
+                    ->sort()
                     ->values();
 
                 return self::calculateMaxStreakOnWorkingDays($dates, $workingDays);
@@ -3095,19 +3337,25 @@ class GamificationService
                     $q->where('student_id', $studentId)->where('is_approved', 1);
                 })
                     ->whereBetween('date', [$startDate, $endDate])
-                    ->whereIn('hifz_achievement', [1, 2, 3, '1', '2', '3', 'acceptable', 'good', 'excellent'])
-                    ->count();
+                    ->whereBetween('hifz_achievement', [1, 3])
+                    ->count() + $freeRecitations('hifz')->count();
 
             case 'streak_review':
                 $dates = StudentPlanDay::whereHas('plan', function ($q) use ($studentId) {
                     $q->where('student_id', $studentId)->where('is_approved', 1);
                 })
                     ->whereBetween('date', [$startDate, $endDate])
-                    ->whereIn('review_achievement', [1, 2, 3, '1', '2', '3', 'acceptable', 'good', 'excellent'])
+                    ->whereBetween('review_achievement', [1, 3])
                     ->orderBy('date', 'asc')
                     ->pluck('date')
                     ->map(fn ($d) => Carbon::parse($d)->format('Y-m-d'))
                     ->unique()
+                    ->values();
+
+                $dates = $dates
+                    ->merge($freeRecitations('review')->pluck('recited_on')->map(fn ($d) => Carbon::parse($d)->format('Y-m-d')))
+                    ->unique()
+                    ->sort()
                     ->values();
 
                 return self::calculateMaxStreakOnWorkingDays($dates, $workingDays);
@@ -3117,8 +3365,8 @@ class GamificationService
                     $q->where('student_id', $studentId)->where('is_approved', 1);
                 })
                     ->whereBetween('date', [$startDate, $endDate])
-                    ->whereIn('review_achievement', [1, 2, 3, '1', '2', '3', 'acceptable', 'good', 'excellent'])
-                    ->count();
+                    ->whereBetween('review_achievement', [1, 3])
+                    ->count() + $freeRecitations('review')->count();
 
             case 'streak_criterion':
                 if (! $badge->leaderboard_criterion_id) {

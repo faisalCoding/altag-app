@@ -52,11 +52,14 @@ new class extends Component
                 @foreach($scoreTrend as $point)
                     @php
                         $barColor = match($point['achievement']) {
-                            3 => 'bg-emerald-500', 2 => 'bg-blue-500', 1 => 'bg-amber-500', default => 'bg-zinc-200',
+                            3 => 'bg-emerald-500', 2 => 'bg-blue-500', 1 => 'bg-amber-500', 0 => 'bg-red-500', default => 'bg-zinc-200',
+                        };
+                        $barLabel = match($point['achievement']) {
+                            3 => __('ممتاز'), 2 => __('جيد'), 1 => __('مقبول'), 0 => __('لم يسمع'), default => '',
                         };
                         $heightPct = max(15, ($point['achievement'] / 3) * 100);
                     @endphp
-                    <div class="flex-1 flex flex-col items-center justify-end h-full gap-1" title="{{ $point['date'] }}">
+                    <div class="flex-1 flex flex-col items-center justify-end h-full gap-1" title="{{ $point['date'] }} — {{ $barLabel }}">
                         <div class="w-full rounded-t {{ $barColor }}" style="height: {{ $heightPct }}%"></div>
                     </div>
                 @endforeach

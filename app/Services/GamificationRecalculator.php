@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Attendance;
+use App\Models\FreeRecitation;
 use App\Models\Leaderboard;
 use App\Models\Student;
 use App\Models\StudentHadithAchievement;
@@ -35,7 +36,7 @@ class GamificationRecalculator
     public const BATCH = 120;
 
     /** The stages, in order; each is drained before the next begins. */
-    private const STAGES = ['quran', 'ode', 'hadith', 'attendance', 'students'];
+    private const STAGES = ['quran', 'ode', 'hadith', 'free', 'attendance', 'students'];
 
     /**
      * A fresh cursor: the state a caller keeps between steps.
@@ -48,7 +49,7 @@ class GamificationRecalculator
             'stage' => self::STAGES[0],
             'after' => 0,
             'done' => false,
-            'counts' => ['quran' => 0, 'ode' => 0, 'hadith' => 0, 'attendance' => 0, 'students' => 0],
+            'counts' => ['quran' => 0, 'ode' => 0, 'hadith' => 0, 'free' => 0, 'attendance' => 0, 'students' => 0],
         ];
     }
 
@@ -73,12 +74,14 @@ class GamificationRecalculator
             'quran' => self::replayQuran($studentIds, $from, $to, $cursor['after']),
             'ode' => self::replayOdes($studentIds, $from, $to, $cursor['after']),
             'hadith' => self::replayHadiths($studentIds, $from, $to, $cursor['after']),
+            'free' => self::replayFreeRecitations($studentIds, $from, $to, $cursor['after']),
             'attendance' => self::replayAttendance($studentIds, $from, $to, $cursor['after']),
             default => self::settleStudents($competition, $studentIds, $cursor['after']),
         };
 
         $counts = $cursor['counts'];
-        $counts[$cursor['stage']] += $handled;
+        // A cursor saved before a stage existed starts that stage from nothing.
+        $counts[$cursor['stage']] = ($counts[$cursor['stage']] ?? 0) + $handled;
 
         // A step that reached the end of its stage moves on to the next one.
         if ($lastId === null) {
@@ -148,7 +151,7 @@ class GamificationRecalculator
         $synced = 0;
 
         foreach ($days as $day) {
-            if (self::gradedWithin($day->hifz_graded_at ?? $day->review_graded_at ?? $day->date, $from, $to)) {
+            if (self::gradedWithin($day->gamificationDate(), $from, $to)) {
                 GamificationService::syncStudentPlanDayXP($day);
                 $synced++;
             }
@@ -211,6 +214,34 @@ class GamificationRecalculator
         }
 
         return [$synced, $achievements->count() < self::BATCH ? null : $achievements->last()->id];
+    }
+
+    /**
+     * Recitations by students with no plan, scored like plan days.
+     *
+     * @param  array<int, int>  $studentIds
+     * @return array{0: int, 1: int|null}
+     */
+    private static function replayFreeRecitations(array $studentIds, $from, $to, int $after): array
+    {
+        $recitations = FreeRecitation::whereIn('student_id', $studentIds)
+            ->whereNotNull('achievement')
+            ->where('id', '>', $after)
+            ->with('student')
+            ->orderBy('id')
+            ->limit(self::BATCH)
+            ->get();
+
+        $synced = 0;
+
+        foreach ($recitations as $recitation) {
+            if (self::gradedWithin($recitation->graded_at ?? $recitation->recited_on, $from, $to)) {
+                GamificationService::syncFreeRecitationXP($recitation);
+                $synced++;
+            }
+        }
+
+        return [$synced, $recitations->count() < self::BATCH ? null : $recitations->last()->id];
     }
 
     /**

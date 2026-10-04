@@ -20,8 +20,9 @@ new class extends Component
             ->orderByDesc('date')
             ->paginate(15);
 
+        // Recited days only: a «لم يسمع» (0) is graded but earns no place among them.
         $gradedCount = StudentPlanDay::whereHas('plan', fn ($q) => $q->where('student_id', $student->id))
-            ->whereNotNull('review_achievement')
+            ->recited('review')
             ->count();
 
         $excellentCount = StudentPlanDay::whereHas('plan', fn ($q) => $q->where('student_id', $student->id))
@@ -81,6 +82,7 @@ new class extends Component
                                         3 => ['color' => 'emerald', 'label' => 'ممتاز'],
                                         2 => ['color' => 'blue', 'label' => 'جيد'],
                                         1 => ['color' => 'amber', 'label' => 'مقبول'],
+                                        0 => ['color' => 'red', 'label' => 'لم يسمع'],
                                         default => ['color' => 'zinc', 'label' => 'لم يُقيَّم بعد'],
                                     };
                                 @endphp

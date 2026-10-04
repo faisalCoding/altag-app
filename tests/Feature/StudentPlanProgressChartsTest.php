@@ -71,6 +71,7 @@ it('buckets every recorded hifz and review rating into the achievement distribut
         'excellent' => 1,
         'good' => 1,
         'weak' => 1,
+        'not_heard' => 0,
     ]);
 });
 

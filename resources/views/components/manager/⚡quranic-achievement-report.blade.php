@@ -47,7 +47,7 @@ new class extends Component {
         // whereDate, not whereBetween: plan-day dates carry a time component, so
         // bare Y-m-d bounds string-compare below the last day and silently drop it.
         $hifzQuery = StudentPlanDay::with(['fromAyah', 'toAyah', 'plan.student.circle'])
-            ->whereNotNull('hifz_achievement')
+            ->recited('hifz')
             ->whereDate('date', '>=', $this->dateFrom)
             ->whereDate('date', '<=', $this->dateTo);
 
@@ -80,7 +80,7 @@ new class extends Component {
 
         // 2. Fetch Review days
         $reviewQuery = StudentPlanDay::with(['reviewFromAyah', 'reviewToAyah'])
-            ->whereNotNull('review_achievement')
+            ->recited('review')
             ->whereDate('date', '>=', $this->dateFrom)
             ->whereDate('date', '<=', $this->dateTo);
 

@@ -217,12 +217,14 @@ new class extends Component
                                     $scoreColor = match ($lastScored->hifz_achievement) {
                                         3 => 'text-emerald-600 dark:text-emerald-400',
                                         2 => 'text-amber-600 dark:text-amber-400',
+                                        1 => 'text-orange-600 dark:text-orange-400',
                                         default => 'text-red-600 dark:text-red-400',
                                     };
                                     $scoreLabel = match ($lastScored->hifz_achievement) {
                                         3 => 'ممتاز',
                                         2 => 'جيد',
-                                        default => 'ضعيف',
+                                        1 => 'مقبول',
+                                        default => 'لم يسمع',
                                     };
                                 @endphp
                                 <div class="flex items-center gap-1.5">

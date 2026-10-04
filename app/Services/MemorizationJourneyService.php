@@ -187,7 +187,8 @@ class MemorizationJourneyService
 
     /**
      * How many of today's assigned hifz/review components (across the student's
-     * active plans) have already been graded — an honest stand-in for "sessions".
+     * active plans) have already been recited — an honest stand-in for "sessions".
+     * A «لم يسمع» is graded but not completed.
      *
      * @return array{completed: int, total: int, percentage: int}
      */
@@ -203,13 +204,13 @@ class MemorizationJourneyService
         foreach ($days as $day) {
             if ($day->from_ayah_id && $day->to_ayah_id) {
                 $total++;
-                if ($day->hifz_achievement !== null) {
+                if ($day->isRecited('hifz')) {
                     $completed++;
                 }
             }
             if ($day->review_from_ayah_id && $day->review_to_ayah_id) {
                 $total++;
-                if ($day->review_achievement !== null) {
+                if ($day->isRecited('review')) {
                     $completed++;
                 }
             }
@@ -224,7 +225,7 @@ class MemorizationJourneyService
 
     /**
      * Distinct calendar dates within a given month where the student had either
-     * attendance or a graded plan day — feeds the dashboard's activity calendar.
+     * attendance or a recited plan day — feeds the dashboard's activity calendar.
      *
      * @return array<int, string>
      */
@@ -241,7 +242,7 @@ class MemorizationJourneyService
 
         $planDates = StudentPlanDay::whereHas('plan', fn ($q) => $q->where('student_id', $student->id))
             ->where(function ($q) {
-                $q->whereNotNull('hifz_achievement')->orWhereNotNull('review_achievement');
+                $q->where('hifz_achievement', '>=', 1)->orWhere('review_achievement', '>=', 1);
             })
             ->whereBetween('date', [$start, $end])
             ->pluck('date')
@@ -252,7 +253,7 @@ class MemorizationJourneyService
 
     /**
      * The student's most recent hifz evaluations, oldest-first for a left-to-right
-     * timeline.
+     * timeline. A «لم يسمع» (0) is an evaluation too, so it shows as a point.
      *
      * @return array<int, array{date: string, achievement: int}>
      */

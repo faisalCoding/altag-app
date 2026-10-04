@@ -3,7 +3,11 @@
 namespace App\Models;
 
 use App\Services\GamificationService;
+use App\Support\RecitationGrade;
+use Carbon\CarbonInterface;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class StudentPlanDay extends Model
 {
@@ -19,6 +23,12 @@ class StudentPlanDay extends Model
         'review_achievement',
         'hifz_graded_at',
         'review_graded_at',
+        'hifz_recited_from_ayah_id',
+        'hifz_recited_to_ayah_id',
+        'hifz_recorded_by',
+        'review_recited_from_ayah_id',
+        'review_recited_to_ayah_id',
+        'review_recorded_by',
     ];
 
     protected static function booted(): void
@@ -34,6 +44,8 @@ class StudentPlanDay extends Model
         'date' => 'date',
         'hifz_graded_at' => 'datetime',
         'review_graded_at' => 'datetime',
+        'hifz_achievement' => 'integer',
+        'review_achievement' => 'integer',
     ];
 
     public function plan()
@@ -61,11 +73,103 @@ class StudentPlanDay extends Model
         return $this->belongsTo(Ayah::class, 'review_to_ayah_id');
     }
 
+    /** @return BelongsTo<Ayah, $this> */
+    public function hifzRecitedFromAyah(): BelongsTo
+    {
+        return $this->belongsTo(Ayah::class, 'hifz_recited_from_ayah_id');
+    }
+
+    /** @return BelongsTo<Ayah, $this> */
+    public function hifzRecitedToAyah(): BelongsTo
+    {
+        return $this->belongsTo(Ayah::class, 'hifz_recited_to_ayah_id');
+    }
+
+    /** @return BelongsTo<Ayah, $this> */
+    public function reviewRecitedFromAyah(): BelongsTo
+    {
+        return $this->belongsTo(Ayah::class, 'review_recited_from_ayah_id');
+    }
+
+    /** @return BelongsTo<Ayah, $this> */
+    public function reviewRecitedToAyah(): BelongsTo
+    {
+        return $this->belongsTo(Ayah::class, 'review_recited_to_ayah_id');
+    }
+
+    /** @return BelongsTo<User, $this> */
+    public function hifzRecorder(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'hifz_recorded_by');
+    }
+
+    /** @return BelongsTo<User, $this> */
+    public function reviewRecorder(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'review_recorded_by');
+    }
+
+    /**
+     * Whether the part was heard and graded (مقبول, جيد or ممتاز). «لم يسمع» (0)
+     * is a grade but not a recitation.
+     */
+    public function isRecited(string $part): bool
+    {
+        return RecitationGrade::isRecited($this->{"{$part}_achievement"});
+    }
+
+    /**
+     * Days whose part was recited.
+     *
+     * @param  Builder<StudentPlanDay>  $query
+     */
+    public function scopeRecited(Builder $query, string $part): void
+    {
+        $query->where("{$part}_achievement", '>=', 1);
+    }
+
+    /**
+     * The day points are dated by: when a recited part was graded, else when
+     * anything was. A «لم يسمع» earns nothing, so it never dates the points.
+     */
+    public function gamificationDate(): CarbonInterface
+    {
+        if ($this->isRecited('hifz') && $this->hifz_graded_at) {
+            return $this->hifz_graded_at;
+        }
+
+        if ($this->isRecited('review') && $this->review_graded_at) {
+            return $this->review_graded_at;
+        }
+
+        return $this->hifz_graded_at ?? $this->review_graded_at ?? $this->date;
+    }
+
+    /**
+     * What the student actually recited for a part, when the teacher recorded
+     * something other than the scheduled wird. Null when it went as scheduled.
+     */
+    public function formatRecitedRange(string $part = 'hifz'): ?string
+    {
+        return $part === 'review'
+            ? self::formatAyahRange($this->reviewRecitedFromAyah, $this->reviewRecitedToAyah)
+            : self::formatAyahRange($this->hifzRecitedFromAyah, $this->hifzRecitedToAyah);
+    }
+
     public function formatRange($type = 'hifz', $reverseFill = true)
     {
         $from = $type === 'review' ? $this->reviewFromAyah : $this->fromAyah;
         $to = $type === 'review' ? $this->reviewToAyah : $this->toAyah;
 
+        return self::formatAyahRange($from, $to);
+    }
+
+    /**
+     * A range read the way teachers write it: "الملك 3-12", "النمل" for a whole
+     * surah, "القلم 39 الى الملك 2" across surahs.
+     */
+    public static function formatAyahRange(?Ayah $from, ?Ayah $to): ?string
+    {
         if (! $from || ! $to) {
             return null;
         }

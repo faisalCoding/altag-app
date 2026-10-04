@@ -4,9 +4,11 @@ use App\Http\Controllers\Api\Teacher\AttendanceController;
 use App\Http\Controllers\Api\Teacher\AuthController;
 use App\Http\Controllers\Api\V1\Teacher\AttendanceChangeController;
 use App\Http\Controllers\Api\V1\Teacher\AuthController as V1AuthController;
+use App\Http\Controllers\Api\V1\Teacher\ExamChangeController;
 use App\Http\Controllers\Api\V1\Teacher\ExtraPointChangeController;
 use App\Http\Controllers\Api\V1\Teacher\ScoreChangeController;
 use App\Http\Controllers\Api\V1\Teacher\SyncController;
+use App\Http\Controllers\Api\V1\Teacher\TasmeehChangeController;
 use Illuminate\Support\Facades\Route;
 
 Route::post('/teacher/login', [AuthController::class, 'login'])->middleware('throttle:5,1');
@@ -18,7 +20,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
 /*
 | The offline-first teacher app. The phone keeps a full copy of what it needs,
-| pulled from /sync, and queues its edits for /attendance/changes.
+| pulled from /sync, and queues its edits for the /…/changes endpoints.
 */
 Route::prefix('v1/teacher')->name('api.v1.teacher.')->group(function () {
     Route::post('/login', [V1AuthController::class, 'login'])
@@ -36,6 +38,14 @@ Route::prefix('v1/teacher')->name('api.v1.teacher.')->group(function () {
         Route::middleware(['teacher.api:teacher.grade-items', 'throttle:120,1'])->group(function () {
             Route::post('/scores/changes', [ScoreChangeController::class, 'store'])->name('scores.changes.store');
             Route::post('/extra-points/changes', [ExtraPointChangeController::class, 'store'])->name('extra-points.changes.store');
+        });
+
+        Route::middleware(['teacher.api:teacher.tasmeeh', 'throttle:120,1'])->group(function () {
+            Route::post('/tasmeeh/changes', [TasmeehChangeController::class, 'store'])->name('tasmeeh.changes.store');
+        });
+
+        Route::middleware(['teacher.api:teacher.student-exams', 'throttle:120,1'])->group(function () {
+            Route::post('/exams/changes', [ExamChangeController::class, 'store'])->name('exams.changes.store');
         });
     });
 });

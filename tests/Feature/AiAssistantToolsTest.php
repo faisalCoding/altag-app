@@ -221,7 +221,7 @@ it('reports quran plan progress and grade distribution', function () {
         'type' => 'مراجعة',
         'completion_percentage' => 75.0,
     ]);
-    expect($result['plans'][0]['grades'])->toBe(['ممتاز' => 1, 'جيد' => 1, 'ضعيف' => 1])
+    expect($result['plans'][0]['grades'])->toBe(['ممتاز' => 1, 'جيد' => 1, 'ضعيف' => 1, 'لم يسمع' => 0])
         ->and($result['plans'][0]['days'])->toHaveCount(3)
         ->and($result['plans'][0]['days'][0]['hifz_grade'])->toBe('ممتاز');
 });

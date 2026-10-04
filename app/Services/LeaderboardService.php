@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Attendance;
+use App\Models\FreeRecitation;
 use App\Models\GamificationTrack;
 use App\Models\Leaderboard;
 use App\Models\LeaderboardScore;
@@ -67,6 +68,10 @@ class LeaderboardService
             if (! empty($planDayIds)) {
                 $planDays = StudentPlanDay::whereIn('id', $planDayIds)->get()->keyBy('id');
             }
+
+            // A free recitation (no plan) is hifz or review by its type.
+            $freeIds = $transactions->where('reference_type', FreeRecitation::class)->pluck('reference_id')->unique()->all();
+            $freeTypes = empty($freeIds) ? collect() : FreeRecitation::whereIn('id', $freeIds)->pluck('type', 'id');
 
             $scoreIds = $transactions->where('reference_type', 'App\Models\LeaderboardScore')
                 ->pluck('reference_id')
@@ -140,6 +145,12 @@ class LeaderboardService
                             } else {
                                 $hifzScore += $tx->xp_amount;
                             }
+                        } else {
+                            $hifzScore += $tx->xp_amount;
+                        }
+                    } elseif ($tx->reference_type === FreeRecitation::class) {
+                        if (($freeTypes[$tx->reference_id] ?? 'hifz') === 'review') {
+                            $reviewScore += $tx->xp_amount;
                         } else {
                             $hifzScore += $tx->xp_amount;
                         }
@@ -239,6 +250,13 @@ class LeaderboardService
                             }
                         }
                     }
+
+                    foreach (FreeRecitation::where('student_id', $student->id)->recited()->whereBetween('graded_at', [$startDate, $endDate])->get() as $recitation) {
+                        [$hifzPoints, $reviewPoints] = self::freeRecitationPoints($settings, $recitation);
+                        $hifzScore += $hifzPoints;
+                        $reviewScore += $reviewPoints;
+                    }
+
                     $totalScore += $hifzScore + $reviewScore;
                 }
 
@@ -539,6 +557,13 @@ class LeaderboardService
                         }
                     }
                 }
+
+                foreach (FreeRecitation::where('student_id', $student->id)->recited()->whereDate('graded_at', $date)->get() as $recitation) {
+                    [$hifzPoints, $reviewPoints] = self::freeRecitationPoints($settings, $recitation);
+                    $hifzScoreDaily += $hifzPoints;
+                    $reviewScoreDaily += $reviewPoints;
+                }
+
                 $automatedScore += $hifzScoreDaily + $reviewScoreDaily;
             }
 
@@ -636,5 +661,41 @@ class LeaderboardService
         }
 
         return $dailyScores;
+    }
+
+    /**
+     * A free recitation's points in a points-based (not gamified) competition,
+     * on the same scale as a plan day: hifz pays by grade, review pays as one
+     * tier below excellent, «لم يسمع» pays nothing.
+     *
+     * @param  array<string, mixed>  $settings
+     * @return array{0: int, 1: int} hifz and review points
+     */
+    private static function freeRecitationPoints(array $settings, FreeRecitation $recitation): array
+    {
+        $grade = $recitation->achievement;
+
+        if ($recitation->type === 'review') {
+            if (! ($settings['review_enabled'] ?? false)) {
+                return [0, 0];
+            }
+
+            return [0, match ($grade) {
+                3 => (int) ($settings['review_excellent'] ?? 5),
+                2, 1 => (int) ($settings['review_good'] ?? 3),
+                default => 0,
+            }];
+        }
+
+        if (! ($settings['hifz_enabled'] ?? false)) {
+            return [0, 0];
+        }
+
+        return [match ($grade) {
+            3 => (int) ($settings['hifz_excellent'] ?? 10),
+            2 => (int) ($settings['hifz_good'] ?? 7),
+            1 => (int) ($settings['hifz_acceptable'] ?? 4),
+            default => 0,
+        }, 0];
     }
 }

@@ -757,8 +757,8 @@ class ManageGamification extends Component
 
         Flux::toast(
             "تمت إعادة احتساب النقاط لـ {$counts['students']} طالباً: "
-            ."{$counts['quran']} تقييم قرآن، {$counts['ode']} منظومة، "
-            ."{$counts['hadith']} متن، {$counts['attendance']} حضور.",
+            ."{$counts['quran']} تقييم قرآن، ".($counts['free'] ?? 0).' تسميع حر، '
+            ."{$counts['ode']} منظومة، {$counts['hadith']} متن، {$counts['attendance']} حضور.",
             variant: 'success',
         );
     }

@@ -28,7 +28,8 @@ new class extends Component {
             foreach (['hifz', 'review'] as $part) {
                 $day = StudentPlanDay::with(['fromAyah.surah', 'toAyah.surah', 'reviewFromAyah.surah', 'reviewToAyah.surah'])
                     ->where('student_plan_id', $plan->id)
-                    ->whereNull($part.'_achievement')
+                    // A «لم يسمع» (0) was not recited, so the part is still pending.
+                    ->where(fn ($q) => $q->whereNull($part.'_achievement')->orWhere($part.'_achievement', 0))
                     ->orderBy('date', 'asc')
                     ->first();
 
@@ -1556,7 +1557,7 @@ new class extends Component {
                                                         <div>
                                                             <div class="flex justify-between items-center mb-1">
                                                                 <div class="text-emerald-100 text-sm">{{ __('مقرر الحفظ') }}</div>
-                                                                @if (is_null($pendingMission->hifz_achievement))
+                                                                @if (! $pendingMission->isRecited('hifz'))
                                                                     <span
                                                                         class="bg-white/20 text-[10px] px-2 py-0.5 rounded text-white">{{ __('بانتظار التسميع') }}</span>
                                                                 @endif
@@ -1643,7 +1644,7 @@ new class extends Component {
                                                         <div>
                                                             <div class="flex justify-between items-center mb-1">
                                                                 <div class="text-emerald-100 text-sm">{{ __('مقرر المراجعة') }}</div>
-                                                                @if (is_null($pendingMission->review_achievement))
+                                                                @if (! $pendingMission->isRecited('review'))
                                                                     <span
                                                                         class="bg-white/20 text-[10px] px-2 py-0.5 rounded text-white">{{ __('بانتظار التسميع') }}</span>
                                                                 @endif

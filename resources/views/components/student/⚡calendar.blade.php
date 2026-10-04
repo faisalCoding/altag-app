@@ -175,7 +175,8 @@ new class extends Component
                                 @php
                                     $g = match($planDay->hifz_achievement) {
                                         3 => ['color' => 'emerald', 'label' => 'ممتاز'], 2 => ['color' => 'blue', 'label' => 'جيد'],
-                                        1 => ['color' => 'amber', 'label' => 'مقبول'], default => ['color' => 'zinc', 'label' => 'لم يُقيَّم'],
+                                        1 => ['color' => 'amber', 'label' => 'مقبول'], 0 => ['color' => 'red', 'label' => 'لم يسمع'],
+                                        default => ['color' => 'zinc', 'label' => 'لم يُقيَّم'],
                                     };
                                 @endphp
                                 <flux:badge :color="$g['color']" size="sm">{{ __($g['label']) }}</flux:badge>
@@ -190,7 +191,8 @@ new class extends Component
                                 @php
                                     $g = match($planDay->review_achievement) {
                                         3 => ['color' => 'emerald', 'label' => 'ممتاز'], 2 => ['color' => 'blue', 'label' => 'جيد'],
-                                        1 => ['color' => 'amber', 'label' => 'مقبول'], default => ['color' => 'zinc', 'label' => 'لم يُقيَّم'],
+                                        1 => ['color' => 'amber', 'label' => 'مقبول'], 0 => ['color' => 'red', 'label' => 'لم يسمع'],
+                                        default => ['color' => 'zinc', 'label' => 'لم يُقيَّم'],
                                     };
                                 @endphp
                                 <flux:badge :color="$g['color']" size="sm">{{ __($g['label']) }}</flux:badge>

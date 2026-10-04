@@ -751,7 +751,8 @@ new class extends Component {
             foreach (['hifz', 'review'] as $part) {
                 $day = \App\Models\StudentPlanDay::with(['fromAyah.surah', 'toAyah.surah', 'reviewFromAyah.surah', 'reviewToAyah.surah'])
                     ->where('student_plan_id', $plan->id)
-                    ->whereNull($part.'_achievement')
+                    // A «لم يسمع» (0) was not recited, so the part is still pending.
+                    ->where(fn ($q) => $q->whereNull($part.'_achievement')->orWhere($part.'_achievement', 0))
                     ->orderBy('date', 'asc')
                     ->first();
 
@@ -1656,6 +1657,7 @@ new class extends Component {
                     @php
                         $rewardIcon = match($reward->reference_type) {
                             'App\\Models\\StudentPlanDay' => 'book-open',
+                            'App\\Models\\FreeRecitation' => 'book-open',
                             'App\\Models\\StudentOdeAchievement' => 'musical-note',
                             'App\\Models\\StudentHadithAchievement' => 'document-text',
                             'App\\Models\\Attendance' => 'user-group',

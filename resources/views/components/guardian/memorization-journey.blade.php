@@ -106,12 +106,14 @@
                             $barClass = match ($point['achievement']) {
                                 3 => 'bg-emerald-500',
                                 2 => 'bg-amber-400',
-                                default => 'bg-rose-400',
+                                1 => 'bg-orange-400',
+                                default => 'bg-rose-500',
                             };
                             $barLabel = match ($point['achievement']) {
                                 3 => 'ممتاز',
                                 2 => 'جيد',
-                                default => 'ضعيف',
+                                1 => 'مقبول',
+                                default => 'لم يسمع',
                             };
                             $heightPct = (int) round(($point['achievement'] / 3) * 100);
                         @endphp

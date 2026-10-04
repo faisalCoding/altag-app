@@ -42,8 +42,8 @@ class StudentPlan extends Model
     }
 
     /**
-     * Percentage of this plan's scheduled days that have at least one
-     * recorded rating (hifz and/or review), out of days_count.
+     * Percentage of this plan's scheduled days where at least one part (hifz
+     * and/or review) was recited, out of days_count. A «لم يسمع» is not one.
      */
     public function completionPercentage(): float
     {
@@ -51,24 +51,25 @@ class StudentPlan extends Model
             return 0.0;
         }
 
-        $graded = $this->days()
+        $recited = $this->days()
             ->where(function ($q) {
-                $q->whereNotNull('hifz_achievement')->orWhereNotNull('review_achievement');
+                $q->where('hifz_achievement', '>=', 1)->orWhere('review_achievement', '>=', 1);
             })
             ->count();
 
-        return round(min($graded, $this->days_count) / $this->days_count * 100, 1);
+        return round(min($recited, $this->days_count) / $this->days_count * 100, 1);
     }
 
     /**
      * Counts of every recorded hifz/review rating for this plan, bucketed by
      * tier (a day with both a hifz and a review rating contributes to both).
+     * «لم يسمع» gets a bucket of its own.
      *
-     * @return array{excellent: int, good: int, weak: int}
+     * @return array{excellent: int, good: int, weak: int, not_heard: int}
      */
     public function achievementDistribution(): array
     {
-        $counts = ['excellent' => 0, 'good' => 0, 'weak' => 0];
+        $counts = ['excellent' => 0, 'good' => 0, 'weak' => 0, 'not_heard' => 0];
 
         $rows = $this->days()->get(['hifz_achievement', 'review_achievement']);
 
@@ -78,6 +79,7 @@ class StudentPlan extends Model
                     3 => $counts['excellent']++,
                     2 => $counts['good']++,
                     1 => $counts['weak']++,
+                    0 => $counts['not_heard']++,
                     default => null,
                 };
             }

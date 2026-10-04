@@ -32,11 +32,13 @@ class TasmeehPayload
             'day_name' => $day->day_name,
             'hifz' => [
                 'range' => $day->formatRange('hifz', false),
+                'recited_range' => $day->formatRecitedRange('hifz'),
                 'achievement' => $day->hifz_achievement,
                 'links' => self::quranLinks($day->fromAyah, $day->toAyah),
             ],
             'review' => [
                 'range' => $day->formatRange('review', false),
+                'recited_range' => $day->formatRecitedRange('review'),
                 'achievement' => $day->review_achievement,
                 'links' => self::quranLinks($day->reviewFromAyah, $day->reviewToAyah),
             ],

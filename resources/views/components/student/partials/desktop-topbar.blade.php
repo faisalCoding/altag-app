@@ -5,7 +5,7 @@
         ->where('date_time', '>=', now())
         ->exists();
     $topbarHasPendingMission = \App\Models\StudentPlanDay::whereHas('plan', fn ($q) => $q->where('student_id', $topbarStudent->id)->where('status', 'active')->where('is_approved', 1))
-        ->where(fn ($q) => $q->whereNull('hifz_achievement')->orWhereNull('review_achievement'))
+        ->where(fn ($q) => $q->whereNull('hifz_achievement')->orWhere('hifz_achievement', 0)->orWhereNull('review_achievement')->orWhere('review_achievement', 0))
         ->exists();
 @endphp
 

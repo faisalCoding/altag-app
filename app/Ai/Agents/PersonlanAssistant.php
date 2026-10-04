@@ -67,6 +67,7 @@ class PersonlanAssistant implements Agent, Conversational, HasTools
         - Students follow Quran memorization and review plans (خطط الحفظ والمراجعة), and may also follow
           mutun (المتون الحديثية) and odes (المنظومات) along shared paths (مسارات).
         - Every graded day is scored 3=ممتاز, 2=جيد, 1=ضعيف, for hifz (حفظ) and for review (مراجعة) separately.
+          A Quran day may also be graded 0=لم يسمع: the student did not recite, so it is never counted as done.
         - Competitions (مسابقات) exist for students (some with teams, coins, levels and badges) and for teachers.
         - A competition may split its students into teams (فرق، ويسميها المستخدم مجموعات) and into tracks (مسارات).
           These groups cut across circles, so a question about groups is never answered from circle data.

@@ -18,7 +18,7 @@ class getQuranPlans implements Tool
     public function description(): Stringable|string
     {
         return 'List the Quran memorization and review plans (خطط الحفظ والمراجعة) with each plan\'s completion percentage and grade breakdown. '
-            .'Grades are ممتاز/جيد/ضعيف, counted over every graded hifz and review day. '
+            .'Grades are ممتاز/جيد/ضعيف, counted over every graded hifz and review day; لم يسمع means the student was graded as not having recited. '
             .'Filter with "student", "circle", "teacher", "plan_type" (memorization=حفظ, review=مراجعة) or "status". '
             .'Set "include_days" to true only when the day-by-day schedule of a single student\'s plan is genuinely needed.';
     }
@@ -77,6 +77,7 @@ class getQuranPlans implements Tool
                     'ممتاز' => $counts['excellent'],
                     'جيد' => $counts['good'],
                     'ضعيف' => $counts['weak'],
+                    'لم يسمع' => $counts['not_heard'],
                 ],
             ];
 
@@ -99,7 +100,7 @@ class getQuranPlans implements Tool
             'note' => $rows->count() === $limit
                 ? 'The result was capped at the limit; narrow the filters or raise "limit" to see more.'
                 : null,
-            'grade_scale' => '3=ممتاز، 2=جيد، 1=ضعيف',
+            'grade_scale' => '3=ممتاز، 2=جيد، 1=ضعيف، 0=لم يسمع',
             'plans' => $rows->all(),
         ], JSON_UNESCAPED_UNICODE);
     }
@@ -110,6 +111,7 @@ class getQuranPlans implements Tool
             3 => 'ممتاز',
             2 => 'جيد',
             1 => 'ضعيف',
+            0 => 'لم يسمع',
             default => null,
         };
     }

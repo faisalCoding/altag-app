@@ -65,9 +65,10 @@ new class extends Component {
             })
             ->where('date', '>=', $earliest)
             ->where(function ($query) use ($todayStr) {
+                // Future days count only once recited early; a future «لم يسمع» changes nothing.
                 $query->where('date', '<=', $todayStr)
-                    ->orWhereNotNull('hifz_achievement')
-                    ->orWhereNotNull('review_achievement');
+                    ->orWhere('hifz_achievement', '>=', 1)
+                    ->orWhere('review_achievement', '>=', 1);
             })
             ->get();
 
@@ -121,7 +122,7 @@ new class extends Component {
                         $studentsStats[$sId]['good']++;
                     elseif ($val == 1)
                         $studentsStats[$sId]['acceptable']++;
-                    elseif ($val === null || $val === "")
+                    elseif ($val === null || $val === "" || $val === 0)
                         $studentsStats[$sId]['unrecited']++;
                 }
 
@@ -130,7 +131,7 @@ new class extends Component {
                         $students30Days[$sId]['excellent']++;
                     elseif ($val == 1)
                         $students30Days[$sId]['acceptable']++;
-                    elseif ($val === null || $val === "")
+                    elseif ($val === null || $val === "" || $val === 0)
                         $students30Days[$sId]['unrecited']++;
                 }
             }

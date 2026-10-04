@@ -47,7 +47,8 @@ new class extends Component
             })
             ->whereNotNull('review_from_ayah_id')
             ->whereNotNull('review_to_ayah_id')
-            ->whereNull('review_achievement')
+            // A «لم يسمع» (0) was not recited, so that review is still pending.
+            ->where(fn ($q) => $q->whereNull('review_achievement')->orWhere('review_achievement', 0))
             ->orderBy('date', 'asc')
             ->first();
 

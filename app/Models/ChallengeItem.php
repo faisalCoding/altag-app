@@ -70,14 +70,15 @@ class ChallengeItem extends Model
                 return 0;
             }
 
-            $query = StudentPlanDay::whereIn('id', $dayIds)->whereNotNull('hifz_achievement');
+            // Only recited days count: a «لم يسمع» (0) is graded but not recited.
+            $query = StudentPlanDay::whereIn('id', $dayIds)->recited('hifz');
 
             if ($this->metadata['quality_required'] ?? false) {
                 $req = $this->metadata['quality_req'] ?? 'excellent';
                 if ($req === 'excellent') {
-                    $query->where('hifz_grade', 3);
+                    $query->where('hifz_achievement', 3);
                 } else {
-                    $query->whereIn('hifz_grade', [2, 3]);
+                    $query->whereIn('hifz_achievement', [2, 3]);
                 }
             }
 

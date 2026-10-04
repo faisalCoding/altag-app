@@ -243,7 +243,7 @@
                         </div>
                         <div class="flex justify-between text-sm">
                             <span class="text-zinc-500">الأيام المنجزة</span>
-                            @php $completedDays = $activePlan->days()->whereNotNull('hifz_achievement')->count(); @endphp
+                            @php $completedDays = $activePlan->days()->recited('hifz')->count(); @endphp
                             <span class="font-medium text-zinc-800 dark:text-zinc-200">{{ $completedDays }} /
                                 {{ $activePlan->days_count }}</span>
                         </div>
@@ -300,13 +300,15 @@
                                     $hBadge = match ($hScore) {
                                         3 => ['label' => 'ممتاز', 'class' => 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400'],
                                         2 => ['label' => 'جيد', 'class' => 'bg-amber-100  text-amber-700  dark:bg-amber-500/20  dark:text-amber-400'],
-                                        1 => ['label' => 'ضعيف', 'class' => 'bg-red-100    text-red-700    dark:bg-red-500/20    dark:text-red-400'],
+                                        1 => ['label' => 'مقبول', 'class' => 'bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-400'],
+                                        0 => ['label' => 'لم يسمع', 'class' => 'bg-red-100    text-red-700    dark:bg-red-500/20    dark:text-red-400'],
                                         default => null,
                                     };
                                     $rBadge = match ($rScore) {
                                         3 => ['label' => 'ممتاز', 'class' => 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400'],
                                         2 => ['label' => 'جيد', 'class' => 'bg-amber-100  text-amber-700  dark:bg-amber-500/20  dark:text-amber-400'],
-                                        1 => ['label' => 'ضعيف', 'class' => 'bg-red-100    text-red-700    dark:bg-red-500/20    dark:text-red-400'],
+                                        1 => ['label' => 'مقبول', 'class' => 'bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-400'],
+                                        0 => ['label' => 'لم يسمع', 'class' => 'bg-red-100    text-red-700    dark:bg-red-500/20    dark:text-red-400'],
                                         default => null,
                                     };
                                 @endphp

@@ -1,7 +1,7 @@
 @php
     /*
      * One grade, one colour, everywhere on the page: green for ممتاز, blue for
-     * جيد, amber for مقبول. The classes are spelled out rather than built from
+     * جيد, amber for مقبول, red for لم يسمع. The classes are spelled out rather than built from
      * the grade so Tailwind can see them, and the print-colour rules below keep
      * them on paper — browsers drop background colours when printing otherwise.
      */
@@ -9,6 +9,7 @@
         3 => ['label' => 'ممتاز', 'cell' => 'grade-excellent'],
         2 => ['label' => 'جيد', 'cell' => 'grade-good'],
         1 => ['label' => 'مقبول', 'cell' => 'grade-acceptable'],
+        0 => ['label' => 'لم يسمع', 'cell' => 'grade-not-heard'],
     ];
 @endphp
 <!DOCTYPE html>
@@ -40,7 +41,8 @@
         /* Graded days keep their colour on paper as well as on screen. */
         .grade-excellent,
         .grade-good,
-        .grade-acceptable {
+        .grade-acceptable,
+        .grade-not-heard {
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
             font-weight: 700;
@@ -49,6 +51,7 @@
         .grade-excellent { background-color: #dcfce7; color: #15803d; }
         .grade-good      { background-color: #dbeafe; color: #1d4ed8; }
         .grade-acceptable{ background-color: #fef3c7; color: #b45309; }
+        .grade-not-heard { background-color: #fee2e2; color: #b91c1c; }
     </style>
 </head>
 

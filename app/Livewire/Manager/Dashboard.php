@@ -94,8 +94,8 @@ class Dashboard extends Component
             $lastDate = Attendance::max('date');
         } else {
             $lastDate = StudentPlanDay::where(function ($q) {
-                $q->whereNotNull('hifz_achievement')
-                    ->orWhereNotNull('review_achievement');
+                $q->where('hifz_achievement', '>=', 1)
+                    ->orWhere('review_achievement', '>=', 1);
             })->max('date');
         }
 
@@ -208,15 +208,16 @@ class Dashboard extends Component
         // whereDate is required throughout: plan-day dates carry a time component,
         // so a raw whereBetween against bare Y-m-d bounds drops the boundary day —
         // the same trap the attendance queries above already guard against.
+        // Sessions are recited parts (1..3); a «لم يسمع» (0) is graded but not a session.
         $gradedDays = fn () => DB::table('student_plan_days')
             ->join('student_plans', 'student_plan_days.student_plan_id', '=', 'student_plans.id')
             ->whereDate('student_plan_days.date', '>=', $from)
             ->whereDate('student_plan_days.date', '<=', $to)
             ->where('student_plans.is_approved', 1);
 
-        $hifzSessions = $gradedDays()->whereNotNull('hifz_achievement')->count();
+        $hifzSessions = $gradedDays()->where('hifz_achievement', '>=', 1)->count();
 
-        $reviewSessions = $gradedDays()->whereNotNull('review_achievement')->count();
+        $reviewSessions = $gradedDays()->where('review_achievement', '>=', 1)->count();
 
         // Counted per session, not per row, so it shares a unit with the two
         // figures it sits beside: a day graded excellent in both hifz and review
@@ -247,9 +248,9 @@ class Dashboard extends Component
                 ->whereDate('student_plan_days.date', '<=', $to)
                 ->where('student_plans.is_approved', 1);
 
-            $hifz = $stageDays()->whereNotNull('hifz_achievement')->count();
+            $hifz = $stageDays()->where('hifz_achievement', '>=', 1)->count();
 
-            $review = $stageDays()->whereNotNull('review_achievement')->count();
+            $review = $stageDays()->where('review_achievement', '>=', 1)->count();
 
             if ($hifz + $review === 0) {
                 return null;

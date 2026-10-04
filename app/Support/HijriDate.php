@@ -91,9 +91,40 @@ class HijriDate
     }
 
     /**
-     * Format against any ICU pattern. An empty date reads as an empty string,
-     * so a view never has to guard a missing one.
+     * The Hijri months from the one holding $from onwards, each with the
+     * Gregorian day it starts on and its length, so the teacher app can draw a
+     * month grid without doing any Umm al-Qura arithmetic of its own.
+     *
+     * Read at noon so moving across midnight in either timezone can never land
+     * on a neighbouring Gregorian day, and through the calendar's own clock
+     * rather than date(), which reads UTC.
+     *
+     * @return array<int, array{key: string, title: string, first_day: string, length: int}>
      */
+    public static function months(string $from, int $count): array
+    {
+        $calendar = \IntlCalendar::createInstance(self::TIMEZONE, self::LOCALE);
+        $calendar->setTime(Carbon::parse($from.' 12:00:00', self::TIMEZONE)->getTimestamp() * 1000);
+        $calendar->set(\IntlCalendar::FIELD_DAY_OF_MONTH, 1);
+
+        $months = [];
+
+        for ($i = 0; $i < $count; $i++) {
+            $firstDay = Carbon::createFromTimestamp((int) ($calendar->getTime() / 1000), self::TIMEZONE)->toDateString();
+
+            $months[] = [
+                'key' => sprintf('%04d-%02d', $calendar->get(\IntlCalendar::FIELD_YEAR), $calendar->get(\IntlCalendar::FIELD_MONTH) + 1),
+                'title' => self::monthYear($firstDay.' 12:00:00'),
+                'first_day' => $firstDay,
+                'length' => $calendar->getActualMaximum(\IntlCalendar::FIELD_DAY_OF_MONTH),
+            ];
+
+            $calendar->add(\IntlCalendar::FIELD_MONTH, 1);
+        }
+
+        return $months;
+    }
+
     /**
      * Latin digits rendered as Arabic-Indic ones.
      *
@@ -108,6 +139,10 @@ class HijriDate
         ]);
     }
 
+    /**
+     * Format against any ICU pattern. An empty date reads as an empty string,
+     * so a view never has to guard a missing one.
+     */
     public static function format(DateTimeInterface|string|int|null $date, string $pattern): string
     {
         $timestamp = self::timestamp($date);

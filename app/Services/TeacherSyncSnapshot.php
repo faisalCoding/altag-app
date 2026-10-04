@@ -17,6 +17,7 @@ use App\Models\LeaderboardScore;
 use App\Models\Student;
 use App\Models\Teacher;
 use App\Support\HijriDate;
+use App\Support\RolePages;
 use App\Support\StudentStatus;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
@@ -30,6 +31,10 @@ use Illuminate\Support\Facades\DB;
  * removed in bulk (clearing a day deletes without events) or written by a
  * transaction that committed after a timestamp cursor had moved past it.
  *
+ * Beside attendance and criteria it carries the Quran plans the teacher
+ * grades and the exams their students await, each while its screen is
+ * switched on for teachers.
+ *
  * Attendance is bounded to a window — from the first day of the previous Hijri
  * month to today — while the calendar runs two weeks beyond today, so the app
  * can keep marking the days that arrive while it is offline.
@@ -41,6 +46,9 @@ class TeacherSyncSnapshot
 
     /** How far past today the calendar reaches, for days marked offline. */
     public const OFFLINE_HORIZON_DAYS = 14;
+
+    /** How many Hijri months the exam date picker offers, this one included. */
+    public const CALENDAR_MONTHS = 6;
 
     /**
      * @return array<string, mixed>
@@ -84,9 +92,17 @@ class TeacherSyncSnapshot
             ->whereDate('date', '<=', $today)
             ->get(['leaderboard_id', 'leaderboard_criterion_id', 'student_id', 'date']);
 
+        // The screens beyond attendance the app shows, each only while the
+        // academy has it switched on for teachers.
+        $pages = [
+            'tasmeeh' => RolePages::isEnabled('teacher', 'teacher.tasmeeh'),
+            'student_exams' => RolePages::isEnabled('teacher', 'teacher.student-exams'),
+        ];
+
         return [
             'today' => $today,
             'window' => ['from' => $from, 'to' => $to],
+            'pages' => $pages,
             'teacher' => new TeacherResource($teacher),
             'circles' => $circles->map(fn (Circle $circle) => new SyncCircleResource(
                 $circle,
@@ -100,6 +116,10 @@ class TeacherSyncSnapshot
             ))->values(),
             'scores' => SyncScoreResource::collection($scores),
             'extra_points' => self::extraPoints($competitionIds->all(), $students->modelKeys(), $from, $today),
+            ...($pages['tasmeeh'] ? TasmeehSnapshot::for($students->modelKeys(), $from, $today) : TasmeehSnapshot::empty()),
+            ...($pages['student_exams'] ? ExamSnapshot::for($students->modelKeys()) : ExamSnapshot::empty()),
+            // The months the exam date picker draws, from the one holding today.
+            'hijri_months' => HijriDate::months($today, self::CALENDAR_MONTHS),
             'days' => self::days($from, $to),
             'labels' => [
                 'attendance' => AttendanceRevision::statusLabels(),

@@ -335,7 +335,7 @@ new class extends Component {
                 ->whereDate('date', '>=', $this->effectiveDate)
                 ->whereDate('date', '<=', $today)
                 ->where(function ($q) {
-                    $q->whereNotNull('hifz_achievement')->orWhereNotNull('review_achievement');
+                    $q->where('hifz_achievement', '>=', 1)->orWhere('review_achievement', '>=', 1);
                 })
                 ->count();
 

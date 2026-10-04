@@ -46,13 +46,20 @@ new class extends Component {
         return \App\Support\HijriDate::full($parsed->getTimestamp());
     }
     
-    // Helper mapper for badges
-    public function getAchievementBadge($val) {
-        return match((int) $val) {
+    /**
+     * Badge for a part's grade. Matched strictly so a «لم يسمع» (0) never
+     * falls into the arm for a past day left ungraded (null).
+     *
+     * @return array{color: string, label: string}
+     */
+    public function getAchievementBadge(?int $val): array
+    {
+        return match ($val) {
             3 => ['color' => 'green', 'label' => 'ممتاز'],
             2 => ['color' => 'blue', 'label' => 'جيد جداً'],
             1 => ['color' => 'amber', 'label' => 'مقبول'],
-            default => ['color' => 'red', 'label' => 'لم يسمّع']
+            0 => ['color' => 'red', 'label' => 'لم يسمع'],
+            default => ['color' => 'red', 'label' => 'لم يسمّع'],
         };
     }
 };

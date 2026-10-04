@@ -175,7 +175,7 @@ it('advances one stage at a time and finishes', function () {
     expect($cursor['done'])->toBeTrue()
         // Every stage is visited, in order, and none is skipped.
         ->and(array_values(array_unique($stages)))
-        ->toBe(['quran', 'ode', 'hadith', 'attendance', 'students']);
+        ->toBe(['quran', 'ode', 'hadith', 'free', 'attendance', 'students']);
 });
 
 it('keeps each step small enough for a web request', function () {

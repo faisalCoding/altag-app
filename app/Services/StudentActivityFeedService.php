@@ -26,15 +26,17 @@ class StudentActivityFeedService
 
         StudentPlanDay::with(['fromAyah.surah', 'toAyah.surah', 'reviewFromAyah.surah', 'reviewToAyah.surah'])
             ->whereHas('plan', fn ($q) => $q->where('student_id', $student->id))
+            // Only recited parts: a «لم يسمع» (0) is graded but nothing was memorised or reviewed.
             ->where(function ($q) {
-                $q->whereNotNull('hifz_graded_at')->orWhereNotNull('review_graded_at');
+                $q->where(fn ($q) => $q->whereNotNull('hifz_graded_at')->recited('hifz'))
+                    ->orWhere(fn ($q) => $q->whereNotNull('review_graded_at')->recited('review'));
             })
             ->orderByDesc('hifz_graded_at')
             ->orderByDesc('review_graded_at')
             ->limit($limit)
             ->get()
             ->each(function (StudentPlanDay $day) use ($items) {
-                if ($day->hifz_graded_at && $day->hifz_achievement !== null) {
+                if ($day->hifz_graded_at && $day->isRecited('hifz')) {
                     $items->push([
                         'type' => 'hifz',
                         'icon' => 'book-open',
@@ -42,7 +44,7 @@ class StudentActivityFeedService
                         'date' => Carbon::parse($day->hifz_graded_at),
                     ]);
                 }
-                if ($day->review_graded_at && $day->review_achievement !== null) {
+                if ($day->review_graded_at && $day->isRecited('review')) {
                     $items->push([
                         'type' => 'review',
                         'icon' => 'arrow-path',
