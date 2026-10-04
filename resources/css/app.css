@@ -271,3 +271,17 @@ select:focus[data-flux-control] {
 body:has(ui-sidebar[data-flux-sidebar-on-mobile]:not([data-flux-sidebar-collapsed-mobile])) [data-bottom-nav] {
     display: none;
 }
+
+/*
+ * Toasts are lifted clear of the phone bottom bar by padding on their box,
+ * and that padding sat over the bar's items on the toast's side — البنود,
+ * الخطط and الطلاب could not be tapped while a toast showed. Only the toast
+ * card itself takes taps now; the rest of its box lets them through.
+ */
+ui-toast {
+    pointer-events: none;
+}
+
+ui-toast [data-flux-toast-dialog] > * {
+    pointer-events: auto;
+}

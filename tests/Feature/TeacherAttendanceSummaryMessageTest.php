@@ -137,3 +137,17 @@ it('only copies when the supervisor has set no group', function () {
         ->assertDontSeeHtml('chat.whatsapp.com')
         ->assertDontSeeHtml('target="_blank"');
 });
+
+/**
+ * On a phone the three actions share one row: «نسخ وفتح المجموعة» made it
+ * wider than the screen and pushed the whole page sideways.
+ */
+it('gives the attendance actions short labels on a phone so the row fits', function () {
+    $this->circle->stage->update(['whatsapp_group_url' => 'https://chat.whatsapp.com/StageGroup1234567890']);
+    Student::factory()->create(['circle_id' => $this->circle->id]);
+
+    Livewire::test(Attendance::class)
+        ->assertSeeHtml('class="flex flex-wrap items-center gap-2 w-full sm:w-auto"')
+        ->assertSeeHtml('<span class="sm:hidden">نسخ وفتح</span>')
+        ->assertSeeHtml('<span class="sm:hidden">حذف</span>');
+});

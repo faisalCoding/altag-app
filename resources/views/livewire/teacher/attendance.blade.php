@@ -195,10 +195,12 @@ Livewire fires only on: markStatus | updateStatus | markAllPresent | loadStudent
                     @endforeach
                 </div>
 
-                <div x-show="studentOrder.length > 0 && mode !== 'sheet'" class="flex items-center gap-2">
-                    <flux:button x-show="!isComplete" wire:click="markAllPresent" size="sm">
+                {{-- On a phone the actions share the row's width, with short
+                     labels, and wrap rather than push the page wider. --}}
+                <div x-show="studentOrder.length > 0 && mode !== 'sheet'" class="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                    <flux:button x-show="!isComplete" wire:click="markAllPresent" size="sm" class="flex-1 sm:flex-none">
                         <span class="flex items-center gap-1">
-                            <flux:icon icon="check-circle" class="size-4" />
+                            <flux:icon icon="check-circle" class="size-4 shrink-0" />
                             تحضير الكل
                         </span>
                     </flux:button>
@@ -208,7 +210,7 @@ Livewire fires only on: markStatus | updateStatus | markAllPresent | loadStudent
                          lags the roll the teacher sees. With a group set by the
                          supervisor it is a link: the click copies, then the
                          group opens in a new tab for the message to be pasted. --}}
-                    <flux:button x-show="markedCount > 0" x-data="{ copied: false }" size="sm"
+                    <flux:button x-show="markedCount > 0" x-data="{ copied: false }" size="sm" class="flex-1 sm:flex-none"
                         data-msg="{{ $this->absenceSummaryMessage() }}"
                         :href="$this->whatsappGroupUrl ?: null"
                         :target="$this->whatsappGroupUrl ? '_blank' : null"
@@ -218,19 +220,23 @@ Livewire fires only on: markStatus | updateStatus | markAllPresent | loadStudent
                         x-on:click="navigator.clipboard.writeText($el.dataset.msg).then(() => { copied = true; setTimeout(() => copied = false, 2000); })"
                         :title="$this->whatsappGroupUrl ? 'نسخ رسالة الغياب ثم فتح مجموعة الواتساب للصقها فيها' : 'نسخ رسالة بأسماء الغائبين والمستأذنين والمتأخرين'">
                         <span class="flex items-center gap-1">
-                            <flux:icon x-show="!copied" icon="{{ $this->whatsappGroupUrl ? 'chat-bubble-left-right' : 'clipboard-document' }}" class="size-4" />
-                            <flux:icon x-cloak x-show="copied" icon="check" class="size-4 text-green-500" />
-                            <span x-show="!copied">{{ $this->whatsappGroupUrl ? 'نسخ وفتح المجموعة' : 'نسخ رسالة الغياب' }}</span>
+                            <flux:icon x-show="!copied" icon="{{ $this->whatsappGroupUrl ? 'chat-bubble-left-right' : 'clipboard-document' }}" class="size-4 shrink-0" />
+                            <flux:icon x-cloak x-show="copied" icon="check" class="size-4 shrink-0 text-green-500" />
+                            <span x-show="!copied">
+                                <span class="sm:hidden">{{ $this->whatsappGroupUrl ? 'نسخ وفتح' : 'نسخ الرسالة' }}</span>
+                                <span class="hidden sm:inline">{{ $this->whatsappGroupUrl ? 'نسخ وفتح المجموعة' : 'نسخ رسالة الغياب' }}</span>
+                            </span>
                             <span x-cloak x-show="copied">تم النسخ</span>
                         </span>
                     </flux:button>
 
-                    <button x-show="markedCount > 0" x-on:click="$flux.modal('confirm-clear-attendance').show()" size="sm"
-                        class=" border-red-600 rounded-md px-2 py-1 text-red-600 bg-red-600/20 hover:bg-red-600/70 hover:text-white"
+                    <button x-show="markedCount > 0" x-on:click="$flux.modal('confirm-clear-attendance').show()"
+                        class="flex-1 sm:flex-none flex items-center justify-center h-8 whitespace-nowrap border-red-600 rounded-md px-3 text-sm font-medium text-red-600 bg-red-600/20 hover:bg-red-600/70 hover:text-white"
                         title="حذف التحضير">
                         <span class="flex items-center gap-1">
-                            <flux:icon icon="trash" class="size-4" />
-                            حذف التحضير
+                            <flux:icon icon="trash" class="size-4 shrink-0" />
+                            <span class="sm:hidden">حذف</span>
+                            <span class="hidden sm:inline">حذف التحضير</span>
                         </span>
                     </button>
                 </div>

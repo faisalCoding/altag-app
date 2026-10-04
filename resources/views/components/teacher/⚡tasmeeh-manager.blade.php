@@ -37,8 +37,9 @@ new class extends Component {
     #[On('student-list-updated')]
     public function refreshData()
     {
+        // Quietly: these come from the other tabs (a mark on the attendance
+        // page, a new plan), where a word about the tasmeeh list means nothing.
         $this->refreshToggle = ! $this->refreshToggle;
-        Flux::toast('تم تحديث قائمة التسميع', variant: 'success');
     }
 
     public function with()

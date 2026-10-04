@@ -309,3 +309,9 @@ it('opens on a day marked «لم يسمع», which the student still owes', func
 
     expect($html)->toContain('activeDayId: '.$days[1]->id);
 });
+
+it('refreshes the tasmeeh list quietly when another tab changes something', function () {
+    Livewire::test('teacher.⚡tasmeeh-manager')
+        ->dispatch('attendance-updated')
+        ->assertNotDispatched('toast-show');
+});
