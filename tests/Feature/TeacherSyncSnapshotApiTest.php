@@ -1,7 +1,9 @@
 <?php
 
+use App\Models\AcademicCalendarEvent;
 use App\Models\Attendance;
 use App\Models\Circle;
+use App\Models\Guardian;
 use App\Models\Leaderboard;
 use App\Models\LeaderboardCriterion;
 use App\Models\LeaderboardScore;
@@ -88,6 +90,168 @@ it('sends the approved students of the teacher\'s circles with their status hist
         ->assertJsonPath('data.students.0.joined_at_hijri', HijriDate::full('2026-06-01'))
         ->assertJsonPath('data.students.0.status_histories.0.status', 'suspended')
         ->assertJsonPath('data.students.0.status_histories.0.start_date', '2026-06-20');
+});
+
+/**
+ * An attendance period, with the request's cached periods forgotten so the
+ * next read sees it.
+ */
+function syncPeriod(array $attributes): AcademicCalendarEvent
+{
+    $period = AcademicCalendarEvent::create(array_merge([
+        'event_name' => 'فترة دوام الحلقات',
+        'start_date' => '2026-07-01',
+        'end_date' => null,
+        'is_attendance_period' => true,
+        'weekdays' => [1, 2, 3, 4, 5], // Sunday to Thursday.
+        'is_visible' => true,
+    ], $attributes));
+
+    AcademicCalendarEvent::forgetPeriodCache();
+
+    return $period;
+}
+
+it('sends each student\'s phone and their guardian\'s name and phone', function () {
+    $guardian = Guardian::factory()->create(['name' => 'أبو محمد', 'phone' => '0501234567']);
+    $withGuardian = Student::factory()->create(['circle_id' => $this->circle->id, 'name' => 'أحمد', 'phone' => '0559876543', 'guardian_id' => $guardian->id]);
+    $withoutGuardian = Student::factory()->create(['circle_id' => $this->circle->id, 'name' => 'بدر', 'phone' => null]);
+
+    $students = collect($this->withToken($this->token)->getJson('/api/v1/teacher/sync')->assertSuccessful()->json('data.students'))->keyBy('id');
+
+    expect($students[$withGuardian->id])->toMatchArray([
+        'phone' => '0559876543',
+        'guardian_name' => 'أبو محمد',
+        'guardian_phone' => '0501234567',
+    ])
+        ->and($students[$withoutGuardian->id])->toMatchArray([
+            'phone' => null,
+            'guardian_name' => null,
+            'guardian_phone' => null,
+        ]);
+});
+
+it('reads the guardians of all the students in one query', function () {
+    foreach (range(1, 3) as $i) {
+        Student::factory()->create([
+            'circle_id' => $this->circle->id,
+            'guardian_id' => Guardian::factory()->create(['phone' => "050000000{$i}"])->id,
+        ]);
+    }
+
+    DB::enableQueryLog();
+    $this->withToken($this->token)->getJson('/api/v1/teacher/sync')->assertSuccessful();
+    $guardianQueries = collect(DB::getQueryLog())->filter(
+        fn (array $query) => str_contains($query['query'], 'from "users"') && in_array('guardian', $query['bindings'], true),
+    );
+    DB::disableQueryLog();
+
+    expect($guardianQueries)->toHaveCount(1);
+});
+
+it('sends each circle the attendance period covering today, with the days it has met so far', function () {
+    syncPeriod(['start_date' => '2026-01-04', 'end_date' => '2026-06-30']);
+    syncPeriod(['start_date' => '2026-07-01', 'end_date' => '2026-08-31']);
+
+    $this->withToken($this->token)->getJson('/api/v1/teacher/sync')
+        ->assertJsonPath('data.circles.0.period', [
+            'start' => '2026-07-01',
+            'end' => '2026-08-31',
+            // Sunday to Thursday up to today, a Wednesday.
+            'working_days' => ['2026-07-01', '2026-07-02', '2026-07-05', '2026-07-06', '2026-07-07', '2026-07-08'],
+        ])
+        // The period starts inside the window, whose days already travel.
+        ->assertJsonPath('data.attendance_history', []);
+});
+
+it('falls back to the last period that started before today when none covers it', function () {
+    syncPeriod(['start_date' => '2026-06-01', 'end_date' => '2026-06-30']);
+    syncPeriod(['start_date' => '2026-07-12', 'end_date' => '2026-08-31']); // Not started yet.
+
+    $period = $this->withToken($this->token)->getJson('/api/v1/teacher/sync')->json('data.circles.0.period');
+
+    expect($period['start'])->toBe('2026-06-01')
+        ->and($period['end'])->toBe('2026-06-30')
+        ->and($period['working_days'][0])->toBe('2026-06-01')
+        ->and(end($period['working_days']))->toBe('2026-06-30'); // A Tuesday, its last day.
+});
+
+it('reads each circle\'s period from its own stage, else the academy-wide one', function () {
+    $otherStage = Stage::factory()->create();
+    $otherCircle = Circle::factory()->create(['stage_id' => $otherStage->id]);
+    $this->teacher->circles()->attach($otherCircle->id);
+
+    syncPeriod(['start_date' => '2026-06-21', 'stage_ids' => [$this->stage->id]]);
+    syncPeriod(['start_date' => '2026-06-28', 'stage_ids' => []]); // Academy-wide, and started later.
+    syncPeriod(['start_date' => '2026-07-05', 'stage_ids' => [Stage::factory()->create()->id]]); // Neither circle's.
+
+    $periods = collect($this->withToken($this->token)->getJson('/api/v1/teacher/sync')->json('data.circles'))
+        ->mapWithKeys(fn (array $circle) => [$circle['id'] => $circle['period']['start']]);
+
+    expect($periods[$this->circle->id])->toBe('2026-06-21')
+        ->and($periods[$otherCircle->id])->toBe('2026-06-28');
+});
+
+it('sends the attendance from the start of the period up to the window', function () {
+    syncPeriod(['start_date' => '2026-04-05']); // A Sunday in Shawwal, before the window.
+
+    $student = Student::factory()->create(['circle_id' => $this->circle->id, 'name' => 'أحمد']);
+    $classmate = Student::factory()->create(['circle_id' => $this->circle->id, 'name' => 'بدر']);
+    $stranger = Student::factory()->create(['circle_id' => Circle::factory()->create()->id]);
+
+    foreach ([
+        [$student, '2026-04-01', 'present'], // Before the period.
+        [$student, '2026-05-17', 'late'],    // The day before the window.
+        [$student, '2026-04-05', 'absent'],
+        [$student, '2026-05-18', 'present'], // The window's first day.
+        [$classmate, '2026-04-06', 'excused'],
+        [$stranger, '2026-04-06', 'absent'],
+    ] as [$owner, $date, $status]) {
+        Attendance::create(['student_id' => $owner->id, 'circle_id' => $this->circle->id, 'teacher_id' => $this->teacher->id, 'date' => $date, 'status' => $status]);
+    }
+
+    $response = $this->withToken($this->token)->getJson('/api/v1/teacher/sync')
+        ->assertJsonPath('data.window.from', '2026-05-18')
+        ->assertJsonPath('data.circles.0.period.start', '2026-04-05')
+        ->assertJsonPath('data.circles.0.period.end', null);
+
+    $expected = collect([
+        ['student_id' => $student->id, 'date' => '2026-04-05', 'status' => 'absent'],
+        ['student_id' => $student->id, 'date' => '2026-05-17', 'status' => 'late'],
+        ['student_id' => $classmate->id, 'date' => '2026-04-06', 'status' => 'excused'],
+    ])->sortBy([['student_id', 'asc'], ['date', 'asc']])->values()->all();
+
+    expect($response->json('data.attendance_history'))->toBe($expected)
+        ->and(collect($response->json('data.attendances'))->pluck('date')->all())->toBe(['2026-05-18']);
+
+    expect($response->json('data.circles.0.period.working_days'))
+        ->toContain('2026-04-05', '2026-05-17', '2026-07-08')
+        ->not->toContain('2026-04-10'); // A Friday.
+});
+
+it('sends no period and no earlier attendance when the calendar holds none', function () {
+    $student = Student::factory()->create(['circle_id' => $this->circle->id]);
+    Attendance::create(['student_id' => $student->id, 'circle_id' => $this->circle->id, 'teacher_id' => $this->teacher->id, 'date' => '2026-04-05', 'status' => 'present']);
+
+    $this->withToken($this->token)->getJson('/api/v1/teacher/sync')
+        ->assertJsonPath('data.circles.0.period', null)
+        ->assertJsonPath('data.attendance_history', []);
+});
+
+it('starts the hijri months at the month holding the earliest date the app shows', function () {
+    $months = fn () => collect($this->withToken($this->token)->getJson('/api/v1/teacher/sync')->json('data.hijri_months'));
+
+    // The window's first month, ذو الحجة, through five months after محرم, today's.
+    expect($months()->pluck('key')->all())->toBe(['1447-12', '1448-01', '1448-02', '1448-03', '1448-04', '1448-05', '1448-06']);
+
+    syncPeriod(['start_date' => '2026-04-05']); // In شوال.
+
+    $withPeriod = $months();
+
+    expect($withPeriod->first())->toMatchArray(['key' => '1447-10', 'first_day' => '2026-03-20'])
+        ->and($withPeriod->pluck('title'))->toContain(HijriDate::monthYear('2026-07-08'))
+        ->and($withPeriod->last()['key'])->toBe('1448-06')
+        ->and($withPeriod)->toHaveCount(9);
 });
 
 it('sends the competition each circle grades in: the supervisor\'s primary one, else the teacher\'s own', function () {

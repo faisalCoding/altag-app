@@ -10,14 +10,18 @@ use Illuminate\Http\Resources\Json\JsonResource;
  * A circle the teacher takes attendance for, with the days its stage meets
  * inside the sync window and whether an off-day edit must give a reason.
  *
+ * Beside the window it carries the attendance period its stage is in, so the
+ * student card can count a term's attendance against the days that met.
+ *
  * @mixin Circle
  */
 class SyncCircleResource extends JsonResource
 {
     /**
      * @param  array<int, string>  $workingDays  Y-m-d strings, in order.
+     * @param  array{start: string, end: string|null, working_days: array<int, string>}|null  $period
      */
-    public function __construct(Circle $circle, private readonly array $workingDays)
+    public function __construct(Circle $circle, private readonly array $workingDays, private readonly ?array $period)
     {
         parent::__construct($circle);
     }
@@ -43,6 +47,9 @@ class SyncCircleResource extends JsonResource
             // group, else its stage's; null copies only.
             'whatsapp_group_url' => $this->effective_whatsapp_group_url,
             'working_days' => $this->workingDays,
+            // The term covering today, else the last one before it; its
+            // working days run from its start to today at the latest.
+            'period' => $this->period,
         ];
     }
 }

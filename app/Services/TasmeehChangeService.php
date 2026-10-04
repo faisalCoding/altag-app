@@ -115,6 +115,7 @@ class TasmeehChangeService
                 // points row, which the web card writes under the same key.
                 return Cache::lock(self::dayLockKey($day->id), 10)->block(5, fn () => self::settlePlan(
                     $teacher, $student, $day->id, $part, $date, $today, [$grade, $recited], [$baseGrade, $baseRecited],
+                    (bool) ($change['redate'] ?? false),
                 ));
             }
 
@@ -140,11 +141,16 @@ class TasmeehChangeService
      * Compare the change with the plan day as it stands now, and write it when
      * the server still holds what the phone last saw.
      *
+     * A teacher who edits a grade the day carries from another session — a
+     * second «لم يسمع», or the rest of a portion recited before — asks for it
+     * to be recorded for the day being graded ($redate), even when the grade
+     * itself stays the same.
+     *
      * @param  array{0: ?int, 1: array{0: int, 1: int}|null}  $value
      * @param  array{0: ?int, 1: array{0: int, 1: int}|null}  $base
      * @return array<string, mixed>
      */
-    private static function settlePlan(Teacher $teacher, Student $student, int $dayId, string $part, string $date, string $today, array $value, array $base): array
+    private static function settlePlan(Teacher $teacher, Student $student, int $dayId, string $part, string $date, string $today, array $value, array $base, bool $redate = false): array
     {
         $day = StudentPlanDay::find($dayId);
 
@@ -158,20 +164,23 @@ class TasmeehChangeService
         $value[1] = TasmeehSnapshot::withoutScheduled($day, $part, $value[1]);
         $base[1] = TasmeehSnapshot::withoutScheduled($day, $part, $base[1]);
         $server = [$day->{"{$part}_achievement"}, TasmeehSnapshot::recitedAyahIds($day, $part)];
+        $gradedOn = $day->{"{$part}_graded_at"}?->copy()->setTimezone(TeacherSyncSnapshot::TIMEZONE)->toDateString();
+        $recordForDay = $redate && $value[0] !== null && $gradedOn !== $date;
 
-        if (self::same($server, $value)) {
+        if (self::same($server, $value) && ! $recordForDay) {
             return ['result' => 'applied', 'cell' => self::presentCell($day, $part)];
         }
 
-        if (! self::same($server, $base)) {
+        if (! self::same($server, $value) && ! self::same($server, $base)) {
             return ['result' => 'conflict', 'cell' => self::presentCell($day, $part)];
         }
 
         [$grade, $recited] = $value;
 
-        // A grade is dated when it changes. Correcting only the range keeps the
+        // A grade is dated when it changes, or when the teacher records it for
+        // the day being graded. Correcting only the range otherwise keeps the
         // day the grade was given on — and a date the web moved it to since.
-        $redated = $server[0] !== $grade;
+        $redated = $server[0] !== $grade || $recordForDay;
 
         DB::transaction(function () use ($day, $part, $grade, $recited, $redated, $teacher, $date, $today) {
             $attributes = [

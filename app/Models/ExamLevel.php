@@ -60,4 +60,18 @@ class ExamLevel extends Model
 
         return $this->direction === 'baqarah_to_nas' ? (int) $end->juz_number : 31 - (int) $end->juz_number;
     }
+
+    /**
+     * The noun said after a juz count — "٣ أجزاء"، "١٥ جزءاً" — worded as the
+     * teacher app words it. The number itself is shown apart.
+     */
+    public static function juzWord(int $count): string
+    {
+        return match (true) {
+            $count === 1 => 'جزء',
+            $count === 2 => 'جزآن',
+            $count >= 3 && $count <= 10 => 'أجزاء',
+            default => 'جزءاً',
+        };
+    }
 }

@@ -32,12 +32,16 @@ use Illuminate\Support\Facades\DB;
  * transaction that committed after a timestamp cursor had moved past it.
  *
  * Beside attendance and criteria it carries the Quran plans the teacher
- * grades and the exams their students await, each while its screen is
- * switched on for teachers.
+ * grades while the tasmeeh screen is switched on for teachers, and the exams
+ * their students await while either the tasmeeh or the exams screen is: the
+ * tasmeeh tab shows each student's next exam even where teachers may not
+ * schedule one.
  *
  * Attendance is bounded to a window — from the first day of the previous Hijri
  * month to today — while the calendar runs two weeks beyond today, so the app
- * can keep marking the days that arrive while it is offline.
+ * can keep marking the days that arrive while it is offline. Before the window
+ * only what the student card reads travels: each circle's attendance period
+ * and the attendance of its days before the window, read-only.
  */
 class TeacherSyncSnapshot
 {
@@ -47,7 +51,10 @@ class TeacherSyncSnapshot
     /** How far past today the calendar reaches, for days marked offline. */
     public const OFFLINE_HORIZON_DAYS = 14;
 
-    /** How many Hijri months the exam date picker offers, this one included. */
+    /**
+     * How many Hijri months the calendar reaches from the one holding today,
+     * that one included — the months the exam date picker offers.
+     */
     public const CALENDAR_MONTHS = 6;
 
     /**
@@ -63,7 +70,7 @@ class TeacherSyncSnapshot
 
         $students = Student::whereIn('circle_id', $circles->modelKeys())
             ->whereRoleState(fn ($q) => $q->where('is_approved', true))
-            ->with('statusHistories')
+            ->with(['statusHistories', 'guardian:id,name,phone'])
             ->orderBy('name')
             ->get();
 
@@ -77,9 +84,19 @@ class TeacherSyncSnapshot
             ->get();
 
         // Read once per stage: circles of the same stage share one calendar.
-        $workingDays = $circles->pluck('stage_id')->unique()->mapWithKeys(fn (int $stageId) => [
+        $stageIds = $circles->pluck('stage_id')->unique();
+
+        $workingDays = $stageIds->mapWithKeys(fn (int $stageId) => [
             $stageId => AcademicCalendarEvent::workingDaysBetween($from, $to, $stageId),
         ]);
+
+        $periods = $stageIds->mapWithKeys(fn (int $stageId) => [
+            $stageId => self::attendancePeriod($stageId, $today),
+        ]);
+
+        // The student card counts a period's attendance from its first day,
+        // which may lie before the window; those earlier days travel apart.
+        $periodsFrom = $periods->filter()->pluck('start')->min();
 
         // The competition each circle records criteria in, and what the
         // teacher's students already hold in it inside the window.
@@ -107,9 +124,13 @@ class TeacherSyncSnapshot
             'circles' => $circles->map(fn (Circle $circle) => new SyncCircleResource(
                 $circle,
                 $workingDays[$circle->stage_id],
+                $periods[$circle->stage_id],
             ))->values(),
             'students' => SyncStudentResource::collection($students),
             'attendances' => SyncAttendanceResource::collection($attendances),
+            'attendance_history' => $periodsFrom !== null && $periodsFrom < $from
+                ? self::attendanceHistory($students->modelKeys(), $periodsFrom, $from)
+                : [],
             'competitions' => $gradingCompetitions->unique('id')->map(fn (Leaderboard $competition) => new SyncCompetitionResource(
                 $competition,
                 $gradingCompetitions->filter(fn (Leaderboard $graded) => $graded->id === $competition->id)->keys()->all(),
@@ -117,9 +138,8 @@ class TeacherSyncSnapshot
             'scores' => SyncScoreResource::collection($scores),
             'extra_points' => self::extraPoints($competitionIds->all(), $students->modelKeys(), $from, $today),
             ...($pages['tasmeeh'] ? TasmeehSnapshot::for($students->modelKeys(), $from, $today) : TasmeehSnapshot::empty()),
-            ...($pages['student_exams'] ? ExamSnapshot::for($students->modelKeys()) : ExamSnapshot::empty()),
-            // The months the exam date picker draws, from the one holding today.
-            'hijri_months' => HijriDate::months($today, self::CALENDAR_MONTHS),
+            ...($pages['tasmeeh'] || $pages['student_exams'] ? ExamSnapshot::for($students->modelKeys()) : ExamSnapshot::empty()),
+            'hijri_months' => self::hijriMonths(min($from, $periodsFrom ?? $from), $today),
             'days' => self::days($from, $to),
             'labels' => [
                 'attendance' => AttendanceRevision::statusLabels(),
@@ -146,12 +166,95 @@ class TeacherSyncSnapshot
      */
     public static function windowStart(string $today): string
     {
-        $calendar = \IntlCalendar::createInstance(self::TIMEZONE, 'ar_SA@calendar=islamic-umalqura');
-        $calendar->setTime(CarbonImmutable::parse($today.' 12:00:00', self::TIMEZONE)->getTimestamp() * 1000);
+        $calendar = self::hijriCalendarAt($today);
         $calendar->set(\IntlCalendar::FIELD_DAY_OF_MONTH, 1);
         $calendar->add(\IntlCalendar::FIELD_MONTH, -1);
 
         return CarbonImmutable::createFromTimestamp((int) ($calendar->getTime() / 1000), self::TIMEZONE)->toDateString();
+    }
+
+    /**
+     * The Hijri months the app labels dates and draws the exam date picker
+     * with: from the one holding the earliest date it shows — the window's
+     * start, or an attendance period's before it — through the last month the
+     * picker offers.
+     *
+     * @return array<int, array{key: string, title: string, first_day: string, length: int}>
+     */
+    private static function hijriMonths(string $from, string $today): array
+    {
+        $before = self::hijriMonthIndex($today) - self::hijriMonthIndex($from);
+
+        return HijriDate::months($from, $before + self::CALENDAR_MONTHS);
+    }
+
+    /**
+     * A Hijri month as a single running number, so two can be subtracted.
+     */
+    private static function hijriMonthIndex(string $date): int
+    {
+        $calendar = self::hijriCalendarAt($date);
+
+        return $calendar->get(\IntlCalendar::FIELD_YEAR) * 12 + $calendar->get(\IntlCalendar::FIELD_MONTH);
+    }
+
+    /**
+     * An Umm al-Qura calendar set to a date, read at noon so moving it across
+     * midnight in either timezone can never land on a neighbouring day.
+     */
+    private static function hijriCalendarAt(string $date): \IntlCalendar
+    {
+        $calendar = \IntlCalendar::createInstance(self::TIMEZONE, 'ar_SA@calendar=islamic-umalqura');
+        $calendar->setTime(CarbonImmutable::parse($date.' 12:00:00', self::TIMEZONE)->getTimestamp() * 1000);
+
+        return $calendar;
+    }
+
+    /**
+     * The attendance period a stage is in today, with the days it has met so
+     * far: from its first day to today, or to its last if it has ended.
+     *
+     * @return array{start: string, end: string|null, working_days: array<int, string>}|null
+     */
+    private static function attendancePeriod(int $stageId, string $today): ?array
+    {
+        $period = AcademicCalendarEvent::attendancePeriodOn($today, $stageId);
+
+        if ($period === null) {
+            return null;
+        }
+
+        $through = $period['end'] !== null && $period['end'] < $today ? $period['end'] : $today;
+
+        return [
+            'start' => $period['start'],
+            'end' => $period['end'],
+            'working_days' => AcademicCalendarEvent::workingDaysBetween($period['start'], $through, $stageId),
+        ];
+    }
+
+    /**
+     * The attendance of the students on the days of their periods that fall
+     * before the window, for the student card to read: the window's own days
+     * already travel, editable, in `attendances`.
+     *
+     * @param  array<int, int>  $studentIds
+     * @return array<int, array{student_id: int, date: string, status: string}>
+     */
+    private static function attendanceHistory(array $studentIds, string $from, string $windowFrom): array
+    {
+        return Attendance::whereIn('student_id', $studentIds)
+            ->whereDate('date', '>=', $from)
+            ->whereDate('date', '<', $windowFrom)
+            ->orderBy('student_id')
+            ->orderBy('date')
+            ->get(['student_id', 'date', 'status'])
+            ->map(fn (Attendance $attendance) => [
+                'student_id' => $attendance->student_id,
+                'date' => $attendance->date->toDateString(),
+                'status' => $attendance->status,
+            ])
+            ->all();
     }
 
     /**

@@ -43,7 +43,8 @@ class ExamSnapshot
     }
 
     /**
-     * The nothing an app sees while the page is switched off for teachers.
+     * The nothing an app sees while both the tasmeeh and the exams pages are
+     * switched off for teachers: either one shows the next exam.
      *
      * @return array{exam_levels: array{}, exams: array{}, exam_suggestions: array{}}
      */

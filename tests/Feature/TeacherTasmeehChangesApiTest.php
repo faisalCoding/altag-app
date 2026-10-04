@@ -458,3 +458,39 @@ it('leaves a paused competition\'s points alone when the day is synced again', f
 
     expect(GamificationTransaction::where('leaderboard_id', $paused->id)->count())->toBe(1);
 });
+
+it('records a second «لم يسمع» for the day being graded when asked to', function () {
+    $this->day->update(['hifz_achievement' => 0, 'hifz_graded_at' => '2026-07-07 07:00:00']);
+
+    postTasmeeh(tasmeehChange(['grade' => 0, 'redate' => true, 'base' => ['grade' => 0, 'recited' => null]]))
+        ->assertJsonPath('data.results.0.result', 'applied')
+        ->assertJsonPath('data.results.0.cell.graded_on', '2026-07-08');
+
+    expect($this->day->fresh()->hifz_graded_at->toDateTimeString())->toBe('2026-07-08 10:00:00');
+});
+
+it('records the rest of a portion for the day being graded with the same grade', function () {
+    $this->day->update(['hifz_achievement' => 3, 'hifz_graded_at' => '2026-07-07 07:00:00', 'hifz_recited_from_ayah_id' => 1, 'hifz_recited_to_ayah_id' => 2]);
+
+    postTasmeeh(tasmeehChange([
+        'recited' => recited(1, 3, 1, 4),
+        'redate' => true,
+        'base' => ['grade' => 3, 'recited' => recited(1, 1, 1, 2)],
+    ]))->assertJsonPath('data.results.0.cell.graded_on', '2026-07-08');
+
+    $day = $this->day->fresh();
+
+    expect($day->hifz_recited_from_ayah_id)->toBe(3)
+        ->and($day->hifz_graded_at->toDateTimeString())->toBe('2026-07-08 10:00:00');
+});
+
+it('records a carried grade for a day only once', function () {
+    $this->day->update(['hifz_achievement' => 0, 'hifz_graded_at' => '2026-07-07 07:00:00']);
+    $change = tasmeehChange(['grade' => 0, 'redate' => true, 'base' => ['grade' => 0, 'recited' => null]]);
+
+    postTasmeeh($change);
+    Carbon::setTestNow('2026-07-08 11:00:00');
+    postTasmeeh($change)->assertJsonPath('data.results.0.result', 'applied');
+
+    expect($this->day->fresh()->hifz_graded_at->toDateTimeString())->toBe('2026-07-08 10:00:00');
+});

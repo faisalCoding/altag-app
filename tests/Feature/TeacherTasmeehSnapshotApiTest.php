@@ -90,6 +90,20 @@ it('sends the active quran plans of the teacher\'s students, newest first per st
     ]);
 });
 
+it('leaves out a plan a student drew up until a teacher approves it', function () {
+    $approved = snapshotPlan($this->student->id, 'hifz', '2026-06-01');
+    $awaiting = snapshotPlan($this->student->id, 'review', '2026-07-01', ['is_approved' => false, 'created_by_role' => 'student']);
+
+    foreach ([$approved, $awaiting] as $plan) {
+        StudentPlanDay::create(['student_plan_id' => $plan->id, 'date' => '2026-07-08', 'day_name' => 'Wednesday', 'from_ayah_id' => 1, 'to_ayah_id' => 2, 'review_from_ayah_id' => 3, 'review_to_ayah_id' => 4]);
+    }
+
+    $response = snapshot();
+
+    expect(collect($response->json('data.tasmeeh_plans'))->pluck('id')->all())->toBe([$approved->id])
+        ->and(collect($response->json('data.tasmeeh_days'))->pluck('plan_id')->unique()->all())->toBe([$approved->id]);
+});
+
 it('sends every day of a plan with its portions as surah and verse', function () {
     $plan = snapshotPlan($this->student->id, 'hifz', '2026-07-01');
 
@@ -175,20 +189,23 @@ it('sends the exam levels by juz count, with the pending exams and the level eac
     ]);
 });
 
-it('sends the hijri months from the one holding today', function () {
-    $months = snapshot()->json('data.hijri_months');
+it('sends the hijri months from the window\'s first through five after the one holding today', function () {
+    $response = snapshot();
+    $months = $response->json('data.hijri_months');
+    $todays = collect($months)->search(fn (array $month) => $month['title'] === HijriDate::monthYear('2026-07-08'));
 
-    expect($months)->toHaveCount(6)
-        ->and($months[0]['first_day'])->toBeLessThanOrEqual('2026-07-08')
+    expect($months[0]['first_day'])->toBe($response->json('data.window.from'))
         ->and(Carbon::parse($months[0]['first_day'])->addDays($months[0]['length'])->toDateString())->toBe($months[1]['first_day'])
-        ->and($months[0]['title'])->toBe(HijriDate::monthYear('2026-07-08'))
-        ->and($months[0]['key'])->toMatch('/^\d{4}-\d{2}$/');
+        ->and($months[0]['key'])->toMatch('/^\d{4}-\d{2}$/')
+        ->and($todays)->toBe(1) // The window opens on the previous month.
+        ->and($months)->toHaveCount($todays + 6);
 });
 
-it('sends no plans or exams for screens switched off for teachers', function () {
+it('sends no plans or exams once both screens are switched off for teachers', function () {
     $plan = snapshotPlan($this->student->id, 'hifz', '2026-07-01');
     StudentPlanDay::create(['student_plan_id' => $plan->id, 'date' => '2026-07-08', 'day_name' => 'Wednesday', 'from_ayah_id' => 1, 'to_ayah_id' => 2]);
-    ExamLevel::create(['name' => 'جزء واحد', 'end_ayah_id' => 1]);
+    $level = ExamLevel::create(['name' => 'جزء واحد', 'end_ayah_id' => 1]);
+    StudentExam::create(['student_id' => $this->student->id, 'exam_level_id' => $level->id, 'status' => 'pending', 'date_time' => '2026-07-12 16:00:00']);
 
     RoleScreenPermission::whereIn('screen_id', Screen::whereIn('route_name', ['teacher.tasmeeh', 'teacher.student-exams'])->pluck('id'))->delete();
 
@@ -197,5 +214,34 @@ it('sends no plans or exams for screens switched off for teachers', function () 
         ->assertJsonPath('data.tasmeeh_plans', [])
         ->assertJsonPath('data.tasmeeh_days', [])
         ->assertJsonPath('data.exam_levels', [])
+        ->assertJsonPath('data.exams', [])
         ->assertJsonPath('data.exam_suggestions', []);
+});
+
+it('still sends the exams, read-only, while tasmeeh is on and the exams screen is off', function () {
+    $level = ExamLevel::create(['name' => 'جزء واحد', 'end_ayah_id' => 1]);
+    $pending = StudentExam::create(['student_id' => $this->student->id, 'exam_level_id' => $level->id, 'status' => 'pending', 'date_time' => '2026-07-12 16:00:00']);
+
+    RoleScreenPermission::where('screen_id', Screen::where('route_name', 'teacher.student-exams')->value('id'))->delete();
+
+    $response = snapshot()
+        ->assertJsonPath('data.pages', ['tasmeeh' => true, 'student_exams' => false])
+        ->assertJsonPath('data.exam_levels.0.id', $level->id)
+        ->assertJsonPath('data.exam_levels.0.juz_count', 1)
+        ->assertJsonPath('data.exams.0.id', $pending->id);
+
+    expect($response->json('data.exam_suggestions'))->not->toBeEmpty();
+});
+
+it('sends the exams but no plans while only the exams screen is on', function () {
+    $plan = snapshotPlan($this->student->id, 'hifz', '2026-07-01');
+    StudentPlanDay::create(['student_plan_id' => $plan->id, 'date' => '2026-07-08', 'day_name' => 'Wednesday', 'from_ayah_id' => 1, 'to_ayah_id' => 2]);
+    ExamLevel::create(['name' => 'جزء واحد', 'end_ayah_id' => 1]);
+
+    RoleScreenPermission::where('screen_id', Screen::where('route_name', 'teacher.tasmeeh')->value('id'))->delete();
+
+    snapshot()
+        ->assertJsonPath('data.pages', ['tasmeeh' => false, 'student_exams' => true])
+        ->assertJsonPath('data.tasmeeh_plans', [])
+        ->assertJsonCount(1, 'data.exam_levels');
 });

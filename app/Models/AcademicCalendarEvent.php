@@ -132,6 +132,33 @@ class AcademicCalendarEvent extends Model
     }
 
     /**
+     * The attendance period a stage is in on a date: the one covering it, else
+     * the latest that started before it — the term just ended, while the
+     * calendar has nothing newer. Null when no period speaks for the stage.
+     *
+     * Where periods overlap on the date, the stage's own wins over an
+     * academy-wide one, and among those the one that started last.
+     *
+     * @return array{start: string, end: string|null}|null
+     */
+    public static function attendancePeriodOn(Carbon|string $date, ?int $stageId = null): ?array
+    {
+        $day = Carbon::parse($date)->format('Y-m-d');
+
+        $started = self::periodsForStage($stageId)->filter(fn (array $period) => $period['start'] <= $day);
+
+        $period = $started
+            ->filter(fn (array $period) => ! $period['end'] || $day <= $period['end'])
+            ->sortBy([
+                fn (array $a, array $b) => ($b['stage_ids'] !== []) <=> ($a['stage_ids'] !== []),
+                fn (array $a, array $b) => $b['start'] <=> $a['start'],
+            ])
+            ->first() ?? $started->sortByDesc('start')->first();
+
+        return $period === null ? null : ['start' => $period['start'], 'end' => $period['end']];
+    }
+
+    /**
      * Forget the loaded periods, so the next question reads them again. Call
      * after saving or deleting a period within the same request.
      */

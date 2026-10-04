@@ -13,7 +13,12 @@ use App\Models\StudentHadithAchievement;
 use App\Models\HadithPath;
 use App\Models\HadithPathDay;
 use App\Models\GamificationTrack;
+use App\Models\ExamLevel;
+use App\Models\StudentExam;
 use App\Services\GamificationService;
+use App\Services\TeacherSyncSnapshot;
+use App\Support\HijriDate;
+use App\Support\RolePages;
 use Flux\Flux;
 use Livewire\Attributes\Reactive;
 use Livewire\Attributes\Locked;
@@ -437,6 +442,49 @@ new class extends Component {
         Flux::toast('تم تحديث تسكين الطالب في مسارات التلعيب', variant: 'success');
     }
 
+    /**
+     * The box beside the student's name, as the teacher app draws it: the juz
+     * count of their next exam and how near it is, and where tapping it leads.
+     *
+     * The next exam is the earliest pending one whatever its date: one that
+     * slipped past its day without a result is still the one awaited. It links
+     * to the exams page only while the academy has that page on for teachers.
+     *
+     * @return array{exam: array{juz: ?int, word: ?string, level: string, date_hijri: string, soon: bool, overdue: bool}|null, link: ?string}
+     */
+    private function examBox(): array
+    {
+        $link = RolePages::isEnabled('teacher', 'teacher.student-exams') ? route('teacher.student-exams') : null;
+
+        $exam = StudentExam::where('student_id', $this->student->id)
+            ->pending()
+            ->with('examLevel.endAyah:id,juz_number')
+            ->orderBy('date_time')
+            ->orderBy('id')
+            ->first();
+
+        if ($exam === null) {
+            return ['exam' => null, 'link' => $link];
+        }
+
+        // The day as the app reads it, against today on the academy's clock.
+        $date = $exam->date_time->toDateString();
+        $daysAway = (int) \Carbon\CarbonImmutable::parse(TeacherSyncSnapshot::today())->diffInDays($date, false);
+        $juz = $exam->examLevel?->juzCount();
+
+        return [
+            'exam' => [
+                'juz' => $juz,
+                'word' => $juz === null ? null : ExamLevel::juzWord($juz),
+                'level' => $exam->examLevel?->name ?? '',
+                'date_hijri' => HijriDate::full($date),
+                'soon' => $daysAway >= 0 && $daysAway <= 7,
+                'overdue' => $daysAway < 0,
+            ],
+            'link' => $link,
+        ];
+    }
+
     public function with()
     {
         // Fetch student's Poetic Ode plans
@@ -745,6 +793,7 @@ new class extends Component {
             'allHadiths' => $allHadiths,
             'perms' => $perms,
             'currentTracks' => $currentTracks,
+            'examBox' => $this->examBox(),
         ];
     }
 
@@ -771,6 +820,62 @@ new class extends Component {
 <div class="space-y-4"
     wire:key="student-tasmeeh-container-{{ $student->id }}-{{ $selectedPlanId ?? 'ode-only' }}"
 >
+    {{--
+        The student's name, with their next exam at its end as the teacher app
+        shows it: the juz count, a dot a week or less before, red once its day
+        passed without a result, and a dashed "+" when none is set. Each opens
+        the exams page while teachers have it; otherwise the box only informs.
+    --}}
+    <div class="flex items-center justify-between gap-3 p-3 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-sm">
+        <div class="flex items-center gap-2 min-w-0">
+            <div class="p-2 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-500 shrink-0">
+                <flux:icon icon="user" class="size-5" />
+            </div>
+            <div class="min-w-0">
+                <div class="text-xs text-zinc-500 dark:text-zinc-400">{{ __('الطالب') }}</div>
+                <div class="text-sm font-bold text-zinc-900 dark:text-white truncate">{{ $student->name }}</div>
+            </div>
+        </div>
+
+        @php
+            $nextExam = $examBox['exam'];
+            $examLink = $examBox['link'];
+            $examBoxTag = $examLink ? 'a' : 'div';
+        @endphp
+
+        @if($nextExam)
+            <{{ $examBoxTag }} @if($examLink) href="{{ $examLink }}" wire:navigate @endif
+                data-exam-box="{{ $nextExam['overdue'] ? 'overdue' : ($nextExam['soon'] ? 'soon' : 'upcoming') }}"
+                title="{{ $nextExam['level'] }} — {{ $nextExam['date_hijri'] }}"
+                aria-label="{{ __('الاختبار القادم') }}: {{ $nextExam['level'] }}، {{ $nextExam['date_hijri'] }}{{ $nextExam['overdue'] ? '، '.__('مضى موعده') : '' }}"
+                @class([
+                    'relative shrink-0 size-12 rounded-xl border-2 flex flex-col items-center justify-center leading-none transition-colors',
+                    'bg-red-50 border-red-500 text-red-600 dark:bg-red-500/15 dark:text-red-400' => $nextExam['overdue'],
+                    'bg-indigo-50 border-indigo-50 text-indigo-700 dark:bg-indigo-500/15 dark:border-transparent dark:text-indigo-300' => ! $nextExam['overdue'],
+                    'hover:border-indigo-200 dark:hover:border-indigo-500/40' => $examLink && ! $nextExam['overdue'],
+                ])>
+                @if($nextExam['juz'] !== null)
+                    <span class="text-lg font-bold">{{ HijriDate::arabicDigits($nextExam['juz']) }}</span>
+                    <span class="text-[10px] mt-0.5 opacity-80">{{ $nextExam['word'] }}</span>
+                @else
+                    <flux:icon icon="academic-cap" class="size-5" />
+                @endif
+
+                @if($nextExam['soon'])
+                    <span class="absolute -top-1 -end-1 size-3 rounded-full bg-amber-500 ring-2 ring-white dark:ring-zinc-900" aria-hidden="true"></span>
+                @endif
+            </{{ $examBoxTag }}>
+        @elseif($examLink)
+            <a href="{{ $examLink }}" wire:navigate
+                data-exam-box="none"
+                title="{{ __('إضافة الاختبار القادم') }}"
+                aria-label="{{ __('إضافة الاختبار القادم') }}"
+                class="shrink-0 size-12 rounded-xl border-2 border-dashed border-zinc-300 dark:border-zinc-600 text-zinc-400 dark:text-zinc-500 flex items-center justify-center transition-colors hover:border-indigo-300 hover:text-indigo-500 dark:hover:border-indigo-500/50 dark:hover:text-indigo-400">
+                <flux:icon icon="plus" class="size-5" />
+            </a>
+        @endif
+    </div>
+
     @if($sPlans->isNotEmpty())
         <div class="bg-white dark:bg-zinc-900 p-4 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm mb-4">
             <flux:select wire:change="selectPlan($event.target.value)" label="{{ __('الخطة القرآنية') }}" placeholder="{{ __('اختر الخطة') }}">

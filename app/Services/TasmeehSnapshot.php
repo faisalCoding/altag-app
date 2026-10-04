@@ -12,9 +12,9 @@ use App\Models\StudentPlanDay;
 use Illuminate\Support\Collection;
 
 /**
- * The Quran plans the teacher app grades offline: every active hifz and review
- * plan of the teacher's students with all of its days, what has been recorded
- * on them, and the free recitations of the sync window.
+ * The Quran plans the teacher app grades offline: every active, approved hifz
+ * and review plan of the teacher's students with all of its days, what has
+ * been recorded on them, and the free recitations of the sync window.
  *
  * All days travel rather than a slice around today: which day the phone shows
  * follows the last ayah recited, which may sit anywhere in the plan.
@@ -40,6 +40,9 @@ class TasmeehSnapshot
     {
         $plans = StudentPlan::whereIn('student_id', $studentIds)
             ->where('status', 'active')
+            // A plan a student drew up waits for a teacher's approval before
+            // the app grades it.
+            ->where('is_approved', true)
             ->whereIn('plan_type', array_keys(self::PARTS))
             ->orderByDesc('created_at')
             ->orderByDesc('id')
