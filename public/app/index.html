@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="utf-8" />
+    <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
+    <!-- viewport-fit=cover hands safe-area insets to the app; maximum-scale stops iOS zooming into inputs. -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, shrink-to-fit=no"
+    />
+    <title>التاج</title>
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#F7F5F2" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#131111" media="(prefers-color-scheme: dark)" />
+    <!-- Installed from Safari's Share menu, it opens full screen like an app. -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="التاج" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/app/icons/apple-touch-icon.png" />
+    <link rel="manifest" href="/app/manifest.webmanifest" />
+    <!-- The `react-native-web` recommended style reset: https://necolas.github.io/react-native-web/docs/setup/#root-element -->
+    <style id="expo-reset">
+      html,
+      body {
+        height: 100%;
+        background: #f7f5f2;
+      }
+      @media (prefers-color-scheme: dark) {
+        html,
+        body {
+          background: #131111;
+        }
+      }
+      body {
+        overflow: hidden;
+        overscroll-behavior: none;
+        -webkit-text-size-adjust: 100%;
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-touch-callout: none;
+      }
+      input,
+      textarea {
+        -webkit-user-select: text;
+        user-select: text;
+      }
+      * {
+        -webkit-tap-highlight-color: transparent;
+        touch-action: manipulation;
+      }
+      #root {
+        display: flex;
+        height: 100%;
+        flex: 1;
+      }
+    </style>
+  <link rel="icon" href="/app/favicon.ico"/></head>
+
+  <body>
+    <noscript>يحتاج التطبيق إلى تفعيل JavaScript.</noscript>
+    <div id="root"></div>
+    <script>
+      // Offline support: only the deployed build under /app/ registers the worker, never the dev server.
+      if ('serviceWorker' in navigator && location.pathname.startsWith('/app/')) {
+        addEventListener('load', function () {
+          navigator.serviceWorker.register('/app/sw.js', { scope: '/app/' }).catch(function (error) {
+            console.warn('[sw]', error);
+          });
+        });
+      }
+    </script>
+  <script src="/app/_expo/static/js/web/entry-68f356c925e240bd8f54055ef731fbe5.js" defer></script>
+</body>
+</html>

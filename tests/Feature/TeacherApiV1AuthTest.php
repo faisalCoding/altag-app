@@ -22,6 +22,21 @@ it('issues a token named after the device to an approved teacher', function () {
     expect($this->teacher->tokens()->value('name'))->toBe('Pixel 9');
 });
 
+it('stays stateless for the browser app served from the site itself', function () {
+    $site = rtrim(config('app.url'), '/');
+
+    // The browser build at /app/ calls the API from the site's own origin. A
+    // session started here would hold its requests to CSRF checks it cannot pass.
+    $this->withHeaders(['Origin' => $site, 'Referer' => $site.'/app/login'])
+        ->postJson('/api/v1/teacher/login', [
+            'email' => 'teacher@example.com',
+            'password' => 'password',
+            'device_name' => 'Safari',
+        ])
+        ->assertSuccessful()
+        ->assertCookieMissing(config('session.cookie'));
+});
+
 it('refuses a wrong password', function () {
     $this->postJson('/api/v1/teacher/login', ['email' => 'teacher@example.com', 'password' => 'wrong'])
         ->assertUnauthorized()

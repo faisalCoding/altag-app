@@ -1,0 +1,60 @@
+# The teacher app's browser build, served as plain files at /app/.
+#
+# Everything else in this folder is generated: it is built in the teacher app
+# project (altag-app-reacnative) and copied here with `npm run web:publish`,
+# which keeps this file. These rules replace the site's front controller for
+# /app only, so Laravel never sees these requests; the app itself still calls
+# the API at /api on the same origin.
+
+<IfModule mod_negotiation.c>
+    Options -MultiViews -Indexes
+</IfModule>
+
+DirectoryIndex index.html
+
+<IfModule mod_mime.c>
+    AddType application/wasm .wasm
+    AddType application/manifest+json .webmanifest
+    AddCharset utf-8 .html .js .json .webmanifest
+</IfModule>
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # /app opens the app at /app/, the address its offline support covers.
+    RewriteCond %{REQUEST_URI} ^/app$
+    RewriteRule ^ /app/ [R=301,L]
+
+    # Files of the build are served as they are.
+    RewriteCond %{REQUEST_FILENAME} -f
+    RewriteRule ^ - [L]
+
+    # A missing file is a 404, never the app's page, so a stale script or
+    # asset fails plainly instead of loading HTML.
+    RewriteRule \.[A-Za-z0-9]+$ - [R=404,L]
+
+    # Every screen is the same single page; the app reads its screen from the URL.
+    RewriteRule ^ index.html [L]
+</IfModule>
+
+<IfModule mod_headers.c>
+    # Built files carry a hash of their contents in their names, so they never
+    # change; the page, the service worker and the manifest must always be
+    # checked so a new version is picked up.
+    <If "%{REQUEST_URI} =~ m#^/app/(_expo/static|assets)/#">
+        Header set Cache-Control "public, max-age=31536000, immutable"
+    </If>
+    <Else>
+        Header set Cache-Control "no-cache"
+    </Else>
+</IfModule>
+
+<IfModule mod_deflate.c>
+    <IfModule mod_filter.c>
+        # A list here replaces the server's own for this folder, so it names
+        # every type the app is built from, not only the ones the server
+        # leaves out (the WebAssembly database engine and the manifest).
+        AddOutputFilterByType DEFLATE text/html text/css text/javascript application/javascript
+        AddOutputFilterByType DEFLATE application/json application/manifest+json application/wasm
+    </IfModule>
+</IfModule>
