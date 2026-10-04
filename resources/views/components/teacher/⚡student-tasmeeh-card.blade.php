@@ -13,11 +13,9 @@ use App\Models\StudentHadithAchievement;
 use App\Models\HadithPath;
 use App\Models\HadithPathDay;
 use App\Models\GamificationTrack;
-use App\Models\ExamLevel;
-use App\Models\StudentExam;
 use App\Services\GamificationService;
-use App\Services\TeacherSyncSnapshot;
 use App\Support\HijriDate;
+use App\Support\NextExamBadge;
 use App\Support\RolePages;
 use Flux\Flux;
 use Livewire\Attributes\Reactive;
@@ -446,42 +444,17 @@ new class extends Component {
      * The box beside the student's name, as the teacher app draws it: the juz
      * count of their next exam and how near it is, and where tapping it leads.
      *
-     * The next exam is the earliest pending one whatever its date: one that
-     * slipped past its day without a result is still the one awaited. It links
-     * to the exams page only while the academy has that page on for teachers.
+     * The badge itself is read where the tasmeeh page's list reads its small
+     * ones, so the two always show the same exam. It links to the exams page
+     * only while the academy has that page on for teachers.
      *
      * @return array{exam: array{juz: ?int, word: ?string, level: string, date_hijri: string, soon: bool, overdue: bool}|null, link: ?string}
      */
     private function examBox(): array
     {
-        $link = RolePages::isEnabled('teacher', 'teacher.student-exams') ? route('teacher.student-exams') : null;
-
-        $exam = StudentExam::where('student_id', $this->student->id)
-            ->pending()
-            ->with('examLevel.endAyah:id,juz_number')
-            ->orderBy('date_time')
-            ->orderBy('id')
-            ->first();
-
-        if ($exam === null) {
-            return ['exam' => null, 'link' => $link];
-        }
-
-        // The day as the app reads it, against today on the academy's clock.
-        $date = $exam->date_time->toDateString();
-        $daysAway = (int) \Carbon\CarbonImmutable::parse(TeacherSyncSnapshot::today())->diffInDays($date, false);
-        $juz = $exam->examLevel?->juzCount();
-
         return [
-            'exam' => [
-                'juz' => $juz,
-                'word' => $juz === null ? null : ExamLevel::juzWord($juz),
-                'level' => $exam->examLevel?->name ?? '',
-                'date_hijri' => HijriDate::full($date),
-                'soon' => $daysAway >= 0 && $daysAway <= 7,
-                'overdue' => $daysAway < 0,
-            ],
-            'link' => $link,
+            'exam' => NextExamBadge::forStudents([$this->student->id])->get($this->student->id),
+            'link' => RolePages::isEnabled('teacher', 'teacher.student-exams') ? route('teacher.student-exams') : null,
         ];
     }
 

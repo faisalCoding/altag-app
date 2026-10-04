@@ -10,6 +10,7 @@ use App\Models\OdePathDay;
 use App\Models\StudentHadithPlan;
 use App\Models\StudentHadithAchievement;
 use App\Models\HadithPathDay;
+use App\Support\NextExamBadge;
 use Illuminate\Support\Facades\Auth;
 use Flux\Flux;
 use Livewire\Attributes\On;
@@ -171,6 +172,10 @@ new class extends Component {
 
         $studentsWithPlansPresent = collect($studentsWithPlansPresent)->sortBy('turn_number')->values();
 
+        // The small box beside each name in the list. Every student's next exam
+        // comes in one query for the whole list rather than one per row.
+        $nextExams = NextExamBadge::forStudents($students->modelKeys());
+
         // Student cards render lazily (one request each) and fetch their own
         // plan/ode/hadith days via their built-in fallback queries, so nothing is
         // eager-loaded or cached here. This keeps the initial tasmeeh render light
@@ -184,6 +189,7 @@ new class extends Component {
             'activePlans' => $activePlans,
             'studentPlansList' => $studentPlansList,
             'activeSession' => $activeSession,
+            'nextExams' => $nextExams,
         ];
     }
 
@@ -331,9 +337,9 @@ hifz/review — local state per day card for instant visual feedback
                     class="p-2 space-y-1.5 border-t border-zinc-100 dark:border-zinc-800 max-h-[50vh] overflow-y-auto scrollbar-thin">
                     @forelse($studentsWithPlansPresent as $student)
                         <button wire:key="present-{{ $student->id }}-{{ $refreshToggle ? '1' : '0' }}" @click="selectStudent({{ $student->id }})"
-                            class="w-full flex items-center justify-between p-2.5 rounded-xl border text-right transition-colors"
+                            class="w-full flex items-center justify-between gap-2 p-2.5 rounded-xl border text-right transition-colors"
                             :class="activeStudentId == {{ $student->id }} ? 'bg-indigo-50 border-indigo-200 dark:bg-indigo-900/40 dark:border-indigo-800' : 'bg-white dark:bg-zinc-800 border-transparent hover:border-zinc-200 dark:hover:border-zinc-700'">
-                            <div class="flex items-center gap-3">
+                            <div class="flex items-center gap-3 min-w-0">
                                 <div
                                     class="size-2.5 rounded-full bg-{{ $student->tasmeeh_color }}-500 shadow-sm shadow-{{ $student->tasmeeh_color }}-500/30 shrink-0">
                                 </div>
@@ -341,13 +347,17 @@ hifz/review — local state per day card for instant visual feedback
                                     class="font-medium text-sm truncate"
                                     :class="activeStudentId == {{ $student->id }} ? 'text-indigo-700 dark:text-indigo-400' : 'text-zinc-700 dark:text-zinc-300'">{{ $student->name }}</span>
                             </div>
-                            @if($student->turn_number !== 9999)
-                                <span
-                                    class="shrink-0 flex items-center justify-center min-w-[20px] h-5 px-1.5 text-[10px] font-bold rounded-md"
-                                    :class="activeStudentId == {{ $student->id }} ? 'bg-indigo-200 text-indigo-800 dark:bg-indigo-800 dark:text-indigo-200' : 'bg-zinc-200 text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300'">
-                                    {{ $student->turn_number }}
-                                </span>
-                            @endif
+                            {{-- The next exam nearer the name, the turn number at the far end. --}}
+                            <div class="shrink-0 flex items-center gap-1.5">
+                                <x-next-exam-chip :exam="$nextExams->get($student->id)" :student-id="$student->id" />
+                                @if($student->turn_number !== 9999)
+                                    <span
+                                        class="shrink-0 flex items-center justify-center min-w-[20px] h-5 px-1.5 text-[10px] font-bold rounded-md"
+                                        :class="activeStudentId == {{ $student->id }} ? 'bg-indigo-200 text-indigo-800 dark:bg-indigo-800 dark:text-indigo-200' : 'bg-zinc-200 text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300'">
+                                        {{ $student->turn_number }}
+                                    </span>
+                                @endif
+                            </div>
                         </button>
                     @empty
                         <div class="text-xs text-center text-zinc-400 py-3">{{ __('لا يوجد طلاب حالياً.') }}</div>
@@ -374,9 +384,9 @@ hifz/review — local state per day card for instant visual feedback
                         class="p-2 space-y-1.5 border-t border-zinc-100 dark:border-zinc-800 max-h-[50vh] overflow-y-auto scrollbar-thin">
                         @forelse($studentsWithPlansAbsent as $student)
                             <button wire:key="absent-{{ $student->id }}-{{ $refreshToggle ? '1' : '0' }}" @click="selectStudent({{ $student->id }})"
-                                class="w-full flex items-center justify-between p-2.5 rounded-xl border text-right transition-colors"
+                                class="w-full flex items-center justify-between gap-2 p-2.5 rounded-xl border text-right transition-colors"
                                 :class="activeStudentId == {{ $student->id }} ? 'bg-indigo-50 border-indigo-200 dark:bg-indigo-900/40 dark:border-indigo-800' : 'bg-rose-50 dark:bg-rose-900/10 border-transparent hover:border-rose-200 dark:hover:border-rose-800/50 opacity-75 hover:opacity-100'">
-                                <div class="flex items-center gap-3">
+                                <div class="flex items-center gap-3 min-w-0">
                                     <div
                                         class="size-2.5 rounded-full bg-{{ $student->tasmeeh_color }}-500 shadow-sm shadow-{{ $student->tasmeeh_color }}-500/30 shrink-0">
                                     </div>
@@ -384,6 +394,7 @@ hifz/review — local state per day card for instant visual feedback
                                         class="font-medium text-sm truncate"
                                         :class="activeStudentId == {{ $student->id }} ? 'text-indigo-700 dark:text-indigo-400' : 'text-rose-700 dark:text-rose-400'">{{ $student->name }}</span>
                                 </div>
+                                <x-next-exam-chip :exam="$nextExams->get($student->id)" :student-id="$student->id" ring="ring-rose-50 dark:ring-zinc-900" />
                             </button>
                         @empty
                         @endforelse
@@ -412,11 +423,12 @@ hifz/review — local state per day card for instant visual feedback
                         @forelse($studentsWithoutPlans as $student)
                             <div wire:key="noplan-{{ $student->id }}-{{ $refreshToggle ? '1' : '0' }}" class="flex items-center gap-2">
                                 <button @click="selectStudent({{ $student->id }})"
-                                    class="flex-1 flex items-center p-2.5 rounded-xl border text-right transition-colors"
+                                    class="flex-1 min-w-0 flex items-center justify-between gap-2 p-2.5 rounded-xl border text-right transition-colors"
                                     :class="activeStudentId == {{ $student->id }} ? 'bg-indigo-50 border-indigo-200 dark:bg-indigo-900/40 dark:border-indigo-800' : 'bg-zinc-100/50 dark:bg-zinc-800/30 border-transparent hover:border-zinc-200 dark:hover:border-zinc-700'">
                                     <span
                                         class="font-medium text-sm truncate"
                                         :class="activeStudentId == {{ $student->id }} ? 'text-indigo-700 dark:text-indigo-400' : 'text-zinc-500 dark:text-zinc-400'">{{ $student->name }}</span>
+                                    <x-next-exam-chip :exam="$nextExams->get($student->id)" :student-id="$student->id" ring="ring-zinc-50 dark:ring-zinc-900" />
                                 </button>
                                 <a href="{{ route('teacher.plan-creator', ['studentId' => $student->id]) }}"
                                     class="shrink-0 p-2.5 text-emerald-600 hover:text-white bg-emerald-50 hover:bg-emerald-500 dark:text-emerald-400 dark:bg-emerald-900/20 dark:hover:bg-emerald-600 rounded-xl   s"

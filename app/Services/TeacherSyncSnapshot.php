@@ -52,10 +52,19 @@ class TeacherSyncSnapshot
     public const OFFLINE_HORIZON_DAYS = 14;
 
     /**
-     * How many Hijri months the calendar reaches from the one holding today,
-     * that one included — the months the exam date picker offers.
+     * How many Hijri months the exam date picker offers from the one holding
+     * today, that one included. The months sent reach at least this far, and
+     * further when a plan's last day lies beyond.
      */
     public const CALENDAR_MONTHS = 6;
+
+    /**
+     * How many years either side of today a plan's days may stretch the Hijri
+     * months. A date further off is a mistyped one, not a plan's: the app
+     * labels it in Gregorian rather than receiving a month for every year
+     * between.
+     */
+    public const PLAN_MONTHS_REACH_YEARS = 2;
 
     /**
      * @return array<string, mixed>
@@ -116,6 +125,12 @@ class TeacherSyncSnapshot
             'student_exams' => RolePages::isEnabled('teacher', 'teacher.student-exams'),
         ];
 
+        $tasmeeh = $pages['tasmeeh'] ? TasmeehSnapshot::for($students->modelKeys(), $from, $today) : TasmeehSnapshot::empty();
+
+        // The app shows each plan whole, from its first day to its last, which
+        // may lie well before the window or months beyond today.
+        $planDays = self::withinPlanReach(TasmeehSnapshot::daySpan($tasmeeh), $today);
+
         return [
             'today' => $today,
             'window' => ['from' => $from, 'to' => $to],
@@ -137,9 +152,9 @@ class TeacherSyncSnapshot
             ))->values(),
             'scores' => SyncScoreResource::collection($scores),
             'extra_points' => self::extraPoints($competitionIds->all(), $students->modelKeys(), $from, $today),
-            ...($pages['tasmeeh'] ? TasmeehSnapshot::for($students->modelKeys(), $from, $today) : TasmeehSnapshot::empty()),
+            ...$tasmeeh,
             ...($pages['tasmeeh'] || $pages['student_exams'] ? ExamSnapshot::for($students->modelKeys()) : ExamSnapshot::empty()),
-            'hijri_months' => self::hijriMonths(min($from, $periodsFrom ?? $from), $today),
+            'hijri_months' => self::hijriMonths(min($from, $periodsFrom ?? $from, $planDays[0] ?? $from), $today, $planDays[1] ?? null),
             'days' => self::days($from, $to),
             'labels' => [
                 'attendance' => AttendanceRevision::statusLabels(),
@@ -176,16 +191,45 @@ class TeacherSyncSnapshot
     /**
      * The Hijri months the app labels dates and draws the exam date picker
      * with: from the one holding the earliest date it shows — the window's
-     * start, or an attendance period's before it — through the last month the
-     * picker offers.
+     * start, an attendance period's before it, or the first day of a plan it
+     * grades — through the later of the last month the picker offers and the
+     * one holding a plan's last day.
+     *
+     * Plans stretch the range only while the tasmeeh page sends them. The
+     * picker still offers no month past CALENDAR_MONTHS from today's: the app
+     * stops it there itself, however far a plan carries the months.
      *
      * @return array<int, array{key: string, title: string, first_day: string, length: int}>
      */
-    private static function hijriMonths(string $from, string $today): array
+    private static function hijriMonths(string $from, string $today, ?string $through = null): array
     {
-        $before = self::hijriMonthIndex($today) - self::hijriMonthIndex($from);
+        $last = self::hijriMonthIndex($today) + self::CALENDAR_MONTHS - 1;
 
-        return HijriDate::months($from, $before + self::CALENDAR_MONTHS);
+        if ($through !== null) {
+            $last = max($last, self::hijriMonthIndex($through));
+        }
+
+        return HijriDate::months($from, $last - self::hijriMonthIndex($from) + 1);
+    }
+
+    /**
+     * The first and last plan days, each held to PLAN_MONTHS_REACH_YEARS of
+     * today, so a single mistyped date cannot send decades of months.
+     *
+     * @param  array{0: string, 1: string}|null  $span
+     * @return array{0: string, 1: string}|null
+     */
+    private static function withinPlanReach(?array $span, string $today): ?array
+    {
+        if ($span === null) {
+            return null;
+        }
+
+        $day = CarbonImmutable::parse($today);
+        $earliest = $day->subYears(self::PLAN_MONTHS_REACH_YEARS)->toDateString();
+        $latest = $day->addYears(self::PLAN_MONTHS_REACH_YEARS)->toDateString();
+
+        return [max($span[0], $earliest), min($span[1], $latest)];
     }
 
     /**

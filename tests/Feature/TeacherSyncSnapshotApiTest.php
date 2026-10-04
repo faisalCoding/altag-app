@@ -7,8 +7,12 @@ use App\Models\Guardian;
 use App\Models\Leaderboard;
 use App\Models\LeaderboardCriterion;
 use App\Models\LeaderboardScore;
+use App\Models\RoleScreenPermission;
+use App\Models\Screen;
 use App\Models\Stage;
 use App\Models\Student;
+use App\Models\StudentPlan;
+use App\Models\StudentPlanDay;
 use App\Models\StudentStatusHistory;
 use App\Models\Supervisor;
 use App\Models\Teacher;
@@ -252,6 +256,93 @@ it('starts the hijri months at the month holding the earliest date the app shows
         ->and($withPeriod->pluck('title'))->toContain(HijriDate::monthYear('2026-07-08'))
         ->and($withPeriod->last()['key'])->toBe('1448-06')
         ->and($withPeriod)->toHaveCount(9);
+});
+
+/**
+ * A Quran plan of a new student in the teacher's circle, with a day on each
+ * of the dates given.
+ *
+ * @param  array<int, string>  $dates
+ */
+function syncPlanWithDays(array $dates, array $attributes = []): StudentPlan
+{
+    $plan = StudentPlan::create(array_merge([
+        'student_id' => Student::factory()->create(['circle_id' => test()->circle->id])->id,
+        'teacher_id' => test()->teacher->id,
+        'start_date' => $dates[0],
+        'days_count' => count($dates),
+        'active_days' => [0, 1, 2, 3, 4, 5, 6],
+        'status' => 'active',
+        'plan_type' => 'hifz',
+        'direction' => 'forward',
+        'is_approved' => true,
+        'created_by_role' => 'teacher',
+    ], $attributes));
+
+    foreach ($dates as $date) {
+        StudentPlanDay::create(['student_plan_id' => $plan->id, 'date' => $date, 'day_name' => Carbon::parse($date)->dayName]);
+    }
+
+    return $plan;
+}
+
+/**
+ * The months sent without a plan to stretch them: the window's first, ذو الحجة,
+ * through five months after محرم, today's.
+ *
+ * @return array<int, string>
+ */
+function syncBaseMonths(): array
+{
+    return ['1447-12', '1448-01', '1448-02', '1448-03', '1448-04', '1448-05', '1448-06'];
+}
+
+/**
+ * @return array<int, string>
+ */
+function syncMonthKeys(): array
+{
+    return collect(test()->withToken(test()->token)->getJson('/api/v1/teacher/sync')->assertSuccessful()->json('data.hijri_months'))
+        ->pluck('key')
+        ->all();
+}
+
+it('carries the hijri months on to the month of a plan\'s last day, months past the picker\'s', function () {
+    syncPlanWithDays(['2026-07-08', '2027-03-15']); // The last in شوال ١٤٤٨.
+
+    expect(syncMonthKeys())->toBe([...syncBaseMonths(), '1448-07', '1448-08', '1448-09', '1448-10']);
+});
+
+it('starts the hijri months at the first day of a plan begun before the window and the period', function () {
+    syncPeriod(['start_date' => '2026-04-05']); // In شوال ١٤٤٧.
+    syncPlanWithDays(['2026-01-10', '2026-07-08']); // The first in رجب ١٤٤٧.
+
+    expect(syncMonthKeys())->toBe(['1447-07', '1447-08', '1447-09', '1447-10', '1447-11', ...syncBaseMonths()]);
+});
+
+it('keeps the hijri months to the window while the tasmeeh page is off, whatever the plans span', function () {
+    syncPlanWithDays(['2026-01-10', '2027-03-15']);
+
+    RoleScreenPermission::where('screen_id', Screen::where('route_name', 'teacher.tasmeeh')->value('id'))->delete();
+
+    expect(syncMonthKeys())->toBe(syncBaseMonths());
+});
+
+it('stretches the hijri months no further than two years either side of today for a mistyped plan day', function () {
+    syncPlanWithDays(['2019-01-10', '2026-07-08', '2035-06-01']);
+
+    $keys = syncMonthKeys();
+
+    expect($keys[0])->toBe(HijriDate::months('2024-07-08', 1)[0]['key'])
+        ->and(end($keys))->toBe(HijriDate::months('2028-07-08', 1)[0]['key'])
+        ->and(count($keys))->toBeLessThanOrEqual(51);
+});
+
+it('lets no plan the app does not grade stretch the hijri months', function () {
+    syncPlanWithDays(['2026-01-10', '2027-03-15'], ['is_approved' => false, 'created_by_role' => 'student']);
+    syncPlanWithDays(['2026-01-10', '2027-03-15'], ['status' => 'completed']);
+
+    expect(syncMonthKeys())->toBe(syncBaseMonths());
 });
 
 it('sends the competition each circle grades in: the supervisor\'s primary one, else the teacher\'s own', function () {

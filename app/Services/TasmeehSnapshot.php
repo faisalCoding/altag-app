@@ -85,6 +85,24 @@ class TasmeehSnapshot
     }
 
     /**
+     * The first and last dates among the plan days a snapshot carries, or null
+     * when it carries none. The app shows a whole plan as a table, so the Hijri
+     * months sent beside the plans must reach both ends of it; read from the
+     * days already loaded, it costs no query of its own.
+     *
+     * @param  array{tasmeeh_days: array<int, SyncTasmeehDayResource>}  $snapshot
+     * @return array{0: string, 1: string}|null
+     */
+    public static function daySpan(array $snapshot): ?array
+    {
+        $dates = collect($snapshot['tasmeeh_days'])
+            ->map(fn (SyncTasmeehDayResource $day) => $day->resource->date?->toDateString())
+            ->filter();
+
+        return $dates->isEmpty() ? null : [$dates->min(), $dates->max()];
+    }
+
+    /**
      * The portion a day sets for a part, as ayah ids. Hifz keeps the columns
      * the table started with; review was added beside them.
      *
