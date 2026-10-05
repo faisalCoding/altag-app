@@ -941,14 +941,16 @@ it('calculates points dynamically using multiplier factor', function () {
         'active_days' => [0, 1, 2, 3, 4, 5, 6],
     ]);
 
+    // Recited on the multiplier day itself: the team multiplier follows the
+    // day the work was graded.
     $day = StudentPlanDay::create([
         'student_plan_id' => $plan->id,
         'date' => $tomorrow,
         'day_name' => 'السبت',
         'hifz_achievement' => 3, // Excellent -> 10 points
         'review_achievement' => 2, // Good -> 3 points
-        'hifz_graded_at' => now(),
-        'review_graded_at' => now(),
+        'hifz_graded_at' => Carbon::parse($tomorrow.' 10:00:00'),
+        'review_graded_at' => Carbon::parse($tomorrow.' 10:00:00'),
     ]);
 
     // Since this is a team multiplier, the individual student points remain 13 (not doubled).

@@ -257,10 +257,15 @@ select:focus[data-flux-control] {
  * Therefore we lower the backdrop below the sidebar's z-20 instead of trying to
  * raise the sidebar. Otherwise the `fixed inset-0` backdrop sits on top of the menu
  * and swallows taps on nav items — closing the drawer without navigating.
+ *
+ * It is lowered only to 19, so it still covers everything under the menu: the
+ * themed dashboard's pinned stats bar (z-[15]), its z-10 cards and the header.
+ * At 10 the stats bar showed bright beside the open drawer, and a tap there to
+ * close it worked the rank or coins tile behind the drawer instead.
  */
 @media (max-width: 1023px) {
     ui-sidebar-toggle[data-flux-sidebar-backdrop][data-flux-sidebar-on-mobile] {
-        z-index: 10 !important;
+        z-index: 19 !important;
     }
 }
 /*

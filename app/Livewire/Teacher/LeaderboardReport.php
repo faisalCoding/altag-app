@@ -22,7 +22,8 @@ class LeaderboardReport extends Component
         $leaderboard = Leaderboard::with('criteria', 'circles')->findOrFail($this->leaderboardId);
         $service = new LeaderboardService;
         $standings = $service->getDetailedStandings($leaderboard);
-        $standingsByTrack = $service->getStandingsByTrack($leaderboard);
+        // Grouped from the standings just worked out, not worked out a second time.
+        $standingsByTrack = $service->getStandingsByTrack($leaderboard, $standings);
 
         return view('livewire.teacher.leaderboard-report', [
             'leaderboard' => $leaderboard,

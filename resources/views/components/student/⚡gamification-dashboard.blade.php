@@ -6,7 +6,9 @@ use Carbon\Carbon;
 use Flux\Flux;
 
 new class extends Component {
-    use \Livewire\WithFileUploads;
+    use \Livewire\WithFileUploads {
+        _uploadErrored as protected livewireUploadErrored;
+    }
 
     public $profile_image_file = null;
     public array $targetTeams = [];
@@ -25,26 +27,75 @@ new class extends Component {
 
     public ?string $newsDate = null;
 
+    /**
+     * Rebuild the student's streak and milestone rows once, as the page opens.
+     *
+     * It used to run in with(), so every tap on the page (a news chip, a modal,
+     * a claim) rebuilt it again before drawing. Nothing the student does here
+     * moves the streak without saying so: the freeze and the milestone claim
+     * rebuild it themselves, and a teacher's marking rebuilds it on their side.
+     * Anything else, such as a supervisor editing the milestones, shows the
+     * next time the page opens.
+     */
+    public function mount(): void
+    {
+        $student = Auth::guard('student')->user();
+        $leaderboard = $student ? $this->displayedGamification($student) : null;
+
+        if ($leaderboard) {
+            \App\Services\GamificationService::recalculateStudentStreak($student, $leaderboard);
+        }
+    }
+
     public function setNewsDate(string $date): void
     {
         $this->newsDate = $date;
     }
 
+    /**
+     * Save a newly picked photo as the student's avatar.
+     *
+     * The file input is hidden behind the avatar, so a refused file must say
+     * so out loud: the rule's message shows under the avatar and as a toast.
+     * It used to fail in silence, the avatar unchanged and no word why.
+     */
     public function updatedProfileImageFile(): void
     {
-        $this->validate([
-            'profile_image_file' => 'required|image|max:10240',
-        ]);
+        try {
+            $this->validate([
+                'profile_image_file' => 'required|image|max:10240',
+            ], [
+                'profile_image_file.required' => 'لم يصل ملف الصورة، حاول مرة أخرى.',
+                'profile_image_file.image' => 'الملف المختار ليس صورة. اختر صورة بصيغة JPG أو PNG أو WebP.',
+                'profile_image_file.max' => 'حجم الصورة أكبر من 10 ميجابايت. اختر صورة أصغر.',
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            $this->profile_image_file = null;
+            Flux::toast($e->validator->errors()->first('profile_image_file'), variant: 'danger');
+
+            throw $e;
+        }
 
         $student = Auth::guard('student')->user();
 
-        // Process profile photo and convert to WebP
-        $manager = new \Intervention\Image\ImageManager(new \Intervention\Image\Drivers\Gd\Driver);
-        $tempPath = $this->profile_image_file->getRealPath();
-        $image = $manager->decode($tempPath);
-        $image->scale(height: 256);
-        $webpData = $image->encode(new \Intervention\Image\Encoders\WebpEncoder(85))->toString();
-        
+        // Process profile photo and convert to WebP. A file can pass the image
+        // rule by its type and still not decode (damaged, or a format GD can't
+        // read); that used to end in an error page instead of a word.
+        try {
+            $manager = new \Intervention\Image\ImageManager(new \Intervention\Image\Drivers\Gd\Driver);
+            $tempPath = $this->profile_image_file->getRealPath();
+            $image = $manager->decode($tempPath);
+            $image->scale(height: 256);
+            $webpData = $image->encode(new \Intervention\Image\Encoders\WebpEncoder(85))->toString();
+        } catch (\Throwable $e) {
+            report($e);
+            $this->profile_image_file = null;
+            $this->addError('profile_image_file', 'تعذرت قراءة الصورة. اختر صورة أخرى بصيغة JPG أو PNG أو WebP.');
+            Flux::toast('تعذرت قراءة الصورة. اختر صورة أخرى بصيغة JPG أو PNG أو WebP.', variant: 'danger');
+
+            return;
+        }
+
         $filename = 'avatars/' . uniqid() . '_student_' . $student->id . '.webp';
         \Illuminate\Support\Facades\Storage::disk('public')->put($filename, $webpData);
 
@@ -57,6 +108,32 @@ new class extends Component {
 
         $this->profile_image_file = null;
         Flux::toast('تم تحديث صورتك الشخصية بنجاح!', variant: 'success');
+    }
+
+    /**
+     * A photo refused on its way up, before updatedProfileImageFile() sees it.
+     *
+     * Livewire takes every upload to a temporary store first, under its own
+     * rules (a file over 12 MB stops there), and reports the refusal through
+     * this method in English: "The profile_image_file failed to upload." The
+     * avatar's refusal is said in Arabic instead, under the avatar and as a
+     * toast, like a refusal by the avatar's own rules. Any other upload keeps
+     * Livewire's handling.
+     */
+    public function _uploadErrored($name, $errorsInJson, $isMultiple)
+    {
+        try {
+            $this->livewireUploadErrored($name, $errorsInJson, $isMultiple);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            if ($name !== 'profile_image_file') {
+                throw $e;
+            }
+
+            $message = 'تعذر رفع الصورة. اختر صورة أصغر من 10 ميجابايت وحاول مرة أخرى.';
+            Flux::toast($message, variant: 'danger');
+
+            throw \Illuminate\Validation\ValidationException::withMessages(['profile_image_file' => $message]);
+        }
     }
 
     public function openDoublePointsModal(string $date, string $type = 'team'): void
@@ -77,7 +154,7 @@ new class extends Component {
         if ($activeGamification) {
             $isTeam = $type === 'team';
             $levelInfo = \App\Services\GamificationService::getStudentLevel($student->id, $activeGamification->id);
-            $level = $levelInfo['current'] ?? null;
+            $level = $levelInfo['perks'] ?? null;
             $lvlSettings = $level && is_array($level->settings) ? $level->settings : (array) ($level?->settings ?? []);
             
             $this->doublePointsPrice = $isTeam ? (int) ($lvlSettings['team_multiplier_price'] ?? 150) : (int) ($lvlSettings['individual_multiplier_price'] ?? 150);
@@ -153,7 +230,7 @@ new class extends Component {
         }
 
         $levelInfo = \App\Services\GamificationService::getStudentLevel($student->id, $activeGamification->id);
-        $level = $levelInfo['current'] ?? null;
+        $level = $levelInfo['perks'] ?? null;
         $lvlSettings = $level && is_array($level->settings) ? $level->settings : (array) ($level?->settings ?? []);
 
         $isTeam = $this->doublePointsType === 'team';
@@ -211,6 +288,15 @@ new class extends Component {
         }
     }
 
+    /**
+     * Open the freeze modal for a day.
+     *
+     * Nothing else on the page changes, so the page isn't drawn again for it:
+     * the modal opens from its wire:model, and the day and the price it names
+     * are read from the component's state in the browser (x-text) rather than
+     * printed by a redraw. Opening it used to run the whole page's reads again.
+     */
+    #[\Livewire\Attributes\Renderless]
     public function openFreezeModal(string $date, string $dayName, string $hijriDate): void
     {
         $student = Auth::guard('student')->user();
@@ -226,7 +312,7 @@ new class extends Component {
 
         if ($activeGamification) {
             $levelInfo = \App\Services\GamificationService::getStudentLevel($student->id, $activeGamification->id);
-            $level = $levelInfo['current'] ?? null;
+            $level = $levelInfo['perks'] ?? null;
             $lvlSettings = $level && is_array($level->settings) ? $level->settings : (array) ($level?->settings ?? []);
             $this->freezePrice = (int) ($lvlSettings['freeze_price'] ?? 100);
         } else {
@@ -258,7 +344,7 @@ new class extends Component {
         }
 
         $levelInfo = \App\Services\GamificationService::getStudentLevel($student->id, $activeGamification->id);
-        $level = $levelInfo['current'] ?? null;
+        $level = $levelInfo['perks'] ?? null;
         $lvlSettings = $level && is_array($level->settings) ? $level->settings : (array) ($level?->settings ?? []);
 
         $hasFreeze = $lvlSettings['has_freeze'] ?? true;
@@ -371,30 +457,66 @@ new class extends Component {
         return ['state' => 'used', 'label' => 'مُستخدَم', 'color' => 'zinc', 'icon' => 'check-circle', 'used' => true];
     }
 
+    /**
+     * The competition this page shows: the circle's active supervisor
+     * competition first, otherwise its teacher's, and only a gamification one.
+     *
+     * Every action that works on "the competition" asks this, so it acts on
+     * the one on screen. «استلام الكل» and the donation used to ask
+     * getActiveLeaderboards() instead, which also wants today between the start
+     * and end dates by the UTC clock. Nothing deactivates a competition when its
+     * end date passes, so the day after, the page still listed the pending
+     * rewards and the donate box while both actions found no competition and
+     * returned without a word; and with a supervisor competition yet to start on
+     * screen, «استلام الكل» claimed in the teacher's running one instead.
+     */
+    protected function displayedGamification(\App\Models\Student $student): ?\App\Models\Leaderboard
+    {
+        $leaderboard = \App\Models\Leaderboard::whereHas('circles', fn ($q) => $q->where('circles.id', $student->circle_id))
+            ->whereNotNull('supervisor_id')
+            ->where('is_active', true)
+            ->latest()
+            ->first()
+            ?? \App\Models\Leaderboard::where('circle_id', $student->circle_id)
+                ->whereNull('supervisor_id')
+                ->where('is_active', true)
+                ->latest()
+                ->first();
+
+        return $leaderboard?->competition_type === 'gamification' ? $leaderboard : null;
+    }
+
+    /**
+     * Why the team treasury takes no donation today, or null when it does.
+     *
+     * Donations are open while the competition runs, counted in the academy's
+     * days (Asia/Riyadh): the app's clock is UTC, and asking it kept the box
+     * shut from midnight to 3am on the first day. The page reads the same answer
+     * to show either the donate box or this note, so a student is never offered
+     * a button that refuses without saying why.
+     */
+    protected function donationClosedReason(\App\Models\Leaderboard $leaderboard): ?string
+    {
+        $today = \App\Services\TeacherSyncSnapshot::today();
+
+        if ($leaderboard->start_date && Carbon::parse($leaderboard->start_date)->toDateString() > $today) {
+            return 'لم تبدأ المسابقة بعد، ويُفتح التبرع للفريق مع بدايتها.';
+        }
+
+        if ($leaderboard->end_date && Carbon::parse($leaderboard->end_date)->toDateString() < $today) {
+            return 'انتهت المسابقة، فلم يعد التبرع للفريق متاحاً.';
+        }
+
+        return null;
+    }
+
     public function with()
     {
         $student = Auth::guard('student')->user();
 
-        // Fetch Active Leaderboard: supervisor competitions (active) have priority, then teacher competitions
-        $activeGamification = \App\Models\Leaderboard::whereHas('circles', fn($q) => $q->where('circles.id', $student->circle_id))
-            ->whereNotNull('supervisor_id')
-            ->where('is_active', true)
-            ->with('circles')
-            ->latest()
-            ->first();
-
-        if (!$activeGamification) {
-            $activeGamification = \App\Models\Leaderboard::where('circle_id', $student->circle_id)
-                ->whereNull('supervisor_id')
-                ->where('is_active', true)
-                ->with('circles')
-                ->latest()
-                ->first();
-        }
-
-        if ($activeGamification && $activeGamification->competition_type !== 'gamification') {
-            $activeGamification = null;
-        }
+        // Supervisor competitions have priority, then the teacher's; see displayedGamification().
+        $activeGamification = $this->displayedGamification($student);
+        $activeGamification?->loadMissing('circles');
 
         $gamificationState = null;
         $gamificationLevelInfo = null;
@@ -412,34 +534,52 @@ new class extends Component {
         $pendingTeamPurchases = collect();
         $teamPurchases = collect();
         $teamShieldActiveToday = false;
+        $teamMultiplierActiveToday = false;
         $studentVotes = [];        $teamColor = '#4f46e5';
         $workingDays = [];
         $xpToday = 0;
         $coinsToday = 0;
 
         if ($activeGamification) {
-            \App\Services\GamificationService::recalculateStudentStreak($student, $activeGamification);
-
+            // The streak was rebuilt as the page opened; see mount().
             $gamificationState = \App\Models\GamificationStudentState::firstOrCreate([
                 'student_id' => $student->id,
                 'leaderboard_id' => $activeGamification->id,
             ]);
             $gamificationLevelInfo = \App\Services\GamificationService::getStudentLevel($student->id, $activeGamification->id);
 
-            // XP and coins the student has earned today, shown as live "today" deltas
-            // in the compact stats bar.
-            $earnedToday = \App\Models\GamificationTransaction::where('leaderboard_id', $activeGamification->id)
+            /*
+             * XP and coins the student has earned today, shown as live "today"
+             * deltas in the compact stats bar.
+             *
+             * "Today" starts at midnight in Riyadh, converted to the app's UTC
+             * clock before it is compared: bound as it was, the Riyadh clock
+             * time was read as UTC, so the day began at 3am and anything earned
+             * between midnight and 3am never showed.
+             *
+             * The coins are the student's own coins only, as the balance beside
+             * them is (rows with no team). A donation is written as the donor's
+             * 'earn' on the team's side too, so giving 30 coins away used to show
+             * as «+30 اليوم» under a balance that had just dropped by 30.
+             *
+             * XP keeps every row and is counted as the XP total above it is: only
+             * rows whose work falls inside the competition's dates
+             * (filterTransactionsWithinWindow()). Summed whole, a badge claimed
+             * after the end date showed «+50 اليوم» under a total that stayed put.
+             */
+            $todayEarnings = \App\Models\GamificationTransaction::where('leaderboard_id', $activeGamification->id)
                 ->where('student_id', $student->id)
                 ->where('type', 'earn')
                 ->claimed()
-                ->where('created_at', '>=', \Carbon\Carbon::now('Asia/Riyadh')->startOfDay())
-                ->selectRaw('COALESCE(SUM(xp_amount), 0) as xp_sum, COALESCE(SUM(amount), 0) as coin_sum')
-                ->first();
-            $xpToday = (int) ($earnedToday->xp_sum ?? 0);
-            $coinsToday = (int) ($earnedToday->coin_sum ?? 0);
+                ->where('created_at', '>=', now('Asia/Riyadh')->startOfDay()->setTimezone(config('app.timezone')))
+                ->get(['id', 'team_id', 'reference_type', 'reference_id', 'amount', 'xp_amount', 'created_at']);
+            $xpToday = (int) \App\Services\GamificationService::filterTransactionsWithinWindow($todayEarnings, $activeGamification)->sum('xp_amount');
+            $coinsToday = (int) $todayEarnings->whereNull('team_id')->sum('amount');
 
-            $freezeableDates = \App\Services\GamificationService::getFreezeableDates($student, $activeGamification);
-            $nextFreezeUpgrade = \App\Services\GamificationService::getNextFreezeUpgrade($student, $activeGamification);
+            // The level just read, handed on rather than read again by each helper.
+            $freezeableDates = \App\Services\GamificationService::getFreezeableDates($student, $activeGamification, $gamificationLevelInfo);
+            $nextFreezeUpgrade = \App\Services\GamificationService::getNextFreezeUpgrade($student, $activeGamification, $gamificationLevelInfo);
+            $maxFreezeDays = \App\Services\GamificationService::getStudentMaxFreezeDays($student, $activeGamification, $gamificationLevelInfo);
             $studentTeam = \App\Models\GamificationTeam::whereHas('students', fn($q) => $q->where('users.id', $student->id))
                 ->where('leaderboard_id', $activeGamification->id)
                 ->first();
@@ -525,7 +665,20 @@ new class extends Component {
                     ->filter(fn ($purchase) => $purchase->item !== null)
                     ->values();
 
+                /*
+                 * Whether the team's shield and multiplier hold today, the
+                 * academy's today (Riyadh). These are the same checks an attack
+                 * and the team's points ask, so the team card's two tiles say
+                 * what will actually happen today. The multiplier tile used to
+                 * ask by the UTC date, and so read «غير نشط» until 3am on the
+                 * day bought for; the shield tile read a column nothing writes
+                 * any more and never said «نشط» at all.
+                 */
                 $teamShieldActiveToday = \App\Services\GamificationService::isShieldActiveForTeam(
+                    $studentTeam,
+                    Carbon::now('Asia/Riyadh')->toDateString()
+                );
+                $teamMultiplierActiveToday = \App\Services\GamificationService::isMultiplierActiveForTeam(
                     $studentTeam,
                     Carbon::now('Asia/Riyadh')->toDateString()
                 );
@@ -559,16 +712,6 @@ new class extends Component {
             $startDateStr = Carbon::parse($startDate)->format('Y-m-d');
             $endDateStr = Carbon::parse($endDate)->format('Y-m-d');
 
-            // Get all academic calendar events for working days detection
-            $calendarEvents = \App\Models\AcademicCalendarEvent::where('is_attendance_period', true)
-                ->where('start_date', '<=', $endDateStr)
-                ->where(function ($q) use ($startDateStr) {
-                    $q->whereNull('end_date')->orWhere('end_date', '>=', $startDateStr);
-                })
-                ->get();
-
-            $hasCalendarEvents = $calendarEvents->isNotEmpty();
-
             // Fetch the enthusiasm map for this range in one batch
             $enthusiasmMap = \App\Services\GamificationService::getEnthusiasmMapForRange(
                 $student,
@@ -587,15 +730,20 @@ new class extends Component {
                         $query->orWhere('team_id', $studentTeam->id);
                     }
                 })
-                ->whereHas('item', fn($q) => $q->where('item_type', 'multiplier'))
+                // Bought in this competition: a student in two running competitions
+                // used to see the other one's multipliers on this timeline.
+                ->whereHas('item', fn($q) => $q->where('item_type', 'multiplier')->where('leaderboard_id', $activeGamification->id))
                 ->with('item')
                 ->get();
 
             $dayNumber = 1;
-            $todayStr = now()->format('Y-m-d');
+            // The academy's today (Riyadh), as the freeze dates are counted: by the
+            // app's UTC clock, from midnight to 3am today's circle was grey, its
+            // «تجميد» hidden, and yesterday wore the today ring.
+            $todayStr = \App\Services\TeacherSyncSnapshot::today();
             $approvedFreezes = $activeGamification ? \App\Models\GamificationStorePurchase::where('student_id', $student->id)
                 ->where('status', 'approved')
-                ->whereHas('item', fn($q) => $q->where('is_streak_freeze', true))
+                ->whereHas('item', fn($q) => $q->where('is_streak_freeze', true)->where('leaderboard_id', $activeGamification->id))
                 ->whereNotNull('target_date')
                 ->pluck('target_date')
                 ->map(fn($d) => Carbon::parse($d)->format('Y-m-d'))
@@ -655,8 +803,10 @@ new class extends Component {
                 ];
             }
 
-            // Map milestones to working days dynamically
-            $currentStreak = $gamificationState->current_streak ?? 0;
+            // Map milestones to working days dynamically, from the streak as it
+            // stands today: a run broken by a missed working day starts again
+            // from today, rather than placing the next milestone on days gone by.
+            $currentStreak = \App\Services\GamificationService::liveStreak($gamificationState, $workingDaysDates, $todayStr);
             $lastActivity = $gamificationState->last_activity_date;
 
             $lastActiveIdx = null;
@@ -699,7 +849,8 @@ new class extends Component {
         if ($activeGamification) {
             $service = new \App\Services\LeaderboardService();
             $leaderboardStandings = $service->getStandings($activeGamification);
-            $standingsByTrack = $service->getStandingsByTrack($activeGamification);
+            // Grouped from the standings above, not worked out a second time.
+            $standingsByTrack = $service->getStandingsByTrack($activeGamification, $leaderboardStandings);
         }
 
         // The student's own rank: within their track when tracks exist, otherwise
@@ -821,25 +972,60 @@ new class extends Component {
             }
         }
 
+        // Ranked team standings (with today's points + today's enthusiasm-day count).
+        // Today is the academy's (Riyadh): left to the service's UTC default, the
+        // two "today" columns showed yesterday's figures from midnight to 3am. The
+        // date names only those columns; the totals and ranks don't read it.
+        $teamStandings = [];
+        if ($activeGamification) {
+            $teamStandings = \App\Services\GamificationService::getTeamStandings($activeGamification, \App\Services\TeacherSyncSnapshot::today());
+        }
+
         $teamStudents = collect();
         $teamStudentStates = collect();
+        $teamStudentStreaks = [];
         $teamScore = 0;
+        $otherTeams = collect();
+        $teamTaskTransactions = collect();
 
         if ($activeGamification && $studentTeam) {
-            $teamStudents = $studentTeam->students()->get();
+            $teamStudents = $studentTeam->students()->with('circle')->get();
             $teamStudentIds = $teamStudents->pluck('id')->toArray();
             $teamStudentStates = \App\Models\GamificationStudentState::whereIn('student_id', $teamStudentIds)
                 ->where('leaderboard_id', $activeGamification->id)
                 ->get()
                 ->keyBy('student_id');
 
-            $teamScore = \App\Services\GamificationService::getTeamScore($studentTeam, $activeGamification);
+            /*
+             * Each member's «الحماسة» as it stands today, counted on their own
+             * stage's working days. The stored streak is only rebuilt when the
+             * member is marked or opens their page, so it used to keep showing a
+             * run broken days ago.
+             */
+            $workingDaysByStage = [(string) $student->effective_stage_id => $workingDaysDates ?? []];
+            foreach ($teamStudents as $teammate) {
+                $stageKey = (string) $teammate->effective_stage_id;
+                $workingDaysByStage[$stageKey] ??= \App\Services\GamificationService::getWorkingDaysForLeaderboard($activeGamification, $teammate->effective_stage_id);
+                $teamStudentStreaks[$teammate->id] = \App\Services\GamificationService::liveStreak(
+                    $teamStudentStates->get($teammate->id),
+                    $workingDaysByStage[$stageKey],
+                );
+            }
+
+            // The team's total is its row in the standings just read, the same
+            // figure, rather than every one of its transactions read again.
+            $ownStanding = collect($teamStandings)->first(fn (array $row) => $row['team']->id === $studentTeam->id);
+            $teamScore = $ownStanding
+                ? (int) $ownStanding['score']
+                : \App\Services\GamificationService::getTeamScore($studentTeam, $activeGamification);
         }
 
-        // Ranked team standings (with today's points + today's enthusiasm-day count).
-        $teamStandings = [];
-        if ($activeGamification) {
-            $teamStandings = \App\Services\GamificationService::getTeamStandings($activeGamification);
+        // The teams a team attack may target, read once for the store rather than
+        // once per attack product.
+        if ($activeGamification && $storeItems->contains('item_type', 'team_attack')) {
+            $otherTeams = \App\Models\GamificationTeam::where('leaderboard_id', $activeGamification->id)
+                ->where('id', '!=', $studentTeam?->id ?? 0)
+                ->get();
         }
 
         $teamTasks = collect();
@@ -851,21 +1037,46 @@ new class extends Component {
                 })
                 ->orderBy('start_date', 'asc')
                 ->get();
+
+            // What each graded task paid, read once for the list: the earliest
+            // transaction for each assignment, as the list used to read one by one.
+            $teamTaskTransactions = $teamTasks->isEmpty() ? collect() : \App\Models\GamificationTransaction::where('reference_type', \App\Models\GamificationTeamTaskAssignment::class)
+                ->whereIn('reference_id', $teamTasks->pluck('id'))
+                ->orderBy('id')
+                ->get()
+                ->unique('reference_id')
+                ->keyBy('reference_id');
         }
 
-        $teamActivities = collect();
         $allActivityRounds = collect();
         if ($activeGamification) {
-            $teamActivities = \App\Models\GamificationActivity::with('ranks')
-                ->where('leaderboard_id', $activeGamification->id)
-                ->get();
-            $allActivityRounds = \App\Models\GamificationActivityRound::with(['activity', 'winners.rank', 'winners.team'])
+            // The activity's ranks too: the podium places a renamed rank by its order among them.
+            $allActivityRounds = \App\Models\GamificationActivityRound::with(['activity.ranks', 'winners.rank', 'winners.team'])
                 ->whereHas('activity', function ($query) use ($activeGamification) {
                     $query->where('leaderboard_id', $activeGamification->id);
                 })
                 ->orderBy('round_date', 'asc')
                 ->get();
         }
+
+        /*
+         * The multipliers still to come or running today, for the strip under the
+         * streak: those bought for today or later, or for no set day. Picked out
+         * of the purchases already read for the timeline instead of read again.
+         */
+        $activeMultipliers = collect();
+        if ($activeGamification) {
+            $multiplierToday = Carbon::now('Asia/Riyadh')->toDateString();
+            $activeMultipliers = $multiplierPurchases
+                ->filter(fn ($purchase) => $purchase->target_date === null
+                    || Carbon::parse($purchase->target_date)->toDateString() >= $multiplierToday)
+                ->values();
+        }
+
+        // The donation allowance on the team tab, from the level read above.
+        $donationStatus = ($activeGamification && $studentTeam)
+            ? \App\Services\GamificationService::getDailyDonationStatus($student->id, $activeGamification->id, $gamificationLevelInfo)
+            : ['has_donation' => false, 'percentage' => 0, 'base' => 0, 'limit' => 0, 'donated' => 0, 'remaining' => 0];
 
         // Turn Reservation: let students book their tasmeeh turn from within the competition view too.
         $todayStr = \Carbon\Carbon::now('Asia/Riyadh')->format('Y-m-d');
@@ -899,13 +1110,13 @@ new class extends Component {
             'activeGamification' => $activeGamification,
             'gamificationState' => $gamificationState,
             'gamificationLevelInfo' => $gamificationLevelInfo,
-            'studentLevel' => $gamificationLevelInfo['current']?->level_number ?? 1,
+            // 0 below a first level that needs XP; see getStudentLevel().
+            'studentLevel' => $gamificationLevelInfo['current']?->level_number ?? 0,
             'xpToday' => $xpToday,
             'coinsToday' => $coinsToday,
             'studentTeam' => $studentTeam,
             'teamRole' => $teamRole,
             'theme' => $theme,
-            'teamActivities' => $teamActivities,
             'allActivityRounds' => $allActivityRounds,
             'storeItems' => $storeItems,
             'studentBadges' => $studentBadges,
@@ -919,6 +1130,7 @@ new class extends Component {
             'pendingTeamPurchases' => $pendingTeamPurchases,
             'teamPurchases' => $teamPurchases,
             'teamShieldActiveToday' => $teamShieldActiveToday,
+            'teamMultiplierActiveToday' => $teamMultiplierActiveToday,
             'studentVotes' => $studentVotes,
             'style' => $style,
             'teamColor' => $teamColor,
@@ -930,7 +1142,7 @@ new class extends Component {
             'dailyDigest' => $dailyDigest,
             'availableNewsDates' => $availableNewsDates,
             'newsDate' => $newsDate,
-            'studentXP' => $activeGamification ? \App\Services\GamificationService::getStudentXP($student->id, $activeGamification->id) : 0,
+            'studentXP' => $gamificationLevelInfo['xp'] ?? 0,
             'pendingRewards' => $activeGamification ? \App\Services\GamificationService::getPendingRewards($student->id, $activeGamification->id) : collect(),
             'pendingMissions' => $pendingMissions,
             'pendingHadithMissions' => $pendingHadithMissions,
@@ -940,11 +1152,19 @@ new class extends Component {
             'teamStandings' => $teamStandings,
             'teamStudents' => $teamStudents,
             'teamStudentStates' => $teamStudentStates,
+            'teamStudentStreaks' => $teamStudentStreaks,
             'teamScore' => $teamScore,
             'workingDays' => $workingDays,
+            'currentStreak' => $currentStreak ?? 0,
             'freezeableDates' => $freezeableDates,
             'nextFreezeUpgrade' => $nextFreezeUpgrade,
+            'maxFreezeDays' => $maxFreezeDays ?? 1,
             'teamTasks' => $teamTasks,
+            'teamTaskTransactions' => $teamTaskTransactions,
+            'otherTeams' => $otherTeams,
+            'activeMultipliers' => $activeMultipliers,
+            'donationStatus' => $donationStatus,
+            'donationClosedReason' => $activeGamification ? $this->donationClosedReason($activeGamification) : null,
         ];
     }
 
@@ -960,27 +1180,17 @@ new class extends Component {
 
         $todayStr = \Carbon\Carbon::now('Asia/Riyadh')->format('Y-m-d');
 
-        $existing = \App\Models\TurnReservation::where('turn_reservation_session_id', $sessionId)
-            ->whereDate('date', $todayStr)
-            ->where('student_id', $student->id)
-            ->first();
+        // Students booking at the same moment each get their own number; see reserveNext().
+        $reservation = \App\Models\TurnReservation::reserveNext($session->id, $student->id, $todayStr);
 
-        if ($existing) {
+        if (! $reservation) {
+            Flux::toast('الحجز مزدحم الآن، حاول مرة أخرى بعد لحظات.', variant: 'danger');
             return;
         }
 
-        $maxTurn = \App\Models\TurnReservation::where('turn_reservation_session_id', $sessionId)
-            ->whereDate('date', $todayStr)
-            ->max('turn_number') ?? 0;
-
-        \App\Models\TurnReservation::create([
-            'turn_reservation_session_id' => $sessionId,
-            'student_id' => $student->id,
-            'date' => $todayStr,
-            'turn_number' => $maxTurn + 1,
-        ]);
-
-        Flux::toast('تم حجز دورك بنجاح!', variant: 'success');
+        if ($reservation->wasRecentlyCreated) {
+            Flux::toast('تم حجز دورك بنجاح!', variant: 'success');
+        }
     }
 
     public function cancelTurn($sessionId)
@@ -1056,63 +1266,134 @@ new class extends Component {
         Flux::toast("مبروك! لقد حصلت على وسام {$badge->name}", variant: 'success');
     }
 
-    public function claimMilestone($claimRecordId)
+    /**
+     * Take a reached streak milestone's reward.
+     *
+     * The button names the milestone, not its claim row. The rows are deleted
+     * and written again whenever the streak is recalculated (on a render here,
+     * and whenever a teacher grades or marks the student), so they come back
+     * with new ids: a row id held by an open modal went stale, and the first tap
+     * answered that there was no reward to take. The milestone's id does not
+     * change; its earliest row still awaiting a claim is the one claimed.
+     *
+     * The claim is one transaction, and its row is marked claimed before the
+     * reward is written, by an update only one request can win. A streak
+     * rebuild (itself one transaction) can then land only before or after it,
+     * never between the row being read and marked: in between, the mark fell on
+     * a row the rebuild had just replaced, and the student was congratulated on
+     * a reward the rebuild had wiped. Retried, as SQLite refuses a writer whose
+     * reads began before another writer's commit.
+     */
+    public function claimMilestone($milestoneId)
     {
         $student = Auth::guard('student')->user();
-        $pivot = \Illuminate\Support\Facades\DB::table('gamification_claimed_milestones')
-            ->where('student_id', $student->id)
-            ->where('id', $claimRecordId)
-            ->where('status', 'approved')
-            ->first();
 
-        if (!$pivot) {
+        [$outcome, $milestone] = \Illuminate\Support\Facades\DB::transaction(function () use ($student, $milestoneId): array {
+            $pivot = \Illuminate\Support\Facades\DB::table('gamification_claimed_milestones')
+                ->where('student_id', $student->id)
+                ->where('milestone_id', (int) $milestoneId)
+                ->where('status', 'approved')
+                ->orderBy('created_at')
+                ->orderBy('id')
+                ->first();
+
+            if (! $pivot) {
+                return ['nothing_to_claim', null];
+            }
+
+            $milestone = \Illuminate\Support\Facades\DB::table('gamification_streak_milestones')->where('id', $pivot->milestone_id)->first();
+            if (! $milestone) {
+                return ['unknown_milestone', null];
+            }
+
+            $marked = \Illuminate\Support\Facades\DB::table('gamification_claimed_milestones')
+                ->where('id', $pivot->id)
+                ->where('status', 'approved')
+                ->update([
+                    'status' => 'claimed',
+                    'updated_at' => now(),
+                ]) === 1;
+
+            if (! $marked) {
+                return ['nothing_to_claim', null];
+            }
+
+            // The same as the badge above: the reward belongs to the competition
+            // that set the milestone, and is keyed by this claim — a student may
+            // reach the same milestone again on a later streak run.
+            if ($milestone->reward_xp > 0 || $milestone->reward_coins > 0) {
+                \App\Models\GamificationTransaction::firstOrCreate(
+                    [
+                        'leaderboard_id' => $milestone->leaderboard_id,
+                        'student_id' => $student->id,
+                        'reference_type' => \App\Models\GamificationStreakMilestone::class,
+                        'reference_id' => $pivot->id,
+                    ],
+                    [
+                        'type' => 'earn',
+                        'amount' => $milestone->reward_coins,
+                        'xp_amount' => $milestone->reward_xp,
+                        'description' => "مكافأة أيام الحماسة لـ {$milestone->days_required} أيام متتالية: {$milestone->description}",
+                    ]
+                );
+
+                \App\Services\GamificationService::recalculateStudentState($student->id, $milestone->leaderboard_id);
+            }
+
+            return ['claimed', $milestone];
+        }, 3);
+
+        if ($outcome === 'nothing_to_claim') {
             Flux::toast('لا يوجد جائزة معتمدة بانتظار الاستلام.', variant: 'danger');
             return;
         }
 
-        $milestone = \Illuminate\Support\Facades\DB::table('gamification_streak_milestones')->where('id', $pivot->milestone_id)->first();
-        if (!$milestone) {
+        if ($outcome === 'unknown_milestone') {
             Flux::toast('لم يتم العثور على الجائزة المطلوبة.', variant: 'danger');
             return;
         }
 
-        // The same as the badge above: the reward belongs to the competition
-        // that set the milestone, and is keyed by this claim — a student may
-        // reach the same milestone again on a later streak run.
-        if ($milestone->reward_xp > 0 || $milestone->reward_coins > 0) {
-            \App\Models\GamificationTransaction::firstOrCreate(
-                [
-                    'leaderboard_id' => $milestone->leaderboard_id,
-                    'student_id' => $student->id,
-                    'reference_type' => \App\Models\GamificationStreakMilestone::class,
-                    'reference_id' => $claimRecordId,
-                ],
-                [
-                    'type' => 'earn',
-                    'amount' => $milestone->reward_coins,
-                    'xp_amount' => $milestone->reward_xp,
-                    'description' => "مكافأة أيام الحماسة لـ {$milestone->days_required} أيام متتالية: {$milestone->description}",
-                ]
-            );
-
-            \App\Services\GamificationService::recalculateStudentState($student->id, $milestone->leaderboard_id);
+        // The page's redraw used to rebuild the streak straight after the claim,
+        // which writes the reward again in the rebuild's own form, dated on the
+        // day the streak reached the milestone. The redraw no longer rebuilds
+        // (see mount()), so the claim does.
+        if ($leaderboard = $this->displayedGamification($student)) {
+            \App\Services\GamificationService::recalculateStudentStreak($student, $leaderboard);
         }
-
-        \Illuminate\Support\Facades\DB::table('gamification_claimed_milestones')
-            ->where('id', $claimRecordId)
-            ->update([
-                'status' => 'claimed',
-                'updated_at' => now(),
-            ]);
 
         Flux::toast("مبروك! لقد استلمت جائزة الحماسة {$milestone->days_required} أيام بنجاح", variant: 'success');
     }
 
+    /**
+     * Buy a product from the store tab.
+     *
+     * Only what the store shows can be bought here: an active product of the
+     * competition on screen, other than the multiplier and the streak freeze.
+     * Those two have their own buttons, which check that the student's level
+     * allows them and charge the level's price; reached through here with a
+     * hand-typed id, they skipped both and cost the item's fixed price, even
+     * with the product turned off by the supervisor.
+     */
     public function buyItem($itemId)
     {
         $student = Auth::guard('student')->user();
-        $targetTeamId = $this->targetTeams[$itemId] ?? null;
-        $targetDate = $this->targetDates[$itemId] ?? null;
+        $leaderboard = $this->displayedGamification($student);
+
+        $item = $leaderboard
+            ? \App\Models\GamificationStoreItem::where('leaderboard_id', $leaderboard->id)
+                ->where('is_active', true)
+                ->whereNotIn('item_type', ['multiplier', 'freeze'])
+                ->find((int) $itemId)
+            : null;
+
+        if (! $item) {
+            Flux::toast('هذا المنتج غير متوفر حالياً في المتجر.', variant: 'danger');
+            return;
+        }
+
+        $itemId = $item->id;
+        $targetTeamId = filled($this->targetTeams[$itemId] ?? null) ? (int) $this->targetTeams[$itemId] : null;
+        $targetDate = filled($this->targetDates[$itemId] ?? null) ? (string) $this->targetDates[$itemId] : null;
 
         $status = \App\Services\GamificationService::requestStorePurchase($student->id, $itemId, $targetTeamId, $targetDate);
 
@@ -1138,6 +1419,10 @@ new class extends Component {
             Flux::toast('تاريخ التفعيل يجب أن يكون من يوم الغد فصاعداً.', variant: 'danger');
         } elseif ($status === 'multiplier_already_purchased') {
             Flux::toast('خطأ: تم بالفعل شراء أو تفعيل مضاعف نقاط لهذا التاريخ.', variant: 'danger');
+        } elseif ($status === 'item_inactive') {
+            Flux::toast('هذا المنتج غير متوفر حالياً في المتجر.', variant: 'danger');
+        } elseif ($status === 'cannot_attack_own_team' || $status === 'invalid_target_team') {
+            Flux::toast('الرجاء اختيار مجموعة منافسة صحيحة للخصم.', variant: 'danger');
         } else {
             Flux::toast('تعذر إتمام عملية الشراء.', variant: 'danger');
         }
@@ -1169,11 +1454,17 @@ new class extends Component {
         }
     }
 
+    /**
+     * Claim every reward the panel lists, in the competition on screen, the
+     * same one each row's «استلام» claims in. The button's particles have flown
+     * by the time this answers, so it always says what happened.
+     */
     public function claimAllRewards()
     {
         $student = Auth::guard('student')->user();
-        $leaderboard = \App\Services\GamificationService::getActiveLeaderboards($student)->first();
+        $leaderboard = $this->displayedGamification($student);
         if (! $leaderboard) {
+            Flux::toast('لا توجد مسابقة نشطة حالياً.', variant: 'danger');
             return;
         }
         $pendingXp = (int) \App\Services\GamificationService::getPendingRewards($student->id, $leaderboard->id)->sum('xp_amount');
@@ -1181,6 +1472,8 @@ new class extends Component {
         if ($count > 0) {
             Flux::toast("تم استلام {$count} مكافأة!", variant: 'success');
             $this->dispatch('reward-claimed', xp: $pendingXp);
+        } else {
+            Flux::toast('لا توجد مكافآت بانتظار الاستلام.', variant: 'warning');
         }
     }
 
@@ -1195,8 +1488,16 @@ new class extends Component {
         }
 
         $student = Auth::guard('student')->user();
-        $leaderboard = \App\Services\GamificationService::getActiveLeaderboards($student)->first();
+        $leaderboard = $this->displayedGamification($student);
         if (!$leaderboard) {
+            Flux::toast('لا توجد مسابقة نشطة حالياً.', variant: 'danger');
+            $this->dispatch('donation-finished');
+            return;
+        }
+
+        // Closed outside the competition's dates, saying so, as the page does.
+        if ($closedReason = $this->donationClosedReason($leaderboard)) {
+            Flux::toast($closedReason, variant: 'warning');
             $this->dispatch('donation-finished');
             return;
         }
@@ -1289,17 +1590,58 @@ new class extends Component {
 
 <div>
 @if($activeGamification)
+@php
+    // The tabs this student has, the same list the phone's bottom bar draws.
+    $gamTabs = \App\Support\StudentGamificationTabs::for($studentTeam, $theme);
+@endphp
 {{--
-    The sidebar's «الإنجازات» and «المتصدرون» point here by fragment. On the
-    plain dashboard those are anchors to scroll to; here the same content lives
-    in a tab, so the fragment opens the tab instead of scrolling to nothing.
+    Which tab is open. The sidebar's «الإنجازات» and «المتصدرون» point here by
+    fragment. On the plain dashboard those are anchors to scroll to; here the
+    same content lives in a tab, so the fragment opens the tab instead of
+    scrolling to nothing, and «المتصدرون» then scrolls down to the table. The
+    fragment leaves the address once read: left there, every later reload
+    reopened the link's tab whatever the student had chosen since.
+
+    Without a fragment the tab last chosen reopens, but only if this student
+    still has it. A student moved off their team, or a new competition with no
+    teams yet, would reopen «فريقي» onto a blank page, its panel not drawn.
+
+    The choice is remembered here and announced as gamnav-changed, which the
+    phone's bottom bar follows for its highlight; every switcher sends the same
+    event, so the two never disagree on the open tab.
 --}}
 <div x-data="{
-        currentTab: ({ '#achievements': 'badges', '#leaderboard-standings': 'leaderboard' })[window.location.hash]
-            || localStorage.getItem('student-gam-tab') || 'leaderboard',
+        tabs: @js(array_column($gamTabs, 'tab')),
+        fragments: { '#achievements': 'badges', '#leaderboard-standings': 'leaderboard' },
+        currentTab: 'leaderboard',
+        init() {
+            let remembered = null;
+            try { remembered = localStorage.getItem('student-gam-tab'); } catch (e) {}
+            this.show(remembered);
+            this.followFragment();
+            this.$nextTick(() => this.announce());
+        },
+        show(tab) {
+            this.currentTab = this.tabs.includes(tab) ? tab : 'leaderboard';
+            try { localStorage.setItem('student-gam-tab', this.currentTab); } catch (e) {}
+        },
+        followFragment() {
+            const fragment = window.location.hash;
+            const tab = this.fragments[fragment];
+            if (! tab) { return; }
+            this.show(tab);
+            history.replaceState(history.state, '', window.location.pathname + window.location.search);
+            if (fragment === '#leaderboard-standings') { this.$nextTick(() => this.scrollToStandings('instant')); }
+        },
+        announce() {
+            window.dispatchEvent(new CustomEvent('gamnav-changed', { detail: { tab: this.currentTab } }));
+        },
+        scrollToStandings(behavior = 'smooth') {
+            document.getElementById('leaderboard-standings')?.scrollIntoView({ behavior, block: 'start' });
+        },
     }"
-    x-on:gamnav-changed.window="currentTab = $event.detail.tab"
-    x-on:hashchange.window="currentTab = ({ '#achievements': 'badges', '#leaderboard-standings': 'leaderboard' })[window.location.hash] || currentTab"
+    x-on:gamnav-changed.window="if (tabs.includes($event.detail.tab)) { show($event.detail.tab); }"
+    x-on:hashchange.window="followFragment(); announce();"
     class="{{ $style['bg'] }} font-sans" dir="rtl" style="background-image: radial-gradient(circle at top left, var(--team-color-10) 0%, transparent 45%), radial-gradient(circle at bottom right, var(--team-color-10) 0%, transparent 45%); background-color: #f8fafc;">
 <style>
     :root {
@@ -1354,14 +1696,21 @@ new class extends Component {
         @php
             $claim = $pendingClaims->first();
         @endphp
-        <div class="fixed inset-0 z-[100] flex items-center justify-center p-4 backdrop-blur-xl bg-slate-900/60">
-            <div class="relative max-w-md w-full rounded-3xl p-6 md:p-8 border border-slate-200 bg-white shadow-2xl text-center space-y-6 overflow-hidden">
+        {{--
+            The claim can't be dismissed, so it must always be reachable. It sits
+            above the phone's bottom bar (z-[9999]), which used to cover its button
+            on short screens, and it scrolls when the box is taller than the screen.
+            The box is centred by m-auto rather than by the wrapper: a flex-centred
+            box taller than its wrapper spills off the top, out of scroll's reach.
+        --}}
+        <div data-claim-overlay class="fixed inset-0 z-[10000] flex overflow-y-auto overscroll-contain p-4 backdrop-blur-xl bg-slate-900/60">
+            <div class="relative max-w-md w-full m-auto rounded-3xl p-6 md:p-8 border border-slate-200 bg-white shadow-2xl text-center space-y-4 sm:space-y-6 overflow-hidden">
                 <!-- Sparkle Background Effects using team color -->
                 <div class="absolute -top-12 -left-12 size-40 rounded-full bg-team-10 blur-3xl"></div>
                 <div class="absolute -bottom-12 -right-12 size-40 rounded-full bg-team-10 blur-3xl"></div>
 
                 <!-- Animated Glow behind badge -->
-                <div class="relative flex justify-center py-4">
+                <div class="relative flex justify-center py-2 sm:py-4">
                     <div class="absolute inset-0 size-32 mx-auto rounded-full bg-team-20 blur-xl animate-pulse"></div>
                     <div class="relative size-28 rounded-full bg-team-10 flex items-center justify-center border-2 border-team-primary shadow-lg overflow-hidden">
                         @if(str_contains($claim->icon, '/') || str_contains($claim->icon, '.'))
@@ -1421,14 +1770,15 @@ new class extends Component {
         @php
             $mClaim = $pendingMilestoneClaims->first();
         @endphp
-        <div class="fixed inset-0 z-[100] flex items-center justify-center p-4 backdrop-blur-xl bg-slate-900/60">
-            <div class="relative max-w-md w-full rounded-3xl p-6 md:p-8 border border-slate-200 bg-white shadow-2xl text-center space-y-6 overflow-hidden">
+        {{-- Built like the badge claim above, for the same reasons. --}}
+        <div data-claim-overlay class="fixed inset-0 z-[10000] flex overflow-y-auto overscroll-contain p-4 backdrop-blur-xl bg-slate-900/60">
+            <div class="relative max-w-md w-full m-auto rounded-3xl p-6 md:p-8 border border-slate-200 bg-white shadow-2xl text-center space-y-4 sm:space-y-6 overflow-hidden">
                 <!-- Sparkle Background Effects using team color -->
                 <div class="absolute -top-12 -left-12 size-40 rounded-full bg-team-10 blur-3xl"></div>
                 <div class="absolute -bottom-12 -right-12 size-40 rounded-full bg-team-10 blur-3xl"></div>
 
                 <!-- Animated Glow behind gift -->
-                <div class="relative flex justify-center py-4">
+                <div class="relative flex justify-center py-2 sm:py-4">
                     <div class="absolute inset-0 size-32 mx-auto rounded-full bg-team-20 blur-xl animate-pulse"></div>
                     <div class="relative size-28 rounded-full bg-team-10 flex items-center justify-center border-2 border-team-primary shadow-lg overflow-hidden">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-16 text-emerald-500 animate-bounce">
@@ -1459,7 +1809,8 @@ new class extends Component {
 
                 <!-- Action Button -->
                 <div class="pt-2">
-                    <flux:button wire:click="claimMilestone({{ $mClaim->claim_record_id }})" variant="primary" class="w-full bg-team-primary hover:bg-team-primary-hover border-none font-bold text-white shadow-md py-3.5 rounded-2xl text-base transition-colors">
+                    {{-- By milestone: the claim row's id changes with every streak rebuild. --}}
+                    <flux:button wire:click="claimMilestone({{ $mClaim->id }})" variant="primary" class="w-full bg-team-primary hover:bg-team-primary-hover border-none font-bold text-white shadow-md py-3.5 rounded-2xl text-base transition-colors">
                         <span class="flex items-center justify-center gap-2">
                             <span>استلام وقبول الجائزة</span>
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-5">
@@ -1478,8 +1829,17 @@ new class extends Component {
         <div class="absolute -bottom-40 -right-40 w-96 h-96 bg-team-primary rounded-full blur-3xl"></div>
     </div>
 
-    <!-- Top stats bar: pinned at the top of every tab, including home -->
-    <div class="p-3 md:p-8 pb-0">
+    {{--
+        Top stats bar, pinned at the top of every tab. The wrapper is what
+        sticks: a sticky element holds only inside its parent, and the bar is
+        its wrapper's only child. Its top is pulled up by all but a sliver of
+        its padding, so once pinned the bar floats just below the screen's edge,
+        on a band of the page's colour so nothing scrolling beneath shows above it.
+        It stacks at 15: over the page's cards (z-10) that scroll beneath it, and
+        under the phone's side menu (z-20), which it used to cover, close button
+        and first items included.
+    --}}
+    <div class="sticky -top-1 md:-top-6 z-[15] p-3 md:p-8 pb-0 rounded-t-3xl bg-slate-50/95 backdrop-blur-sm">
         <!-- Compact Stats Bar (always visible, pinned at the top of every tab) -->
         @php
             $lvlCur = $gamificationLevelInfo['current'] ?? null;
@@ -1492,7 +1852,7 @@ new class extends Component {
                 : 100;
         @endphp
         <div id="gam-stats-bar"
-            class="sticky top-2 isolate z-30 flex items-stretch justify-around gap-1 bg-white/95 backdrop-blur border border-slate-200 rounded-2xl px-2 py-2 shadow-sm">
+            class="isolate flex items-stretch justify-around gap-1 bg-white/95 backdrop-blur border border-slate-200 rounded-2xl px-2 py-2 shadow-sm">
 
             {{-- Level (tap → home) with progress to next level --}}
             <button type="button"
@@ -1509,11 +1869,15 @@ new class extends Component {
 
             <div class="w-px self-center h-9 bg-slate-200"></div>
 
-            {{-- XP (tap → home) with today's delta --}}
+            {{--
+                XP (tap → home) with today's delta: the XP the level is counted
+                from, and the same score the standings show, since both leave
+                out work graded outside the competition's dates (getStudentXP()).
+            --}}
             <button type="button"
                 x-on:click="window.dispatchEvent(new CustomEvent('gamnav-changed', { detail: { tab: 'leaderboard' } })); window.scrollTo({ top: 0, behavior: 'instant' });"
-                class="flex-1 flex flex-col items-center gap-1 rounded-xl px-2 py-1 hover:bg-slate-50 transition-colors cursor-pointer">
-                <span class="flex items-center gap-1 text-[10px] text-slate-400 font-bold leading-none">
+                class="flex-1 flex flex-col items-center gap-1 rounded-xl px-2 py-1 hover:bg-slate-50 transition-colors cursor-pointer min-w-0">
+                <span data-stats-xp-label class="flex items-center gap-1 text-[10px] text-slate-400 font-bold leading-none truncate max-w-full">
                     <flux:icon icon="sparkles" class="size-3 shrink-0" />{{ __('النقاط') }}
                 </span>
                 <span id="gam-xp-value" class="text-base font-black text-slate-900 leading-none">{{ number_format($lvlXp) }}</span>
@@ -1539,44 +1903,54 @@ new class extends Component {
             @if($studentRank)
                 <div class="w-px self-center h-9 bg-slate-200"></div>
 
-                {{-- Rank (tap → standings on the home tab) --}}
+                {{-- Rank (tap → standings on the home tab). It scrolls to the table
+                     itself, which sits below the missions and plans; it used to
+                     scroll to the top, away from the table it promises. The wait
+                     lets the home tab show before the table is measured. --}}
                 <button type="button"
-                    x-on:click="window.dispatchEvent(new CustomEvent('gamnav-changed', { detail: { tab: 'leaderboard' } })); window.scrollTo({ top: 0, behavior: 'instant' });"
+                    x-on:click="window.dispatchEvent(new CustomEvent('gamnav-changed', { detail: { tab: 'leaderboard' } })); $nextTick(() => scrollToStandings());"
                     class="flex-1 flex flex-col items-center gap-1 rounded-xl px-2 py-1 hover:bg-slate-50 transition-colors cursor-pointer min-w-0">
                     <span class="flex items-center gap-1 text-[10px] text-slate-400 font-bold leading-none truncate max-w-full">
                         <flux:icon icon="chart-bar" class="size-3 shrink-0" />{{ $studentRankScope === 'track' ? __('مركزك في مسارك') : __('مركزك') }}
                     </span>
-                    <span id="gam-rank-value" class="text-base font-black leading-none text-team-primary">
+                    {{-- One line, or «12 /» over «140» on a narrow phone makes the pinned bar taller. --}}
+                    <span id="gam-rank-value" class="whitespace-nowrap tabular-nums text-base font-black leading-none text-team-primary">
                         {{ $studentRank }}<span class="text-[10px] text-slate-400 font-bold"> / {{ $studentRankTotal }}</span>
                     </span>
                 </button>
             @endif
         </div>
+
+        {{--
+            The tabs on a wide screen, pinned with the stats bar. The phone's
+            bottom bar is the only other switcher, and from lg up it hides, as it
+            would sit over the side menu. Without this strip a laptop or a
+            landscape iPad had no way into the news or the team tab, and with the
+            team tab went its votes, tasks, donations and standings.
+        --}}
+        <nav data-desktop-tabs aria-label="{{ __('أقسام المسابقة') }}" class="hidden lg:flex flex-wrap items-center gap-2 mt-3">
+            @foreach($gamTabs as $tab)
+                <button type="button" wire:key="gam-desktop-tab-{{ $tab['tab'] }}" data-tab="{{ $tab['tab'] }}"
+                    x-on:click="window.dispatchEvent(new CustomEvent('gamnav-changed', { detail: { tab: '{{ $tab['tab'] }}' } })); @if($tab['tab'] === 'news') window.dispatchEvent(new CustomEvent('news-opened')); @endif window.scrollTo({ top: 0, behavior: 'instant' });"
+                    :class="currentTab === '{{ $tab['tab'] }}' ? 'bg-team-primary border-transparent text-white shadow-sm' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'"
+                    :aria-current="currentTab === '{{ $tab['tab'] }}' ? 'page' : null"
+                    class="flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-bold transition-colors cursor-pointer">
+                    <flux:icon icon="{{ $tab['icon'] }}" variant="solid" class="size-5 shrink-0"
+                        x-show="currentTab === '{{ $tab['tab'] }}'" x-cloak />
+                    <flux:icon icon="{{ $tab['icon'] }}" variant="outline" class="size-5 shrink-0"
+                        x-show="currentTab !== '{{ $tab['tab'] }}'" />
+                    {{ $tab['name'] }}
+                </button>
+            @endforeach
+        </nav>
     </div>
 
-    <!-- Home Tab View: Show header and top cards only when on the home dashboard -->
-    <div x-show="currentTab === 'leaderboard'" class="space-y-8 p-3 md:p-8">
-        <!-- Header Section -->
-        <div class="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6 pb-6 border-b border-slate-200/80">
-        <div>
-            <div class="flex items-center gap-3 mb-1">
-                <flux:heading size="3xl" class="text-slate-900 text-4xl font-black">{{ __('منصة التاج الرقمية') }}</flux:heading>
-            </div>
-            @if($activeGamification?->title)
-                <flux:subheading class="text-slate-500 font-medium">{{ $activeGamification->title }}</flux:subheading>
-            @endif
-        </div>
-        @php
-            $hijriToday = \App\Support\HijriDate::format(now(), 'EEEE، d MMMM');
-        @endphp
-        <div class="flex items-center gap-3">
-            <div class="bg-white border border-slate-200 px-4 py-2 rounded-2xl flex items-center gap-2 shadow-sm">
-                <flux:icon icon="calendar-days" class="size-4 text-slate-400" />
-                <span class="text-xs font-semibold text-slate-600">{{ $hijriToday }} هـ</span>
-            </div>
-        </div>
-    </div>
-
+    {{--
+        Home Tab View: the top cards show only on the home tab. Every tab panel
+        carries x-cloak, so none paints until Alpine has picked the open tab;
+        without it all of them flashed stacked on load, then collapsed to one.
+    --}}
+    <div x-show="currentTab === 'leaderboard'" x-cloak class="space-y-8 p-3 md:p-8">
     <!-- Turn Reservation: book tasmeeh turn from the competition view -->
     @if($activeSession)
         <div class="relative z-10 rounded-3xl border border-slate-200 bg-white overflow-hidden shadow-sm">
@@ -1693,8 +2067,14 @@ new class extends Component {
     <div class="relative z-10 grid grid-cols-1 lg:grid-cols-3 gap-6">
         <!-- Student Profile & Level Card -->
         <div class="{{ $style['card'] }}">
+            {{--
+                On a phone a long name or level used to push the coins past the
+                card's edge, where they were clipped: 1250 read as 250. The name
+                block now takes the leftover width and wraps, the level truncates
+                inside its badge, and the avatar and coins keep their size.
+            --}}
             <div class="flex items-center gap-4">
-                <div class="relative group">
+                <div class="relative group shrink-0">
                     <label for="profile-avatar-upload" class="cursor-pointer block relative">
                         @if($student->avatar_path)
                             <div class="w-16 h-16 rounded-full overflow-hidden border-2 border-slate-200 shadow-sm relative">
@@ -1713,22 +2093,28 @@ new class extends Component {
                         @endif
                     </label>
                     <input type="file" id="profile-avatar-upload" wire:model="profile_image_file" class="hidden" accept="image/*" />
-                </div>
-                <div>
-                    <h3 class="font-bold text-lg text-slate-900">{{ $student->name }}</h3>
-                    <div class="flex flex-col justify-start items-start gap-2 mt-1">
-                        <flux:badge color="{{ $style['badge'] }}" size="sm" icon="{{ $gamificationLevelInfo['current']->icon ?? 'sparkles' }}">
-                            {{ $gamificationLevelInfo['current']->name ?? __('مبتدئ') }}
-                        </flux:badge>
-                        
+                    {{-- A photo takes a while to upload from a phone; the avatar shows it is on its way. --}}
+                    <div wire:loading.flex wire:target="profile_image_file" data-avatar-uploading class="absolute inset-0 rounded-full bg-black/50 items-center justify-center pointer-events-none">
+                        <flux:icon.loading class="size-5 text-white" />
                     </div>
                 </div>
-                <div class="flex-1"></div>
-                <h2 class="text-4xl font-black text-slate-900 mt-2 flex items-center gap-2">
+                <div class="min-w-0 flex-1">
+                    <h3 class="font-bold text-lg text-slate-900 break-words">{{ $student->name }}</h3>
+                    <div class="flex flex-col justify-start items-start gap-2 mt-1">
+                        <flux:badge color="{{ $style['badge'] }}" size="sm" icon="{{ $gamificationLevelInfo['current']->icon ?? 'sparkles' }}" class="max-w-full">
+                            <span class="truncate">{{ $gamificationLevelInfo['current']->name ?? __('مبتدئ') }}</span>
+                        </flux:badge>
+                    </div>
+                </div>
+                <h2 class="shrink-0 text-3xl sm:text-4xl font-black text-slate-900 mt-2 flex items-center gap-2">
                     {{ $gamificationState->coins ?? 0 }}
-                    <span class="text-2xl">{!! $this->renderEmoji($style['coin_emoji'], 'size-7 inline-block align-middle') !!}</span>
+                    <span class="text-2xl">{!! $this->renderEmoji($style['coin_emoji'], 'size-6 sm:size-7 inline-block align-middle') !!}</span>
                 </h2>
             </div>
+            {{-- Why a picked photo was refused: too large, not an image, or the upload failed. --}}
+            @error('profile_image_file')
+                <p data-avatar-error class="mt-2 text-xs font-semibold text-red-600">{{ $message }}</p>
+            @enderror
 
             <!-- XP Progress -->
             @php
@@ -1739,7 +2125,7 @@ new class extends Component {
                 if ($lvlNext) {
                     $range = $lvlNext->xp_required - ($lvlCurrent->xp_required ?? 0);
                     $progress = $studentXP - ($lvlCurrent->xp_required ?? 0);
-                    $lvlProgress = $range > 0 ? min(100, round(($progress / $range) * 100)) : 100;
+                    $lvlProgress = $range > 0 ? min(100, max(0, round(($progress / $range) * 100))) : 100;
                 } else {
                     $lvlProgress = 100;
                 }
@@ -1747,7 +2133,7 @@ new class extends Component {
             <div class="mt-15">
                 <div class="flex justify-between items-center text-xs font-semibold mb-1.5 text-slate-600">
                 <span class="text-xl text-team-primary">
-                          <span class="text-xs ">{{ __('مستوى') }}</span> {{ $gamificationLevelInfo['current']->level_number ?? 1 }}
+                          <span class="text-xs ">{{ __('مستوى') }}</span> {{ $studentLevel }}
                         </span>
                     <span class="text-xl"><strong class="text-4xl ">{{ $studentXP }}</strong> XP</span>
                     <span class="text-slate-400 text-xl">
@@ -1767,8 +2153,8 @@ new class extends Component {
 
                 @php
                     $showIndividualMultiplier = false;
-                    if ($activeGamification && isset($gamificationLevelInfo['current'])) {
-                        $lvlSettings = $gamificationLevelInfo['current']->settings ?? [];
+                    if ($activeGamification && isset($gamificationLevelInfo['perks'])) {
+                        $lvlSettings = $gamificationLevelInfo['perks']->settings ?? [];
                         $showIndividualMultiplier = (bool) ($lvlSettings['has_individual_multiplier'] ?? true);
                     }
                 @endphp
@@ -1807,32 +2193,12 @@ new class extends Component {
                 </div>
             </div>
             <div class="text-center bg-slate-50 border border-slate-200 rounded-2xl px-6 py-3 shrink-0 shadow-inner">
-                <span class="text-3xl font-black {{ $style['accent'] }}">{{ $gamificationState->current_streak ?? 0 }}</span>
+                <span data-current-streak class="text-3xl font-black {{ $style['accent'] }}">{{ $currentStreak }}</span>
                 <span class="text-xs text-slate-500 block font-semibold mt-0.5">{{ __('أيام متتالية') }}</span>
             </div>
         </div>
 
-        <!-- Active Multipliers (Double Points) List -->
-        @php
-            $activeMultipliers = collect();
-            if ($activeGamification) {
-                $activeMultipliers = \App\Models\GamificationStorePurchase::where('status', 'approved')
-                    ->where(function($query) use ($student, $studentTeam) {
-                        $query->where('student_id', $student->id);
-                        if ($studentTeam) {
-                            $query->orWhere('team_id', $studentTeam->id);
-                        }
-                    })
-                    ->whereHas('item', fn($q) => $q->where('item_type', 'multiplier'))
-                    ->where(function($query) {
-                        $query->whereDate('target_date', '>=', now('Asia/Riyadh')->format('Y-m-d'))
-                            ->orWhereNull('target_date');
-                    })
-                    ->with('item')
-                    ->get();
-            }
-        @endphp
-
+        <!-- Active Multipliers (Double Points) List; picked in with() -->
         @if($activeMultipliers->isNotEmpty())
             <div class="mt-4 flex flex-wrap gap-2 items-center text-xs font-semibold text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-zinc-900 border border-slate-200/60 dark:border-zinc-800 rounded-xl px-3 py-2">
                 <span class="flex items-center gap-1 shrink-0">
@@ -1877,11 +2243,19 @@ new class extends Component {
                         scrollbar-width: none;
                     }
                 </style>
+                {{--
+                    Today is centred by scrolling the strip alone. scrollIntoView
+                    also scrolled the page to bring the strip on screen, so a phone
+                    jumped past the profile card on load and left today's circle
+                    under the bottom bar. scrollBy takes a physical offset, so it
+                    holds in RTL whatever sign scrollLeft uses there.
+                --}}
                 <div class="flex flex-row gap-4 items-center justify-start overflow-x-auto py-4 scrollbar-none snap-x snap-mandatory scroll-smooth"
                      x-init="$nextTick(() => {
                          const todayEl = $el.querySelector('.is-today-day');
                          if (todayEl) {
-                             todayEl.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+                             const strip = $el.getBoundingClientRect(), today = todayEl.getBoundingClientRect();
+                             $el.scrollBy({ left: (today.left + today.width / 2) - (strip.left + strip.width / 2), behavior: 'smooth' });
                          }
                      })">
                     @foreach($workingDays as $day)
@@ -2064,7 +2438,7 @@ new class extends Component {
                                 {{ __('طلب شراء ميزة:') }} <span class="{{ $style['accent'] }}">{{ $purchase->item->name }}</span>
                             </h4>
                             <p class="text-xs text-slate-500 mt-1 leading-relaxed">
-                                {{ __('صاحب الطلب:') }} {{ $purchase->student->name }} — {{ __('السعر من خزينة ال') }}{{ $theme['team_name'] }}: {{ $purchase->price_paid }} {!! $this->renderEmoji($style['coin_emoji'], 'size-3.5 inline-block align-middle') !!}
+                                {{ __('صاحب الطلب:') }} {{ $purchase->student?->name ?? __('طالب محذوف') }} — {{ __('السعر من خزينة ال') }}{{ $theme['team_name'] }}: {{ $purchase->price_paid }} {!! $this->renderEmoji($style['coin_emoji'], 'size-3.5 inline-block align-middle') !!}
                             </p>
 
                             <div class="mt-4 pt-3 border-t border-slate-100 space-y-3.5 text-xs text-right" dir="rtl">
@@ -2118,8 +2492,12 @@ new class extends Component {
                                     <div class="space-y-1.5 mr-2">
                                         @forelse($purchase->votes as $vote)
                                             @php
+                                                // A voter deleted while the purchase is pending has no account
+                                                // left to name, but the vote still counts toward the decision,
+                                                // so it stays listed, as «طالب محذوف». Read as-is, it 500ed the
+                                                // page for the whole team until the purchase was decided.
                                                 $voter = $vote->student;
-                                                $voterTeamStudent = $teamStudents->firstWhere('id', $voter->id);
+                                                $voterTeamStudent = $voter ? $teamStudents->firstWhere('id', $voter->id) : null;
                                                 $voterRole = $voterTeamStudent ? $voterTeamStudent->pivot->role : 'member';
                                                 $roleLabel = $voterRole === 'leader' ? __('القائد') : ($voterRole === 'assistant' ? __('النائب') : __('عضو'));
                                             @endphp
@@ -2130,8 +2508,10 @@ new class extends Component {
                                                     <flux:icon icon="x-mark" class="size-4 text-rose-500 shrink-0" />
                                                 @endif
                                                 <span class="font-medium">
-                                                    {{ $voter->name }}
-                                                    <span class="text-[10px] text-slate-400">({{ $roleLabel }})</span>
+                                                    {{ $voter?->name ?? __('طالب محذوف') }}
+                                                    @if($voter)
+                                                        <span class="text-[10px] text-slate-400">({{ $roleLabel }})</span>
+                                                    @endif
                                                 </span>
                                             </div>
                                         @empty
@@ -2175,7 +2555,7 @@ new class extends Component {
 
 
         <!-- Store Content -->
-        <div x-show="currentTab === 'store'" class="space-y-4">
+        <div x-show="currentTab === 'store'" x-cloak class="space-y-4">
             @if($storeItems->isEmpty())
                 <div class="text-center py-12 bg-slate-50 border border-slate-200 rounded-2xl">
                     <flux:icon icon="shopping-bag" class="size-10 mx-auto text-slate-400 mb-3" />
@@ -2185,18 +2565,36 @@ new class extends Component {
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     @foreach($storeItems as $item)
                         @php
+                            /*
+                             * Whether buying starts a team vote, by the same rule
+                             * requestStorePurchase() applies: the product asks for
+                             * an assistant's or members' approval, or the competition
+                             * puts every team purchase to a vote. A product needing
+                             * approval was offered as a plain «شراء» while the
+                             * global setting was off, then started a vote anyway.
+                             *
+                             * A team of one has nobody to vote, so the service buys
+                             * at once. The button used to wait for "other members"
+                             * and stayed disabled, so its leader could never buy a
+                             * team product at all; now it is a plain purchase.
+                             */
                             $isTeamItem = (bool) $item->is_team_product;
-                            $requiresVoting = $isTeamItem && ($activeGamification->settings['team_purchase_voting_enabled'] ?? false);
-                            
+                            $requiresVoting = $isTeamItem && (
+                                $item->require_assistant_approval
+                                || (int) $item->require_member_approval_count > 0
+                                || ($activeGamification->settings['team_purchase_voting_enabled'] ?? false)
+                            );
+
                             $reqTeam = $studentTeam !== null;
                             $reqRole = $teamRole === 'leader';
                             $reqCoins = $studentTeam && ($studentTeam->coins >= $item->price);
                             $reqMembers = $studentTeam && ($teamStudents->count() > 1);
-                            
-                            $canInitiateTeamPurchase = $reqTeam && $reqRole && $reqCoins && $reqMembers;
-                            
-                            $canAfford = $isTeamItem 
-                                ? ($requiresVoting ? $canInitiateTeamPurchase : ($reqTeam && $reqRole && $reqCoins))
+
+                            $buysAlone = $reqTeam && ! $reqMembers;
+                            $startsVote = $requiresVoting && ! $buysAlone;
+
+                            $canAfford = $isTeamItem
+                                ? ($reqTeam && $reqRole && $reqCoins)
                                 : ($gamificationState && $gamificationState->coins >= $item->price);
                         @endphp
                         <div class="bg-white border border-slate-200 rounded-2xl p-5 flex flex-col justify-between gap-4 transition-all duration-300 hover:border-team-primary/40 hover:shadow-md shadow-sm">
@@ -2223,11 +2621,6 @@ new class extends Component {
                                         <label class="text-[11px] text-slate-500 block font-bold">ال{{ $theme['team_name'] }} المستهدفة للخصم:</label>
                                         <select wire:model="targetTeams.{{ $item->id }}" class="w-full text-xs rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-800 focus:outline-none focus:ring-1 focus:ring-team-primary focus:border-team-primary">
                                             <option value="">{{ __('اختر') }} {{ $theme['team_name'] }}...</option>
-                                            @php
-                                                $otherTeams = \App\Models\GamificationTeam::where('leaderboard_id', $activeGamification->id)
-                                                    ->where('id', '!=', $studentTeam?->id ?? 0)
-                                                    ->get();
-                                            @endphp
                                             @foreach($otherTeams as $ot)
                                                 <option value="{{ $ot->id }}">{{ $ot->name }}</option>
                                             @endforeach
@@ -2241,8 +2634,8 @@ new class extends Component {
                                 @endif
                             </div>
 
-                            @if($requiresVoting)
-                                <div class="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/60 space-y-2.5 text-xs text-right" dir="rtl">
+                            @if($startsVote)
+                                <div data-team-vote-requirements class="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/60 space-y-2.5 text-xs text-right" dir="rtl">
                                     <span class="font-bold text-slate-700 block mb-1">{{ __('متطلبات بدء تصويت المجموعة:') }}</span>
                                     <div class="space-y-2">
                                         <!-- Requirement 1: Team Registration -->
@@ -2290,8 +2683,8 @@ new class extends Component {
                                 </div>
                             @endif
 
-                            <flux:button wire:click="buyItem({{ $item->id }})" :disabled="!$canAfford" class="w-full font-bold {{ $style['btn'] }} disabled:opacity-40 disabled:cursor-not-allowed">
-                                <span>{{ $requiresVoting ? __('بدء تصويت وشراء بـ ') : __('شراء بـ ') }} {{ $item->price }}</span>
+                            <flux:button wire:click="buyItem({{ $item->id }})" :disabled="!$canAfford" data-store-buy="{{ $item->id }}" class="w-full font-bold {{ $style['btn'] }} disabled:opacity-40 disabled:cursor-not-allowed">
+                                <span>{{ $startsVote ? __('بدء تصويت وشراء بـ ') : __('شراء بـ ') }} {{ $item->price }}</span>
                                 {!! $this->renderEmoji($style['coin_emoji'], 'size-4 inline-block align-middle') !!}
                             </flux:button>
                         </div>
@@ -2301,7 +2694,7 @@ new class extends Component {
         </div>
 
         <!-- Badges Content -->
-        <div x-show="currentTab === 'badges'" class="space-y-4">
+        <div x-show="currentTab === 'badges'" x-cloak class="space-y-4">
             @if($allBadges->isEmpty())
                 <div class="text-center py-12 bg-slate-50 border border-slate-200 rounded-2xl">
                     <flux:icon icon="trophy" class="size-10 mx-auto text-slate-400 mb-3" />
@@ -2358,12 +2751,14 @@ new class extends Component {
                                 <h5 class="font-bold text-sm text-slate-800 leading-snug">{{ $badge->name }}</h5>
                                 <p class="text-[10px] text-slate-500 mt-1 line-clamp-2 leading-relaxed">{{ $badge->description }}</p>
                             </div>
+                            {{-- The two «اكتمل —» labels wrap: on one line they ran past a
+                                 phone's two-column card into the next one. The ! beats Flux's nowrap. --}}
                             @if($earned)
                                 <flux:badge color="emerald" size="sm" icon="check-circle">{{ __('مكتمل') }}</flux:badge>
                             @elseif($awaitingClaim)
-                                <flux:badge color="amber" size="sm" icon="gift">{{ __('اكتمل — بانتظار الاستلام') }}</flux:badge>
+                                <flux:badge color="amber" size="sm" icon="gift" class="max-w-full whitespace-normal! text-center leading-tight">{{ __('اكتمل — بانتظار الاستلام') }}</flux:badge>
                             @elseif($awaitingApproval)
-                                <flux:badge color="blue" size="sm" icon="clock">{{ __('اكتمل — بانتظار الاعتماد') }}</flux:badge>
+                                <flux:badge color="blue" size="sm" icon="clock" class="max-w-full whitespace-normal! text-center leading-tight">{{ __('اكتمل — بانتظار الاعتماد') }}</flux:badge>
                             @elseif($isManual)
                                 <flux:badge color="purple" size="sm" icon="hand-raised">{{ __('يُمنح يدوياً') }}</flux:badge>
                             @else
@@ -2398,13 +2793,13 @@ new class extends Component {
         </div>
 
         <!-- Leaderboard Content -->
-        <div x-show="currentTab === 'leaderboard'" class="space-y-6">
+        <div x-show="currentTab === 'leaderboard'" x-cloak class="space-y-6">
             <!-- Quranic Missions Section inside Main Tab -->
             <div class="space-y-4">
                 @php
                     $showTeamMultiplier = false;
-                    if ($activeGamification && isset($gamificationLevelInfo['current']) && $studentTeam && $teamRole === 'leader') {
-                        $lvlSettings = $gamificationLevelInfo['current']->settings ?? [];
+                    if ($activeGamification && isset($gamificationLevelInfo['perks']) && $studentTeam && $teamRole === 'leader') {
+                        $lvlSettings = $gamificationLevelInfo['perks']->settings ?? [];
                         $showTeamMultiplier = (bool) ($lvlSettings['has_team_multiplier'] ?? true);
                     }
                 @endphp
@@ -2453,15 +2848,31 @@ new class extends Component {
                                         </flux:badge>
                                         <span class="text-xs text-slate-400">{{ $m->day_name }} (<x-hijri-date :date="$m->date" />)</span>
                                     </div>
+                                    @php
+                                        /*
+                                         * The mission is the earliest ungraded day, which is rarely
+                                         * tomorrow: usually today, and for a skipped day or a plan
+                                         * that has run out, a day long past. The heading said
+                                         * «غداً» regardless, beside a date that said otherwise, so
+                                         * it now names the day the date is, in Riyadh's calendar.
+                                         */
+                                        $missionDate = $m->date->toDateString();
+                                        $missionToday = \App\Services\TeacherSyncSnapshot::today();
+                                        $missionHeading = match (true) {
+                                            $missionDate < $missionToday => __('مهمة متأخرة لم تُسمَّع بعد'),
+                                            $missionDate === $missionToday => __('مهمة اليوم'),
+                                            $missionDate === now('Asia/Riyadh')->addDay()->toDateString() => __('المهمة المطلوبة غداً'),
+                                            default => __('المهمة القادمة'),
+                                        };
+                                    @endphp
                                     <h4 class="font-black text-slate-900 text-lg leading-tight mt-2">
-                                        {{ __('المهمة المطلوبة غداً') }}
+                                        {{ $missionHeading }}
                                     </h4>
                                 </div>
 
                                 @php
-                                    $hifzXP = ($activeGamification->settings['hifz_excellent'] ?? 10);
-                                    $reviewXP = ($activeGamification->settings['review_excellent'] ?? 5);
-                                    $maxXP = $m->pendingPart === 'review' ? $reviewXP : $hifzXP;
+                                    // What an «ممتاز» pays here, as grading pays it; 0 when the competition doesn't reward this part.
+                                    $maxXP = \App\Services\GamificationService::excellentGradePoints($activeGamification->settings ?? [], $m->pendingPart)['xp'];
                                 @endphp
                                 <div class="flex flex-col sm:flex-row items-stretch gap-4 bg-slate-50/60 rounded-xl p-3 border border-slate-100">
                                     <div class="space-y-3 flex-1">
@@ -2478,17 +2889,21 @@ new class extends Component {
                                             </div>
                                         @endif
                                     </div>
+                                    @if($maxXP > 0 || $showTeamMultiplier)
                                     <div class="flex flex-row sm:flex-col items-center sm:items-end justify-between sm:justify-center gap-3 pt-3 sm:pt-0 sm:pr-4 border-t sm:border-t-0 sm:border-r border-slate-200/60">
-                                        <div class="text-right">
-                                            <span class="text-[9px] text-slate-400 font-bold block">{{ __('النقاط المتاحة') }}</span>
-                                            <span class="text-base font-black text-emerald-600">+{{ $maxXP }} XP</span>
-                                        </div>
+                                        @if($maxXP > 0)
+                                            <div data-mission-xp class="text-right">
+                                                <span class="text-[9px] text-slate-400 font-bold block">{{ __('النقاط المتاحة') }}</span>
+                                                <span class="text-base font-black text-emerald-600">+{{ $maxXP }} XP</span>
+                                            </div>
+                                        @endif
                                         @if($showTeamMultiplier)
                                             <flux:button variant="primary" wire:click="openDoublePointsModal('{{ $m->date->format('Y-m-d') }}', 'team')" size="sm" class="bg-team-primary hover:bg-team-primary-hover border-none font-bold !text-white shadow-sm" style="color: white !important;" icon="bolt">
                                                 {{ __('مضاعفة النقاط') }}
                                             </flux:button>
                                         @endif
                                     </div>
+                                    @endif
                                 </div>
                             </div>
                         @endforeach
@@ -2571,7 +2986,11 @@ new class extends Component {
                                     </button>
                                 </div>
 
-                                {{-- Hadith Text Modal for Student --}}
+                                {{--
+                                    Hadith Text Modal for Student. It stacks above the phone's
+                                    bottom bar (z-[9999]), which used to hide the «إغلاق» footer
+                                    and switch tabs behind the open modal when tapped.
+                                --}}
                                 <template x-teleport="body">
                                 <div x-show="showTextModal" 
                                      x-transition:enter="transition ease-out duration-300"
@@ -2580,7 +2999,8 @@ new class extends Component {
                                      x-transition:leave="transition ease-in duration-200"
                                      x-transition:leave-start="opacity-100 translate-y-0"
                                      x-transition:leave-end="opacity-0 translate-y-4"
-                                     class="fixed inset-0 z-50 bg-white dark:bg-zinc-900 flex flex-col w-full h-full text-zinc-900 dark:text-white"
+                                     data-hadith-text-modal
+                                     class="fixed inset-0 z-[10000] bg-white dark:bg-zinc-900 flex flex-col w-full h-full text-zinc-900 dark:text-white"
                                      x-cloak>
                                      
                                      {{-- Modal Header --}}
@@ -2693,7 +3113,7 @@ new class extends Component {
                                      </div>
 
                                      {{-- Modal Footer --}}
-                                     <div class="p-4 border-t border-zinc-100 dark:border-zinc-900 bg-zinc-50/50 dark:bg-zinc-900/50 flex justify-end shrink-0">
+                                     <div class="p-4 pb-[max(1rem,env(safe-area-inset-bottom))] border-t border-zinc-100 dark:border-zinc-900 bg-zinc-50/50 dark:bg-zinc-900/50 flex justify-end shrink-0">
                                          <flux:button type="button" @click="showTextModal = false" variant="ghost" class="text-zinc-700 dark:text-zinc-300">
                                              {{ __('إغلاق') }}
                                          </flux:button>
@@ -2706,8 +3126,11 @@ new class extends Component {
                 @endif
             </div>
 
-            <!-- Standings Table -->
-            <div class="space-y-4">
+            {{-- Standings Table. Its id is the one the plain dashboard's table
+                 carries, so the sidebar's «المتصدرون» and the rank tile both land
+                 here; the scroll margin keeps the heading clear of the pinned
+                 stats bar, taller from lg up where the tab strip joins it. --}}
+            <div id="leaderboard-standings" class="space-y-4 scroll-mt-24 lg:scroll-mt-40">
                 <flux:heading size="lg" class="text-slate-900 flex items-center gap-2 font-black">
                     <svg class="size-6 text-amber-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v5m-3 0h6m-6-14h6M4 7c0 2 1.5 4 3.5 4h1M20 7c0 2-1.5 4-3.5 4h-1m-7.5-4h9v6a4.5 4.5 0 01-9 0V7z"></path>
@@ -2749,7 +3172,7 @@ new class extends Component {
                                         <flux:icon icon="chevron-down" class="size-4 text-slate-400 transition-transform" x-bind:class="open ? 'rotate-180' : ''" />
                                     </div>
                                 </button>
-                                <div x-show="open" x-collapse class="border-t border-slate-100 overflow-x-auto">
+                                <div x-show="open" x-collapse x-cloak class="border-t border-slate-100 overflow-x-auto">
                                     <table class="w-full text-right">
                                         <tbody class="divide-y divide-slate-100">
                                             @foreach($group['standings'] as $standing)
@@ -2788,7 +3211,10 @@ new class extends Component {
         </div>
 
         <!-- News / Daily digest Content -->
-        <div x-show="currentTab === 'news'" class="space-y-4">
+        {{-- data-news-max-id: the newest news drawn here, which the news badge
+             marks as seen when the tab opens (gamification-news-badge). --}}
+        <div x-show="currentTab === 'news'" x-cloak class="space-y-4"
+            data-news-max-id="{{ (int) collect($dailyDigest)->flatten(1)->max('id') }}">
             @php
                 $typeMeta = [
                     'level_up'            => ['label' => 'ارتقاء المستويات', 'icon' => 'arrow-trending-up', 'head' => 'bg-emerald-50 text-emerald-700', 'ic' => 'text-emerald-600', 'dot' => 'bg-emerald-400'],
@@ -2884,7 +3310,7 @@ new class extends Component {
 
         <!-- Team Content -->
         @if($studentTeam)
-        <div x-show="currentTab === 'team'" class="space-y-6">
+        <div x-show="currentTab === 'team'" x-cloak class="space-y-6">
             <!-- Team Standings: rank, today's points, today's enthusiasm-day count -->
             @if(!empty($teamStandings))
                 <div class="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm">
@@ -2962,21 +3388,22 @@ new class extends Component {
                                 {{ $studentTeam->coins }} {!! $this->renderEmoji($style['coin_emoji'], 'size-6 inline-block align-middle') !!}
                             </span>
                         </div>
-                        <div class="bg-slate-50 border border-slate-100 rounded-2xl p-4 text-center shadow-inner">
+                        {{-- Both tiles read today's answers from with(), the same ones the aura and an attack use. --}}
+                        <div data-team-multiplier-tile data-active="{{ $teamMultiplierActiveToday ? '1' : '0' }}" class="bg-slate-50 border border-slate-100 rounded-2xl p-4 text-center shadow-inner">
                             <span class="text-xs text-slate-400 block font-bold mb-1">مضاعف النقاط</span>
                             <span class="text-sm font-bold block mt-1">
-                                @if(\App\Services\GamificationService::isMultiplierActiveForTeam($studentTeam, now()))
-                                    <span class="text-emerald-600">نشط ⚡</span>
+                                @if($teamMultiplierActiveToday)
+                                    <span class="text-emerald-600 inline-flex items-center gap-1">نشط <flux:icon icon="bolt" variant="mini" class="size-4" /></span>
                                 @else
                                     <span class="text-slate-400">غير نشط</span>
                                 @endif
                             </span>
                         </div>
-                        <div class="bg-slate-50 border border-slate-100 rounded-2xl p-4 text-center shadow-inner">
+                        <div data-team-shield-tile data-active="{{ $teamShieldActiveToday ? '1' : '0' }}" class="bg-slate-50 border border-slate-100 rounded-2xl p-4 text-center shadow-inner">
                             <span class="text-xs text-slate-400 block font-bold mb-1">درع الحماية</span>
                             <span class="text-sm font-bold block mt-1">
-                                @if($studentTeam->shield_active_until && $studentTeam->shield_active_until->isFuture())
-                                    <span class="text-emerald-600">نشط 🛡️</span>
+                                @if($teamShieldActiveToday)
+                                    <span class="text-emerald-600 inline-flex items-center gap-1">نشط <flux:icon icon="shield-check" variant="mini" class="size-4" /></span>
                                 @else
                                     <span class="text-slate-400">غير نشط</span>
                                 @endif
@@ -3002,15 +3429,18 @@ new class extends Component {
                     </div>
                 @endif
 
-                <!-- Donation inside team tab -->
+                <!-- Donation inside team tab; the allowance is read in with() -->
                 @php
-                    $donationStatus = ($activeGamification && $studentTeam)
-                        ? \App\Services\GamificationService::getDailyDonationStatus($student->id, $activeGamification->id)
-                        : ['has_donation' => false, 'percentage' => 0, 'base' => 0, 'limit' => 0, 'donated' => 0, 'remaining' => 0];
                     $hasDonation = $donationStatus['has_donation'];
                     $donationAllowed = min($gamificationState->coins ?? 0, $donationStatus['remaining']);
                 @endphp
-                @if($hasDonation)
+                @if($hasDonation && $donationClosedReason)
+                    {{-- Outside the competition's dates the treasury takes no donation; say so instead of offering a button that refuses. --}}
+                    <div data-donation-closed class="mt-6 border-t border-slate-100 pt-6 flex items-center gap-2">
+                        <flux:icon icon="lock-closed" class="size-5 text-slate-400 shrink-0" />
+                        <span class="text-sm text-slate-500 font-semibold">{{ $donationClosedReason }}</span>
+                    </div>
+                @elseif($hasDonation)
                     <div x-data="{ amount: 10, open: false, loading: false }" @donation-successful.window="open = false" @donation-finished.window="loading = false" class="mt-6 border-t border-slate-100 pt-6">
                         <div class="flex items-center justify-between">
                             <div class="flex items-center gap-2">
@@ -3025,7 +3455,7 @@ new class extends Component {
                             </button>
                         </div>
 
-                        <div x-show="open" x-collapse class="mt-4 bg-slate-50 p-4 rounded-2xl border border-slate-200/60 max-w-md space-y-3">
+                        <div x-show="open" x-collapse x-cloak class="mt-4 bg-slate-50 p-4 rounded-2xl border border-slate-200/60 max-w-md space-y-3">
                             <div class="flex gap-2">
                                 <input x-model="amount" type="number" min="1" max="{{ $donationAllowed }}" class="flex-1 text-sm rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-800 focus:outline-none focus:ring-1 focus:ring-team-primary focus:border-team-primary" />
                                 <button type="button" @click="$wire.donateToTeam(amount)" wire:loading.attr="disabled" wire:target="donateToTeam" class="text-sm px-4 py-2 rounded-xl font-bold transition-all duration-150 bg-team-primary hover:bg-team-primary-hover text-white disabled:opacity-50">
@@ -3147,7 +3577,7 @@ new class extends Component {
                                         {{ __('طلب شراء ميزة:') }} <span class="text-team-primary">{{ $purchase->item->name }}</span>
                                     </h4>
                                     <p class="text-xs text-slate-500 mt-1 leading-relaxed flex items-center gap-1">
-                                        <span>{{ __('صاحب الطلب:') }} {{ $purchase->student->name }} — {{ __('السعر من خزينة ال') }}{{ $theme['team_name'] }}: {{ $purchase->price_paid }}</span>
+                                        <span>{{ __('صاحب الطلب:') }} {{ $purchase->student?->name ?? __('طالب محذوف') }} — {{ __('السعر من خزينة ال') }}{{ $theme['team_name'] }}: {{ $purchase->price_paid }}</span>
                                         {!! $this->renderEmoji($style['coin_emoji'], 'size-3.5 inline-block align-middle') !!}
                                     </p>
 
@@ -3202,8 +3632,9 @@ new class extends Component {
                                             <div class="space-y-1.5 mr-2">
                                                 @forelse($purchase->votes as $vote)
                                                     @php
+                                                        // A deleted voter is listed as «طالب محذوف»; see the same list above.
                                                         $voter = $vote->student;
-                                                        $voterTeamStudent = $teamStudents->firstWhere('id', $voter->id);
+                                                        $voterTeamStudent = $voter ? $teamStudents->firstWhere('id', $voter->id) : null;
                                                         $voterRole = $voterTeamStudent ? $voterTeamStudent->pivot->role : 'member';
                                                         $roleLabel = $voterRole === 'leader' ? __('القائد') : ($voterRole === 'assistant' ? __('النائب') : __('عضو'));
                                                     @endphp
@@ -3213,16 +3644,19 @@ new class extends Component {
                                                         @else
                                                             <flux:icon icon="x-mark" class="size-4 text-rose-500 shrink-0" />
                                                         @endif
-                                                        @if($voter->avatar_path)
-                                                            <img src="{{ Storage::url($voter->avatar_path) }}" class="w-6 h-6 rounded-full object-cover border border-slate-200" />
+                                                        {{-- shrink-0: a long name beside it squashed the circle into an oval. --}}
+                                                        @if($voter?->avatar_path)
+                                                            <img src="{{ Storage::url($voter->avatar_path) }}" class="w-6 h-6 shrink-0 rounded-full object-cover border border-slate-200" />
                                                         @else
-                                                            <div class="w-6 h-6 rounded-full flex items-center justify-center font-bold text-[10px] border border-slate-200" style="{{ $voter->avatarStyle() }}">
-                                                                {{ $voter->initials() }}
+                                                            <div class="w-6 h-6 shrink-0 rounded-full flex items-center justify-center font-bold text-[10px] border border-slate-200" style="{{ $voter?->avatarStyle() }}">
+                                                                {{ $voter?->initials() ?? '؟' }}
                                                             </div>
                                                         @endif
-                                                        <span class="font-medium">
-                                                            {{ $voter->name }}
-                                                            <span class="text-[10px] text-slate-400">({{ $roleLabel }})</span>
+                                                        <span class="min-w-0 font-medium">
+                                                            {{ $voter?->name ?? __('طالب محذوف') }}
+                                                            @if($voter)
+                                                                <span class="text-[10px] text-slate-400">({{ $roleLabel }})</span>
+                                                            @endif
                                                         </span>
                                                     </div>
                                                 @empty
@@ -3390,9 +3824,7 @@ new class extends Component {
                                 <div class="text-left font-bold text-slate-700 shrink-0">
                                     @if($assignment->grade !== null)
                                         @php
-                                            $tx = \App\Models\GamificationTransaction::where('reference_type', \App\Models\GamificationTeamTaskAssignment::class)
-                                                ->where('reference_id', $assignment->id)
-                                                ->first();
+                                            $tx = $teamTaskTransactions->get($assignment->id);
                                             $awardedCoins = $tx ? $tx->amount : (int) round(($assignment->grade / 100) * $assignment->task->coins_reward);
                                             $awardedXp = $tx ? $tx->xp_amount : (int) round(($assignment->grade / 100) * $assignment->task->xp_reward);
                                         @endphp
@@ -3485,21 +3917,50 @@ new class extends Component {
 
                             $hijriDateStr = \App\Support\HijriDate::format($round->round_date, 'EEEE، d MMMM');
 
-                            $winner1 = $round->winners->first(function ($w) {
-                                return str_contains($w->rank->name, 'أول') || str_contains($w->rank->name, 'الاول');
-                            });
-                            $winner2 = $round->winners->first(function ($w) {
-                                return str_contains($w->rank->name, 'ثاني') || str_contains($w->rank->name, 'الثاني');
-                            });
-                            $winner3 = $round->winners->first(function ($w) {
-                                return str_contains($w->rank->name, 'ثالث') || str_contains($w->rank->name, 'الثالث');
-                            });
-                            
-                            $team1Name = $winner1 ? ($winner1->team->name ?? '-') : '-';
-                            $team2Name = $winner2 ? ($winner2->team->name ?? '-') : '-';
-                            $team3Name = $winner3 ? ($winner3->team->name ?? '-') : '-';
+                            /*
+                             * Each winner's podium place. The rank's name says it when
+                             * it is one of the defaults («المركز الأول» ...); a rank the
+                             * supervisor renamed («ذهبي») or left blank takes its order
+                             * among the activity's ranks instead. Read by name alone, a
+                             * renamed rank's winner showed as «-» here while the
+                             * supervisor's screen listed it. Teams tied on a place are
+                             * all named: only the first used to show.
+                             */
+                            $rankOrder = $round->activity->ranks->sortBy('id')->pluck('id')->values();
+                            $placeOf = function ($rank) use ($rankOrder): ?int {
+                                $name = (string) $rank?->name;
+                                if (str_contains($name, 'أول') || str_contains($name, 'اول')) {
+                                    return 1;
+                                }
+                                if (str_contains($name, 'ثاني')) {
+                                    return 2;
+                                }
+                                if (str_contains($name, 'ثالث')) {
+                                    return 3;
+                                }
+                                $position = $rank ? $rankOrder->search($rank->id) : false;
+
+                                return $position === false ? null : $position + 1;
+                            };
+                            $winnersByPlace = $round->winners->groupBy(fn ($w) => $placeOf($w->rank) ?? 0);
+                            $teamNamesAt = fn (int $place): string => $winnersByPlace->get($place, collect())
+                                ->map(fn ($w) => $w->team?->name)
+                                ->filter()
+                                ->unique()
+                                ->implode(' / ') ?: '-';
+
+                            $team1Name = $teamNamesAt(1);
+                            $team2Name = $teamNamesAt(2);
+                            $team3Name = $teamNamesAt(3);
                         @endphp
-                        <div class="relative w-full rounded-3xl p-6 flex flex-col justify-between gap-6 shadow-md hover:shadow-lg transition-all duration-300 hover:-translate-y-1 overflow-hidden font-zain border-none" style="background-color: {{ $activityColor }}; min-height: 220px;">
+                        {{--
+                            The card is a size container, so the podium row reads the
+                            card's own width, not the screen's: a phone's single column
+                            and a laptop's two columns are both too narrow to hold the
+                            date and the podium side by side, which pushed the 2nd place
+                            past the card's edge. There the podium stacks over the date.
+                        --}}
+                        <div class="@container relative w-full rounded-3xl p-6 flex flex-col justify-between gap-6 shadow-md hover:shadow-lg transition-all duration-300 hover:-translate-y-1 overflow-hidden font-zain border-none" style="background-color: {{ $activityColor }}; min-height: 220px;">
                             @if($round->activity->icon_path)
                                 <img src="{{ Storage::url($round->activity->icon_path) }}" class="absolute top-5 right-5 w-18 h-18 object-contain rounded-xl shadow-inner shadow-gray-800/30" />
                             @endif
@@ -3515,29 +3976,29 @@ new class extends Component {
                                 @endif
                             </div>
 
-                            <div class="flex items-end justify-between w-full mt-auto">
-                                <div class="flex flex-col justify-end text-right">
+                            <div class="flex flex-col-reverse items-center gap-4 @sm:flex-row @sm:items-end @sm:justify-between w-full mt-auto">
+                                <div class="flex flex-col justify-end min-w-0 items-center text-center @sm:items-start @sm:text-right">
                                     <span class="text-[20px] font-bold mb-1.5 leading-none" style="color: {{ $dateColor }}">{{ $hijriDateStr }}</span>
                                     <div class="px-4 py-1.5 rounded-xl text-white font-black text-[18px] @min-[400px]:text-[20px] shadow-sm text-center leading-none" style="background-color: {{ $darkerColor }}">
                                         {{ $round->name }}
                                     </div>
                                 </div>
 
-                                <div class="flex items-end gap-1.5 pb-1">
+                                <div class="flex items-end gap-1.5 pb-1 shrink-0">
                                     <div class="flex flex-col items-center">
-                                        <span class="text-[16px] font-black mb-1.5 text-center truncate max-w-[65px] leading-none" style="color: {{ $darkerColor }}">{{ $team3Name }}</span>
+                                        <span class="text-[16px] font-black mb-1.5 text-center truncate max-w-[65px] leading-none" style="color: {{ $darkerColor }}" title="{{ $team3Name }}" data-podium-place="3">{{ $team3Name }}</span>
                                         <div class="w-11 h-10 rounded-t-md bg-white/20 backdrop-blur-xs flex items-center justify-center shadow-xs">
                                             <span class="text-[24px] font-black" style="color: {{ $darkerColor }}">٣</span>
                                         </div>
                                     </div>
                                     <div class="flex flex-col items-center">
-                                        <span class="text-[18px] font-black mb-1.5 text-center truncate max-w-[75px] leading-none text-white drop-shadow-sm">{{ $team1Name }}</span>
+                                        <span class="text-[18px] font-black mb-1.5 text-center truncate max-w-[75px] leading-none text-white drop-shadow-sm" title="{{ $team1Name }}" data-podium-place="1">{{ $team1Name }}</span>
                                         <div class="w-13 h-18 rounded-t-md bg-white/40 backdrop-blur-xs flex items-center justify-center shadow-sm">
                                             <span class="text-[28px] font-black" style="color: {{ $darkerColor }}">١</span>
                                         </div>
                                     </div>
                                     <div class="flex flex-col items-center">
-                                        <span class="text-[16px] font-black mb-1.5 text-center truncate max-w-[65px] leading-none" style="color: {{ $darkerColor }}">{{ $team2Name }}</span>
+                                        <span class="text-[16px] font-black mb-1.5 text-center truncate max-w-[65px] leading-none" style="color: {{ $darkerColor }}" title="{{ $team2Name }}" data-podium-place="2">{{ $team2Name }}</span>
                                         <div class="w-11 h-14 rounded-t-md bg-white/30 backdrop-blur-xs flex items-center justify-center shadow-xs">
                                             <span class="text-[24px] font-black" style="color: {{ $darkerColor }}">٢</span>
                                         </div>
@@ -3582,15 +4043,16 @@ new class extends Component {
                                     @endphp
                                     <tr class="transition-colors duration-150 {{ $isMe ? 'bg-team-10 text-slate-900 font-bold' : 'text-slate-700 hover:bg-slate-50/50' }}">
                                         <td class="p-4">
+                                            {{-- shrink-0: a long name beside it squashed the circle into an oval. --}}
                                             <div class="flex items-center gap-3">
                                                 @if($ts->avatar_path)
-                                                    <img src="{{ Storage::url($ts->avatar_path) }}" class="w-9 h-9 rounded-full object-cover border border-slate-200" />
+                                                    <img src="{{ Storage::url($ts->avatar_path) }}" class="w-9 h-9 shrink-0 rounded-full object-cover border border-slate-200" />
                                                 @else
-                                                    <div class="w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm border border-slate-200" style="{{ $ts->avatarStyle() }}">
+                                                    <div class="w-9 h-9 shrink-0 rounded-full flex items-center justify-center font-bold text-sm border border-slate-200" style="{{ $ts->avatarStyle() }}">
                                                         {{ $ts->initials() }}
                                                     </div>
                                                 @endif
-                                                <div class="flex flex-col">
+                                                <div class="flex flex-col min-w-0">
                                                     <span>{{ $ts->name }}</span>
                                                     @if($isMe)
                                                         <span class="text-[9px] text-team-primary font-bold uppercase tracking-wider">{{ __('أنت') }}</span>
@@ -3614,7 +4076,7 @@ new class extends Component {
                                         </td>
                                         <td class="p-4 text-center">
                                             <span class="font-bold text-amber-600 flex items-center justify-center gap-1">
-                                                {{ $style['streak_emoji'] }} {{ $tsState->current_streak ?? 0 }}
+                                                {{ $style['streak_emoji'] }} {{ $teamStudentStreaks[$ts->id] ?? 0 }}
                                             </span>
                                         </td>
                                     </tr>
@@ -3693,8 +4155,9 @@ new class extends Component {
                     <flux:heading size="lg">
                         شراء وتفعيل تجميد الحماسة ❄️
                     </flux:heading>
+                    {{-- Filled from the state openFreezeModal() sets, which draws nothing. --}}
                     <flux:subheading>
-                        حماية شعلة حماستك ليوم {{ $freezeDayName }} ({{ $freezeHijriDate }}).
+                        حماية شعلة حماستك ليوم <span data-freeze-day x-text="$wire.freezeDayName">{{ $freezeDayName }}</span> (<span data-freeze-hijri x-text="$wire.freezeHijriDate">{{ $freezeHijriDate }}</span>).
                     </flux:subheading>
                 </div>
             </div>
@@ -3705,12 +4168,12 @@ new class extends Component {
                     <span>معلومات أيام التجميد لمستواك:</span>
                 </div>
                 @php
-                    $maxPrevDays = $activeGamification ? \App\Services\GamificationService::getStudentMaxFreezeDays($student, $activeGamification) : 1;
+                    $maxPrevDays = $maxFreezeDays;
                     $freezeRules = $activeGamification->settings['streak_freeze_levels'] ?? [];
                     usort($freezeRules, fn ($a, $b) => ($a['level'] ?? 0) <=> ($b['level'] ?? 0));
                 @endphp
                 <p>
-                    أنت الآن في المستوى <span class="font-bold text-blue-900">{{ $gamificationLevelInfo['current']->level_number ?? 1 }}</span>، ويُسمح لك بتجميد اليوم الحالي وحتى <span class="font-bold text-blue-900">{{ $maxPrevDays }}</span> من الأيام السابقة.
+                    أنت الآن في المستوى <span class="font-bold text-blue-900">{{ $studentLevel }}</span>، ويُسمح لك بتجميد اليوم الحالي وحتى <span class="font-bold text-blue-900">{{ $maxPrevDays }}</span> من الأيام السابقة.
                 </p>
                 @if($nextFreezeUpgrade)
                     <div class="mt-2 pt-2 border-t border-blue-200/50 text-[11px] text-indigo-700 font-semibold flex items-center gap-1">
@@ -3736,7 +4199,7 @@ new class extends Component {
                 <span class="text-sm font-bold text-slate-600">
                     تكلفة الشراء (رصيدك الفردي):
                 </span>
-                <span class="font-black text-amber-600">{{ $freezePrice }} {!! $this->renderEmoji($style['coin_emoji'] ?? '🪙', 'size-5 inline-block align-middle') !!}</span>
+                <span class="font-black text-amber-600"><span data-freeze-price x-text="$wire.freezePrice">{{ $freezePrice }}</span> {!! $this->renderEmoji($style['coin_emoji'] ?? '🪙', 'size-5 inline-block align-middle') !!}</span>
             </div>
 
             <div class="flex gap-2">

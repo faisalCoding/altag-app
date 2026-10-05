@@ -21,6 +21,7 @@ use App\Models\StudentOdeAchievement;
 use App\Models\StudentPlanDay;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -72,9 +73,15 @@ class GamificationService
             'student_id' => $studentId,
         ]);
 
+        // The level is read once and handed to both level syncs below. Counting
+        // the XP behind it dates every earning (getStudentXP()), a read each sync
+        // made again on its own; the level rewards granted in between are coins
+        // only, so the level cannot move from one to the other.
+        $levelInfo = self::getStudentLevel($studentId, $leaderboardId);
+
         // Grant any newly-reached level rewards first so immediately-claimed
         // (non-manual-claim) rewards are reflected in the coin total below.
-        self::syncStudentLevelRewards($studentId, $leaderboardId);
+        self::syncStudentLevelRewards($studentId, $leaderboardId, $levelInfo);
 
         $coins = GamificationTransaction::where('leaderboard_id', $leaderboardId)
             ->where('student_id', $studentId)
@@ -86,7 +93,7 @@ class GamificationService
         $state->save();
 
         // Announce a level-up in the competition news feed when XP crosses a level.
-        GamificationNewsService::syncStudentLevel($studentId, $leaderboardId);
+        GamificationNewsService::syncStudentLevel($studentId, $leaderboardId, $levelInfo);
     }
 
     /**
@@ -98,8 +105,10 @@ class GamificationService
      * manual claim when the competition enables it, applied immediately otherwise.
      * Level rewards are coins-only by design so they cannot feed back into XP and
      * trigger further level-ups.
+     *
+     * @param  array<string, mixed>|null  $levelInfo  the student's level, when the caller already has it; see recalculateStudentState()
      */
-    public static function syncStudentLevelRewards(int $studentId, int $leaderboardId): void
+    public static function syncStudentLevelRewards(int $studentId, int $leaderboardId, ?array $levelInfo = null): void
     {
         $leaderboard = Leaderboard::find($leaderboardId);
 
@@ -107,8 +116,11 @@ class GamificationService
             return;
         }
 
-        $levelInfo = self::getStudentLevel($studentId, $leaderboardId);
-        $currentLevelNumber = (int) ($levelInfo['current']->level_number ?? 1);
+        $levelInfo ??= self::getStudentLevel($studentId, $leaderboardId);
+
+        // No level yet (below a first level that needs XP; see getStudentLevel())
+        // reaches none, so no reward is due until the first level's threshold.
+        $currentLevelNumber = (int) ($levelInfo['current']->level_number ?? 0);
 
         // Only persisted levels can be referenced by a transaction. Reward every
         // reached level (level_number <= current) that has a coin reward set.
@@ -355,6 +367,31 @@ class GamificationService
         $coins = $settings["{$part}_{$key}_coins"] ?? ($settings["{$part}_{$key}"] ?? $default);
 
         return [$xp, $coins, "{$label} (+{$xp} XP، +{$coins} عملة)"];
+    }
+
+    /**
+     * What an «ممتاز» in one part of a plan day pays in a competition, before
+     * any multiplier: the most a mission card can promise.
+     *
+     * Read through gradePoints() and the same on/off switch syncStudentPlanDayXP()
+     * checks, so the promise can't drift from the pay. The student's mission card
+     * used to read the old setting keys on its own and promise +10 / +5 XP
+     * whatever the supervisor had set, even for a part the competition doesn't
+     * reward at all.
+     *
+     * @param  array<string, mixed>  $settings
+     * @param  'hifz'|'review'  $part
+     * @return array{xp: int, coins: int}
+     */
+    public static function excellentGradePoints(array $settings, string $part): array
+    {
+        if (! ($settings["{$part}_enabled"] ?? false)) {
+            return ['xp' => 0, 'coins' => 0];
+        }
+
+        [$xp, $coins] = self::gradePoints($settings, $part, 3);
+
+        return ['xp' => (int) $xp, 'coins' => (int) $coins];
     }
 
     /**
@@ -1374,152 +1411,353 @@ class GamificationService
         // Get working days for the leaderboard
         $workingDaysDates = self::getWorkingDaysForLeaderboard($leaderboard, $student->effective_stage_id);
 
-        // Get all approved purchases of streak freezes with target_date
+        // Get all approved purchases of streak freezes with target_date, bought in
+        // this competition: a freeze bought in another one used to hold this
+        // streak too.
         $freezesPurchasedDates = GamificationStorePurchase::where('student_id', $student->id)
             ->where('status', 'approved')
-            ->whereHas('item', fn ($q) => $q->where('is_streak_freeze', true))
+            ->whereHas('item', fn ($q) => $q->where('is_streak_freeze', true)->where('leaderboard_id', $leaderboard->id))
             ->whereNotNull('target_date')
             ->pluck('target_date')
             ->map(fn ($d) => Carbon::parse($d)->format('Y-m-d'))
             ->toArray();
 
-        // 1. Get previously claimed milestone IDs that are already 'claimed'
-        $previouslyClaimedMilestoneIds = DB::table('gamification_claimed_milestones')
-            ->where('student_id', $student->id)
-            ->where('status', 'claimed')
-            ->pluck('milestone_id')
-            ->toArray();
+        /*
+         * Everything from here to the saved state is one transaction. The
+         * milestone rows and their reward transactions are deleted and written
+         * again, and a render of the student's page and a teacher's grading can
+         * rebuild the same student at the same moment: run statement by
+         * statement, both deleted and then both inserted, which left every
+         * milestone row twice and, for a milestone already taken, its reward
+         * paid twice until the next rebuild. Retried, because SQLite refuses a
+         * second writer outright, rather than making it wait, when its reads
+         * began before the first writer's commit.
+         *
+         * The streak is worked out first and written only when it differs from
+         * what is stored. The rebuild runs whenever the student's page opens and
+         * whenever a teacher marks them, and almost always arrives at the rows
+         * already there; deleting and writing them back each time cost a dozen
+         * writes per page, gave the claim rows new ids under an open claim, and
+         * retired the cached team standings for the whole competition, so no
+         * student's page ever read them from the cache. What gets written, when
+         * anything does, is exactly what the rebuild always wrote.
+         */
+        DB::transaction(function () use ($student, $leaderboard, $enthusiasmMap, $workingDaysDates, $freezesPurchasedDates): void {
+            // 1. Get previously claimed milestone IDs that are already 'claimed'
+            $previouslyClaimedMilestoneIds = DB::table('gamification_claimed_milestones')
+                ->where('student_id', $student->id)
+                ->where('status', 'claimed')
+                ->pluck('milestone_id')
+                ->toArray();
 
-        // 2. Delete all claimed milestone records for this student on this leaderboard
-        $milestoneIds = DB::table('gamification_streak_milestones')
-            ->where('leaderboard_id', $leaderboard->id)
-            ->pluck('id')
-            ->toArray();
+            $milestones = DB::table('gamification_streak_milestones')
+                ->where('leaderboard_id', $leaderboard->id)
+                ->orderBy('days_required', 'asc')
+                ->get();
+            $milestoneIds = $milestones->pluck('id')->all();
 
-        DB::table('gamification_claimed_milestones')
-            ->where('student_id', $student->id)
-            ->whereIn('milestone_id', $milestoneIds)
-            ->delete();
+            // The reward badges the student already holds, in any status: a
+            // milestone gives its badge only to a student without it.
+            $rewardBadgeIds = $milestones->pluck('reward_badge_id')->filter()->unique()->values()->all();
+            $heldBadgeIds = empty($rewardBadgeIds) ? [] : DB::table('gamification_badge_student')
+                ->where('student_id', $student->id)
+                ->whereIn('badge_id', $rewardBadgeIds)
+                ->pluck('badge_id')
+                ->map(fn ($id) => (int) $id)
+                ->all();
 
-        // 3. Delete all milestone transactions for this student on this leaderboard
-        GamificationTransaction::where('leaderboard_id', $leaderboard->id)
-            ->where('student_id', $student->id)
-            ->where('type', 'earn')
-            ->where('description', 'like', 'مكافأة أيام الحماسة لـ%')
-            ->delete();
+            // 2. Simulate the streak over the working days: each milestone reached
+            // becomes a claim row, its reward when the student already took it,
+            // and its badge when they don't hold it yet.
+            $currentStreak = 0;
+            $maxStreak = 0;
+            $lastActivityDate = null;
+            $claimedInCurrentRun = [];
+            $awards = [];
 
-        // 4. Delete all freeze consumption transactions to recreate them (deprecated, but keep cleanup for old logs)
-        GamificationTransaction::where('leaderboard_id', $leaderboard->id)
-            ->where('student_id', $student->id)
-            ->where('type', 'spend')
-            ->where('description', 'like', 'استهلاك عدد (%')
-            ->delete();
+            foreach ($workingDaysDates as $dateStr) {
+                $triggered = $enthusiasmMap[$dateStr] ?? false;
+                $isFrozen = in_array($dateStr, $freezesPurchasedDates);
 
-        // Simulation state
-        $currentStreak = 0;
-        $maxStreak = 0;
-        $lastActivityDate = null;
-        $claimedInCurrentRun = [];
-
-        $milestones = DB::table('gamification_streak_milestones')
-            ->where('leaderboard_id', $leaderboard->id)
-            ->orderBy('days_required', 'asc')
-            ->get();
-
-        foreach ($workingDaysDates as $dateStr) {
-            $triggered = $enthusiasmMap[$dateStr] ?? false;
-            $isFrozen = in_array($dateStr, $freezesPurchasedDates);
-
-            if ($triggered || $isFrozen) {
-                if ($lastActivityDate === null) {
-                    $currentStreak = 1;
-                    $lastActivityDate = $dateStr;
-                    $claimedInCurrentRun = [];
-                } else {
-                    $currIdx = array_search($dateStr, $workingDaysDates);
-                    $lastIdx = array_search($lastActivityDate, $workingDaysDates);
-                    $diffInWorkingDays = ($currIdx !== false && $lastIdx !== false) ? ($currIdx - $lastIdx) : 1;
-
-                    if ($diffInWorkingDays === 1) {
-                        $currentStreak++;
-                        $lastActivityDate = $dateStr;
-                    } else {
-                        // Streak broken
+                if ($triggered || $isFrozen) {
+                    if ($lastActivityDate === null) {
                         $currentStreak = 1;
                         $lastActivityDate = $dateStr;
                         $claimedInCurrentRun = [];
+                    } else {
+                        $currIdx = array_search($dateStr, $workingDaysDates);
+                        $lastIdx = array_search($lastActivityDate, $workingDaysDates);
+                        $diffInWorkingDays = ($currIdx !== false && $lastIdx !== false) ? ($currIdx - $lastIdx) : 1;
+
+                        if ($diffInWorkingDays === 1) {
+                            $currentStreak++;
+                            $lastActivityDate = $dateStr;
+                        } else {
+                            // Streak broken
+                            $currentStreak = 1;
+                            $lastActivityDate = $dateStr;
+                            $claimedInCurrentRun = [];
+                        }
                     }
-                }
 
-                if ($currentStreak > $maxStreak) {
-                    $maxStreak = $currentStreak;
-                }
+                    if ($currentStreak > $maxStreak) {
+                        $maxStreak = $currentStreak;
+                    }
 
-                // Check and award milestones for the current streak on this day
-                foreach ($milestones as $milestone) {
-                    if ($milestone->days_required <= $currentStreak && ! in_array($milestone->id, $claimedInCurrentRun)) {
-                        $isPreviouslyClaimed = in_array($milestone->id, $previouslyClaimedMilestoneIds);
+                    // Check and award milestones for the current streak on this day
+                    foreach ($milestones as $milestone) {
+                        if ($milestone->days_required <= $currentStreak && ! in_array($milestone->id, $claimedInCurrentRun)) {
+                            $isPreviouslyClaimed = in_array($milestone->id, $previouslyClaimedMilestoneIds);
+                            $stamp = Carbon::parse($dateStr)->toDateTimeString();
 
-                        DB::table('gamification_claimed_milestones')->insert([
-                            'student_id' => $student->id,
-                            'milestone_id' => $milestone->id,
-                            'streak_run_count' => $currentStreak,
-                            'status' => $isPreviouslyClaimed ? 'claimed' : 'approved',
-                            'created_at' => Carbon::parse($dateStr)->toDateTimeString(),
-                            'updated_at' => Carbon::parse($dateStr)->toDateTimeString(),
-                        ]);
+                            $award = [
+                                'row' => [
+                                    'student_id' => $student->id,
+                                    'milestone_id' => $milestone->id,
+                                    'streak_run_count' => $currentStreak,
+                                    'status' => $isPreviouslyClaimed ? 'claimed' : 'approved',
+                                    'created_at' => $stamp,
+                                    'updated_at' => $stamp,
+                                ],
+                                'reward' => null,
+                                'badge' => null,
+                            ];
 
-                        if ($isPreviouslyClaimed) {
-                            if ($milestone->reward_xp > 0 || $milestone->reward_coins > 0) {
-                                GamificationTransaction::create([
+                            if ($isPreviouslyClaimed && ($milestone->reward_xp > 0 || $milestone->reward_coins > 0)) {
+                                $award['reward'] = [
                                     'leaderboard_id' => $leaderboard->id,
                                     'student_id' => $student->id,
                                     'type' => 'earn',
                                     'amount' => $milestone->reward_coins,
                                     'xp_amount' => $milestone->reward_xp,
                                     'description' => "مكافأة أيام الحماسة لـ {$milestone->days_required} أيام متتالية: {$milestone->description}",
-                                    'created_at' => Carbon::parse($dateStr)->toDateTimeString(),
-                                    'updated_at' => Carbon::parse($dateStr)->toDateTimeString(),
-                                ]);
+                                    'created_at' => $stamp,
+                                    'updated_at' => $stamp,
+                                ];
                             }
-                        }
 
-                        if ($milestone->reward_badge_id) {
-                            $hasBadge = DB::table('gamification_badge_student')
-                                ->where('badge_id', $milestone->reward_badge_id)
-                                ->where('student_id', $student->id)
-                                ->exists();
-
-                            if (! $hasBadge) {
-                                DB::table('gamification_badge_student')->insert([
+                            if ($milestone->reward_badge_id && ! in_array((int) $milestone->reward_badge_id, $heldBadgeIds, true)) {
+                                $award['badge'] = [
                                     'badge_id' => $milestone->reward_badge_id,
                                     'student_id' => $student->id,
                                     'status' => 'pending_approval',
-                                    'created_at' => Carbon::parse($dateStr)->toDateTimeString(),
-                                    'updated_at' => Carbon::parse($dateStr)->toDateTimeString(),
-                                ]);
+                                    'created_at' => $stamp,
+                                    'updated_at' => $stamp,
+                                ];
+                                $heldBadgeIds[] = (int) $milestone->reward_badge_id;
                             }
-                        }
 
-                        $claimedInCurrentRun[] = $milestone->id;
+                            $awards[] = $award;
+                            $claimedInCurrentRun[] = $milestone->id;
+                        }
                     }
                 }
             }
-        }
 
-        // Save simulated state
-        $state = GamificationStudentState::firstOrNew([
-            'leaderboard_id' => $leaderboard->id,
-            'student_id' => $student->id,
-        ]);
+            // 3. Write the milestone rows and rewards again, unless they already
+            // stand exactly as simulated.
+            if (! self::streakAwardsAlreadyStored($student, $leaderboard, $milestoneIds, $awards)) {
+                DB::table('gamification_claimed_milestones')
+                    ->where('student_id', $student->id)
+                    ->whereIn('milestone_id', $milestoneIds)
+                    ->delete();
 
-        $state->current_streak = $currentStreak;
-        $state->max_streak = $maxStreak;
-        $state->last_activity_date = $lastActivityDate ? Carbon::parse($lastActivityDate) : null;
-        $state->streak_freezes_count = count($freezesPurchasedDates);
-        $state->save();
+                GamificationTransaction::where('leaderboard_id', $leaderboard->id)
+                    ->where('student_id', $student->id)
+                    ->where('type', 'earn')
+                    ->where('description', 'like', 'مكافأة أيام الحماسة لـ%')
+                    ->delete();
+
+                // Freeze consumption transactions (deprecated, but keep cleanup for old logs)
+                GamificationTransaction::where('leaderboard_id', $leaderboard->id)
+                    ->where('student_id', $student->id)
+                    ->where('type', 'spend')
+                    ->where('description', 'like', 'استهلاك عدد (%')
+                    ->delete();
+
+                foreach ($awards as $award) {
+                    DB::table('gamification_claimed_milestones')->insert($award['row']);
+
+                    if ($award['reward']) {
+                        GamificationTransaction::create($award['reward']);
+                    }
+
+                    if ($award['badge']) {
+                        DB::table('gamification_badge_student')->insert($award['badge']);
+                    }
+                }
+            }
+
+            // Save simulated state
+            $state = GamificationStudentState::firstOrNew([
+                'leaderboard_id' => $leaderboard->id,
+                'student_id' => $student->id,
+            ]);
+
+            // The run broken by a missed working day since counts no more; see
+            // liveStreak(). The milestones it reached stay reached.
+            $state->current_streak = self::liveStreakFrom($currentStreak, $lastActivityDate, $workingDaysDates);
+            $state->max_streak = $maxStreak;
+            $state->last_activity_date = $lastActivityDate ? Carbon::parse($lastActivityDate) : null;
+            $state->streak_freezes_count = count($freezesPurchasedDates);
+            $state->save();
+        }, 3);
 
         self::recalculateStudentState($student->id, $leaderboard->id);
+    }
+
+    /**
+     * The student's enthusiasm streak as it stands today.
+     *
+     * A streak lives while the last working day before today kept it: an
+     * enthusiasm day, or a day the student froze (frozen days are activity in
+     * the rebuild, so they set last_activity_date). Today never breaks it, since
+     * the student may still earn enthusiasm today. Once a working day before
+     * today has passed without either, the streak is 0.
+     *
+     * The stored current_streak only changes when the streak is rebuilt, which
+     * happens on grading, attendance and the student's own page; a student
+     * nobody marked kept showing the run they had before they stopped, and the
+     * next enthusiasm day restarted it at 1. Read it through here wherever it is
+     * shown, with that student's working days.
+     *
+     * @param  array<int, string>  $workingDays  'Y-m-d', the student's working days in the competition
+     */
+    public static function liveStreak(?GamificationStudentState $state, array $workingDays, ?string $today = null): int
+    {
+        if (! $state) {
+            return 0;
+        }
+
+        return self::liveStreakFrom((int) $state->current_streak, $state->last_activity_date, $workingDays, $today);
+    }
+
+    /**
+     * @param  array<int, string>  $workingDays
+     */
+    private static function liveStreakFrom(int $streak, CarbonInterface|string|null $lastActivityDate, array $workingDays, ?string $today = null): int
+    {
+        if ($streak <= 0 || $lastActivityDate === null) {
+            return 0;
+        }
+
+        $today ??= now('Asia/Riyadh')->format('Y-m-d');
+        $lastActivity = Carbon::parse($lastActivityDate)->format('Y-m-d');
+
+        // The last working day strictly before today.
+        $previousWorkingDay = collect($workingDays)
+            ->filter(fn (string $day) => $day < $today)
+            ->max();
+
+        if ($previousWorkingDay !== null && $lastActivity < $previousWorkingDay) {
+            return 0;
+        }
+
+        return $streak;
+    }
+
+    /**
+     * Whether a streak rebuild would write back exactly the rows already stored.
+     *
+     * True when the student's claim rows for the competition's milestones and
+     * their milestone rewards match the simulated ones column for column (the
+     * ids aside), no deprecated freeze-consumption row is left to clear, and no
+     * badge is due. Anything else, including a row stored twice or a reward
+     * written by a claim rather than by a rebuild, means writing them again.
+     *
+     * @param  array<int, int>  $milestoneIds
+     * @param  array<int, array{row: array<string, mixed>, reward: array<string, mixed>|null, badge: array<string, mixed>|null}>  $awards
+     */
+    private static function streakAwardsAlreadyStored(Student $student, Leaderboard $leaderboard, array $milestoneIds, array $awards): bool
+    {
+        if (collect($awards)->contains(fn (array $award) => $award['badge'] !== null)) {
+            return false;
+        }
+
+        $stamp = fn ($value) => $value === null ? null : Carbon::parse($value)->toDateTimeString();
+
+        $rowKey = fn ($row) => json_encode([
+            (int) $row['milestone_id'],
+            (int) $row['streak_run_count'],
+            (string) $row['status'],
+            $stamp($row['created_at']),
+            $stamp($row['updated_at']),
+        ]);
+
+        $storedRows = DB::table('gamification_claimed_milestones')
+            ->where('student_id', $student->id)
+            ->whereIn('milestone_id', $milestoneIds)
+            ->get()
+            ->map(fn ($row) => $rowKey((array) $row))
+            ->sort()
+            ->values()
+            ->all();
+
+        $simulatedRows = collect($awards)
+            ->map(fn (array $award) => $rowKey($award['row']))
+            ->sort()
+            ->values()
+            ->all();
+
+        if ($storedRows !== $simulatedRows) {
+            return false;
+        }
+
+        $rewardKey = fn (array $reward) => json_encode([
+            (int) $reward['amount'],
+            (int) $reward['xp_amount'],
+            (string) $reward['description'],
+            $reward['team_id'],
+            $reward['reference_type'],
+            $reward['reference_id'],
+            $reward['claimed'],
+            $stamp($reward['created_at']),
+            $stamp($reward['updated_at']),
+        ]);
+
+        $storedRewards = GamificationTransaction::where('leaderboard_id', $leaderboard->id)
+            ->where('student_id', $student->id)
+            ->where('type', 'earn')
+            ->where('description', 'like', 'مكافأة أيام الحماسة لـ%')
+            ->get()
+            ->map(fn (GamificationTransaction $transaction) => $rewardKey([
+                'amount' => $transaction->amount,
+                'xp_amount' => $transaction->xp_amount,
+                'description' => $transaction->description,
+                'team_id' => $transaction->team_id,
+                'reference_type' => $transaction->reference_type,
+                'reference_id' => $transaction->reference_id,
+                'claimed' => $transaction->getRawOriginal('claimed_at') !== null,
+                'created_at' => $transaction->getRawOriginal('created_at'),
+                'updated_at' => $transaction->getRawOriginal('updated_at'),
+            ]))
+            ->sort()
+            ->values()
+            ->all();
+
+        // A rebuilt reward has no team or reference, and counts at once.
+        $simulatedRewards = collect($awards)
+            ->pluck('reward')
+            ->filter()
+            ->map(fn (array $reward) => $rewardKey($reward + [
+                'team_id' => null,
+                'reference_type' => null,
+                'reference_id' => null,
+                'claimed' => true,
+            ]))
+            ->sort()
+            ->values()
+            ->all();
+
+        if ($storedRewards !== $simulatedRewards) {
+            return false;
+        }
+
+        return ! GamificationTransaction::where('leaderboard_id', $leaderboard->id)
+            ->where('student_id', $student->id)
+            ->where('type', 'spend')
+            ->where('description', 'like', 'استهلاك عدد (%')
+            ->exists();
     }
 
     /**
@@ -1529,13 +1767,17 @@ class GamificationService
      * balance at the START of the current day. Coins earned or spent during the same
      * day do not change this base, so the allowance is stable throughout the day.
      *
+     * Pass the student's level as getStudentLevel() returned it, when the caller
+     * already has it, to save reading it again; see getFreezeableDates().
+     *
+     * @param  array<string, mixed>|null  $levelInfo
      * @return array{has_donation: bool, percentage: int, base: int, limit: int, donated: int, remaining: int}
      */
-    public static function getDailyDonationStatus(int $studentId, int $leaderboardId): array
+    public static function getDailyDonationStatus(int $studentId, int $leaderboardId, ?array $levelInfo = null): array
     {
-        // Read the donation rules from the student's ACTUAL current level
-        // (getStudentLevel returns the resolved level object under 'current').
-        $currentLevel = self::getStudentLevel($studentId, $leaderboardId)['current'] ?? null;
+        // Read the donation rules from the level whose settings apply to the
+        // student (getStudentLevel returns it under 'perks').
+        $currentLevel = ($levelInfo ?? self::getStudentLevel($studentId, $leaderboardId))['perks'] ?? null;
         $levelSettings = $currentLevel->settings ?? [];
         $hasDonation = (bool) ($levelSettings['has_donation'] ?? true);
         $percentage = (int) ($levelSettings['donation_max_limit'] ?? 10);
@@ -1625,8 +1867,9 @@ class GamificationService
                 'description' => "تبرع لخزينة الفريق: {$team->name}",
             ]);
 
-            $team->coins += $amount;
-            $team->save();
+            // Added in the UPDATE itself, not saved from the balance read
+            // earlier; see takeFromTeamTreasury().
+            $team->increment('coins', $amount);
 
             GamificationTransaction::create([
                 'leaderboard_id' => $leaderboardId,
@@ -1651,6 +1894,13 @@ class GamificationService
     {
         $student = Student::findOrFail($studentId);
         $item = GamificationStoreItem::findOrFail($itemId);
+
+        // A product the supervisor turned off is not for sale, whichever
+        // button or tampered request reaches here.
+        if (! $item->is_active) {
+            return 'item_inactive';
+        }
+
         $leaderboardId = $item->leaderboard_id;
         $price = $customPrice !== null ? $customPrice : $item->price;
 
@@ -1698,11 +1948,14 @@ class GamificationService
                         ->whereDate('target_date', $targetDate)
                         ->exists();
                 } else {
+                    // One individual multiplier a day in each competition: one bought
+                    // in another competition neither doubles this one nor blocks it.
                     $existingPurchase = GamificationStorePurchase::whereIn('status', ['approved', 'pending_approval'])
                         ->where('student_id', $studentId)
                         ->whereNull('team_id')
-                        ->whereHas('item', function ($q) {
-                            $q->where('item_type', 'multiplier');
+                        ->whereHas('item', function ($q) use ($leaderboardId) {
+                            $q->where('item_type', 'multiplier')
+                                ->where('leaderboard_id', $leaderboardId);
                         })
                         ->whereDate('target_date', $targetDate)
                         ->exists();
@@ -1725,10 +1978,12 @@ class GamificationService
                 return 'invalid_target_date';
             }
 
+            // Frozen in this competition; a freeze holds only the streak of the
+            // competition it was bought in.
             $alreadyFrozen = GamificationStorePurchase::where('student_id', $studentId)
                 ->where('status', 'approved')
-                ->where('target_date', $targetDate)
-                ->whereHas('item', fn ($q) => $q->where('is_streak_freeze', true))
+                ->whereDate('target_date', $targetDate)
+                ->whereHas('item', fn ($q) => $q->where('is_streak_freeze', true)->where('leaderboard_id', $leaderboardId))
                 ->exists();
 
             if ($alreadyFrozen) {
@@ -1762,8 +2017,9 @@ class GamificationService
                 $memberCount = $team->students()->count();
                 if ($memberCount > 1) {
                     $purchase = DB::transaction(function () use ($team, $item, $studentId, $leaderboardId, $targetTeamId, $targetDate, $price) {
-                        $team->coins -= $price;
-                        $team->save();
+                        if (! self::takeFromTeamTreasury($team, $price)) {
+                            return null;
+                        }
 
                         $purchase = GamificationStorePurchase::create([
                             'store_item_id' => $item->id,
@@ -1789,6 +2045,10 @@ class GamificationService
                         return $purchase;
                     });
 
+                    if (! $purchase) {
+                        return 'insufficient_team_coins';
+                    }
+
                     DB::table('gamification_purchase_votes')->insert([
                         'store_purchase_id' => $purchase->id,
                         'student_id' => $studentId,
@@ -1808,9 +2068,10 @@ class GamificationService
                 }
             }
 
-            DB::transaction(function () use ($team, $item, $studentId, $leaderboardId, $targetTeamId, $targetDate, $price) {
-                $team->coins -= $price;
-                $team->save();
+            $bought = DB::transaction(function () use ($team, $item, $studentId, $leaderboardId, $targetTeamId, $targetDate, $price) {
+                if (! self::takeFromTeamTreasury($team, $price)) {
+                    return false;
+                }
 
                 $purchase = GamificationStorePurchase::create([
                     'store_item_id' => $item->id,
@@ -1834,9 +2095,11 @@ class GamificationService
                 ]);
 
                 self::executePurchase($purchase);
+
+                return true;
             });
 
-            return 'success';
+            return $bought ? 'success' : 'insufficient_team_coins';
         } else {
             $state = GamificationStudentState::where('leaderboard_id', $leaderboardId)
                 ->where('student_id', $studentId)
@@ -1909,11 +2172,24 @@ class GamificationService
             $memberApprovalMet = $yesVotesCount >= $threshold;
         }
 
+        /*
+         * The decision is taken by whichever request moves the purchase out of
+         * pending_approval first. The status read above is not enough: two
+         * members tapping «موافق» together both read it as pending, both
+         * counted enough votes, and both carried the purchase out — team
+         * points granted twice, or an attack taking the target's coins twice.
+         * Each branch now claims the change with one conditional UPDATE, the
+         * first statement of its transaction, and stops when another request
+         * got there first.
+         */
         if ($assistantApprovalMet && $memberApprovalMet) {
             DB::transaction(function () use ($purchase, $team) {
+                if (! self::claimPurchaseDecision($purchase, 'approved')) {
+                    return;
+                }
+
                 if (! self::purchaseCoinsAlreadyHeld($purchase)) {
-                    $team->coins -= $purchase->price_paid;
-                    $team->save();
+                    $team->decrement('coins', $purchase->price_paid);
 
                     GamificationTransaction::create([
                         'leaderboard_id' => $team->leaderboard_id,
@@ -1926,8 +2202,6 @@ class GamificationService
                         'reference_id' => $purchase->id,
                     ]);
                 }
-
-                $purchase->update(['status' => 'approved']);
 
                 self::executePurchase($purchase);
             });
@@ -1964,25 +2238,78 @@ class GamificationService
 
         if ($rejected) {
             DB::transaction(function () use ($purchase, $team) {
-                if (self::purchaseCoinsAlreadyHeld($purchase)) {
-                    $team->coins += $purchase->price_paid;
-                    $team->save();
+                if (! self::claimPurchaseDecision($purchase, 'rejected')) {
+                    return;
+                }
 
+                if (self::purchaseCoinsAlreadyHeld($purchase)) {
+                    $team->increment('coins', $purchase->price_paid);
+
+                    // Coins back, no XP: see cancelPurchase().
                     GamificationTransaction::create([
                         'leaderboard_id' => $team->leaderboard_id,
                         'team_id' => $team->id,
                         'student_id' => $purchase->student_id,
                         'type' => 'earn',
                         'amount' => $purchase->price_paid,
+                        'xp_amount' => 0,
                         'description' => "استرداد رصيد شراء مرفوض بالتصويت: {$purchase->item->name}",
                         'reference_type' => GamificationStorePurchase::class,
                         'reference_id' => $purchase->id,
                     ]);
                 }
-
-                $purchase->update(['status' => 'rejected']);
             });
         }
+    }
+
+    /**
+     * Move a purchase out of pending_approval, unless another request already has.
+     *
+     * One conditional UPDATE, so of two requests deciding the same purchase
+     * exactly one changes the row; the other sees no row changed and must leave
+     * the purchase alone. On SQLite it also takes the write lock at once when it
+     * opens the transaction, which queues the second request behind the first.
+     * A plain query update fires no model event, so the cached team standings
+     * are retired here, as the purchase's saved hook would have done.
+     */
+    protected static function claimPurchaseDecision(GamificationStorePurchase $purchase, string $status): bool
+    {
+        $claimed = GamificationStorePurchase::whereKey($purchase->id)
+            ->where('status', 'pending_approval')
+            ->update(['status' => $status, 'updated_at' => now()]) === 1;
+
+        if ($claimed) {
+            $purchase->forceFill(['status' => $status])->syncOriginalAttribute('status');
+            self::forgetTeamStandings($purchase->item?->leaderboard_id);
+        }
+
+        return $claimed;
+    }
+
+    /**
+     * Take a price out of a team's treasury, if the treasury still holds it.
+     *
+     * The balance is checked and reduced by one conditional UPDATE (coins =
+     * coins - price where coins >= price). Reading the team, comparing, and
+     * saving the new total lost coins when two treasury writes overlapped: a
+     * purchase and a teammate's donation both read 200, one saved 50 and the
+     * other 250, so either the donation vanished or the purchase was free; and
+     * two purchases could both pass the check against the same coins. Every
+     * other treasury write increments or decrements in the statement for the
+     * same reason.
+     */
+    protected static function takeFromTeamTreasury(GamificationTeam $team, int $price): bool
+    {
+        $taken = GamificationTeam::whereKey($team->id)
+            ->where('coins', '>=', $price)
+            ->decrement('coins', $price) === 1;
+
+        if ($taken) {
+            $team->coins -= $price;
+            $team->syncOriginalAttribute('coins');
+        }
+
+        return $taken;
     }
 
     /**
@@ -1996,6 +2323,37 @@ class GamificationService
             ->where('reference_id', $purchase->id)
             ->where('type', 'spend')
             ->exists();
+    }
+
+    /**
+     * The «دعم الفريق» row a purchase gave its team when carried out, or null.
+     *
+     * Rows written now name their purchase and are found by it alone, so a
+     * supervisor editing the item's value later cannot hide them. The ones
+     * written before carried no reference, so for them it is the team's first
+     * support row of the item's size from the moment the purchase was made.
+     */
+    protected static function teamSupportRow(GamificationStorePurchase $purchase, GamificationTeam $team): ?GamificationTransaction
+    {
+        $teamEarnRows = fn () => GamificationTransaction::where('leaderboard_id', $purchase->item->leaderboard_id)
+            ->where('team_id', $team->id)
+            ->whereNull('student_id')
+            ->where('type', 'earn');
+
+        return $teamEarnRows()
+            ->where('reference_type', GamificationStorePurchase::class)
+            ->where('reference_id', $purchase->id)
+            // Its own cancel names the purchase too, and takes points off.
+            ->where('amount', '>', 0)
+            ->orderBy('id')
+            ->first()
+            ?? $teamEarnRows()
+                ->whereNull('reference_type')
+                ->where('description', "تفعيل قوة ميزة دعم الفريق: +{$purchase->item->value} نقاط")
+                ->where('created_at', '>=', $purchase->created_at)
+                ->orderBy('created_at')
+                ->orderBy('id')
+                ->first();
     }
 
     /**
@@ -2037,12 +2395,17 @@ class GamificationService
 
         if ($item->item_type === 'team_points') {
             if ($team) {
+                // Names its purchase, so a cancel finds this very row to mirror
+                // (see teamSupportRow()). The team score still dates it by when
+                // it was written: a purchase carries no day of its own.
                 GamificationTransaction::create([
                     'leaderboard_id' => $leaderboardId,
                     'team_id' => $team->id,
                     'type' => 'earn',
                     'amount' => $item->value,
                     'description' => "تفعيل قوة ميزة دعم الفريق: +{$item->value} نقاط",
+                    'reference_type' => GamificationStorePurchase::class,
+                    'reference_id' => $purchase->id,
                 ]);
             }
         } elseif ($item->is_streak_freeze) {
@@ -2075,9 +2438,10 @@ class GamificationService
                         ]);
                     } else {
                         // Deduct points/coins from target team treasury
+                        // May go below zero, by design; taken in the UPDATE
+                        // itself (see takeFromTeamTreasury()).
                         $teamAttackValue = (int) $item->value;
-                        $targetTeam->coins -= $teamAttackValue;
-                        $targetTeam->save();
+                        $targetTeam->decrement('coins', $teamAttackValue);
 
                         GamificationTransaction::create([
                             'leaderboard_id' => $leaderboardId,
@@ -2132,28 +2496,47 @@ class GamificationService
                 if ($item->item_type === 'team_points' && $purchase->team_id) {
                     $team = $purchase->team;
                     if ($team) {
+                        // The mirror of the support row executePurchase() wrote: an
+                        // earning of minus the points, as a supervisor's deduction
+                        // from a team is written, so the team score drops by them.
+                        // It used to be a 'spend', which the team score never reads,
+                        // so the support points stayed after the cancel.
+                        //
+                        // It is dated as that row is (created_at; updated_at keeps
+                        // when the cancel was written). The team score doubles each
+                        // row on a team multiplier day of its own, so dated by the
+                        // cancel day the two only cancelled out when both days were
+                        // alike: support bought on a plain day and cancelled on a
+                        // multiplier day left the team 50 points below where it was.
+                        $support = self::teamSupportRow($purchase, $team);
+                        // What was given, not the item's value now: a supervisor
+                        // may have changed it since.
+                        $points = $support ? (int) $support->amount : (int) $item->value;
+
                         GamificationTransaction::create([
                             'leaderboard_id' => $leaderboardId,
                             'team_id' => $team->id,
-                            'type' => 'spend',
-                            'amount' => -(int) $item->value,
-                            'description' => "إلغاء دعم الفريق: -{$item->value} نقاط",
+                            'type' => 'earn',
+                            'amount' => -$points,
+                            'xp_amount' => -$points,
+                            'description' => "إلغاء دعم الفريق: -{$points} نقاط",
                             'reference_type' => GamificationStorePurchase::class,
                             'reference_id' => $purchase->id,
+                            'created_at' => $support?->created_at ?? now(),
                         ]);
                     }
                 } elseif ($item->item_type === 'team_attack' && $purchase->target_team_id) {
                     $targetTeam = GamificationTeam::find($purchase->target_team_id);
                     if ($targetTeam) {
                         $attackValue = (int) $item->value;
-                        $targetTeam->coins += $attackValue;
-                        $targetTeam->save();
+                        $targetTeam->increment('coins', $attackValue);
 
                         GamificationTransaction::create([
                             'leaderboard_id' => $leaderboardId,
                             'team_id' => $targetTeam->id,
                             'type' => 'earn',
                             'amount' => $attackValue,
+                            'xp_amount' => 0,
                             'description' => "استرداد عملات بعد إلغاء هجوم خصم النقاط: +{$attackValue} عملة",
                             'reference_type' => GamificationStorePurchase::class,
                             'reference_id' => $purchase->id,
@@ -2165,6 +2548,11 @@ class GamificationService
             // 2. Refund the price paid to the buyer. Individual purchases always
             // deduct the price up front; team purchases only when the coins were
             // actually held (approved or reserved for voting).
+            //
+            // Every refund here, and the attack's above, gives coins back and no
+            // XP ('xp_amount' => 0). Left out, the model filled in XP equal to the
+            // coins, as for any earning, so a cancelled 150-coin purchase raised
+            // the buyer's XP, level and rank by 150, and the team's score with it.
             $shouldRefund = $purchase->price_paid > 0
                 && ($purchase->team_id === null || self::purchaseCoinsAlreadyHeld($purchase));
 
@@ -2172,8 +2560,7 @@ class GamificationService
                 if ($purchase->team_id) {
                     $team = $purchase->team;
                     if ($team) {
-                        $team->coins += $purchase->price_paid;
-                        $team->save();
+                        $team->increment('coins', $purchase->price_paid);
 
                         GamificationTransaction::create([
                             'leaderboard_id' => $leaderboardId,
@@ -2181,6 +2568,7 @@ class GamificationService
                             'student_id' => $purchase->student_id,
                             'type' => 'earn',
                             'amount' => $purchase->price_paid,
+                            'xp_amount' => 0,
                             'description' => "استرداد قيمة شراء ملغى: {$item->name}",
                             'reference_type' => GamificationStorePurchase::class,
                             'reference_id' => $purchase->id,
@@ -2192,6 +2580,7 @@ class GamificationService
                         'student_id' => $purchase->student_id,
                         'type' => 'earn',
                         'amount' => $purchase->price_paid,
+                        'xp_amount' => 0,
                         'description' => "استرداد قيمة شراء ملغى: {$item->name}",
                         'reference_type' => GamificationStorePurchase::class,
                         'reference_id' => $purchase->id,
@@ -2299,6 +2688,10 @@ class GamificationService
 
     /**
      * Get active multiplier factor for a team on a given date.
+     *
+     * Only multiplier products count. The purchase's own date used to match
+     * whatever the team had bought for that day, so a shield (or any dated
+     * product) doubled the team's points that day as well.
      */
     public static function getMultiplierForTeam(GamificationTeam $team, $date): int
     {
@@ -2306,13 +2699,8 @@ class GamificationService
 
         $purchasedMultipliers = GamificationStorePurchase::where('team_id', $team->id)
             ->where('status', 'approved')
-            ->where(function ($query) use ($formattedDate) {
-                $query->whereDate('target_date', $formattedDate)
-                    ->orWhereHas('item', function ($q) use ($formattedDate) {
-                        $q->where('item_type', 'multiplier')
-                            ->whereDate('target_date', $formattedDate);
-                    });
-            })
+            ->whereHas('item', fn ($q) => $q->where('item_type', 'multiplier'))
+            ->where(fn ($query) => self::purchaseCoversDate($query, $formattedDate))
             ->with('item')
             ->get();
 
@@ -2335,6 +2723,11 @@ class GamificationService
 
     /**
      * Get active multiplier factor for a student on a given date.
+     *
+     * Only the student's own multiplier products bought in this competition
+     * count. A streak freeze is dated too, and used to double the day it
+     * froze; and a multiplier bought in one competition doubled the same day
+     * in every other competition the student was in.
      */
     public static function getMultiplierForStudent(Student $student, int $leaderboardId, $date): int
     {
@@ -2343,13 +2736,8 @@ class GamificationService
         $purchasedMultipliers = GamificationStorePurchase::where('student_id', $student->id)
             ->whereNull('team_id')
             ->where('status', 'approved')
-            ->where(function ($query) use ($formattedDate) {
-                $query->whereDate('target_date', $formattedDate)
-                    ->orWhereHas('item', function ($q) use ($formattedDate) {
-                        $q->where('item_type', 'multiplier')
-                            ->whereDate('target_date', $formattedDate);
-                    });
-            })
+            ->whereHas('item', fn ($q) => $q->where('item_type', 'multiplier')->where('leaderboard_id', $leaderboardId))
+            ->where(fn ($query) => self::purchaseCoversDate($query, $formattedDate))
             ->with('item')
             ->get();
 
@@ -2374,6 +2762,10 @@ class GamificationService
 
     /**
      * Check if a shield is active for a team on a given date.
+     *
+     * Only shield products count. The purchase's own date used to match
+     * whatever the team had bought for that day, so a team multiplier also
+     * blocked every attack on the team that day.
      */
     public static function isShieldActiveForTeam(GamificationTeam $team, $date): bool
     {
@@ -2381,13 +2773,8 @@ class GamificationService
 
         $hasPurchasedShieldForDate = GamificationStorePurchase::where('team_id', $team->id)
             ->where('status', 'approved')
-            ->where(function ($query) use ($formattedDate) {
-                $query->whereDate('target_date', $formattedDate)
-                    ->orWhereHas('item', function ($q) use ($formattedDate) {
-                        $q->where('item_type', 'shield')
-                            ->whereDate('target_date', $formattedDate);
-                    });
-            })
+            ->whereHas('item', fn ($q) => $q->where('item_type', 'shield'))
+            ->where(fn ($query) => self::purchaseCoversDate($query, $formattedDate))
             ->exists();
 
         if ($hasPurchasedShieldForDate) {
@@ -2402,16 +2789,29 @@ class GamificationService
     }
 
     /**
+     * Constrain a purchase query to the purchases that cover a day: bought for
+     * it, or for a product pinned to it. The caller narrows the product type.
+     *
+     * @param  Builder<GamificationStorePurchase>  $query
+     */
+    private static function purchaseCoversDate(Builder $query, string $date): void
+    {
+        $query->whereDate('target_date', $date)
+            ->orWhereHas('item', fn ($q) => $q->whereDate('target_date', $date));
+    }
+
+    /**
      * Get details about the next level upgrade for streak freezes.
      *
+     * @param  array<string, mixed>|null  $levelInfo  the student's level, when the caller already has it; see getFreezeableDates()
      * @return array<string, mixed>|null
      */
-    public static function getNextFreezeUpgrade(Student $student, Leaderboard $leaderboard): ?array
+    public static function getNextFreezeUpgrade(Student $student, Leaderboard $leaderboard, ?array $levelInfo = null): ?array
     {
-        $levelInfo = self::getStudentLevel($student->id, $leaderboard->id);
-        $currentLevel = $levelInfo['current'] ?? null;
+        $levelInfo ??= self::getStudentLevel($student->id, $leaderboard->id);
+        $currentLevel = $levelInfo['perks'] ?? null;
         $currentLevelNum = $currentLevel->level_number ?? 1;
-        $currentMax = self::getStudentMaxFreezeDays($student, $leaderboard);
+        $currentMax = self::getStudentMaxFreezeDays($student, $leaderboard, $levelInfo);
 
         // Get all levels for this leaderboard
         $levels = GamificationLevel::where('leaderboard_id', $leaderboard->id)
@@ -2458,11 +2858,13 @@ class GamificationService
 
     /**
      * Get the maximum number of previous days a student can freeze.
+     *
+     * @param  array<string, mixed>|null  $levelInfo  the student's level, when the caller already has it; see getFreezeableDates()
      */
-    public static function getStudentMaxFreezeDays(Student $student, Leaderboard $leaderboard): int
+    public static function getStudentMaxFreezeDays(Student $student, Leaderboard $leaderboard, ?array $levelInfo = null): int
     {
-        $levelInfo = self::getStudentLevel($student->id, $leaderboard->id);
-        $level = $levelInfo['current'] ?? null;
+        $levelInfo ??= self::getStudentLevel($student->id, $leaderboard->id);
+        $level = $levelInfo['perks'] ?? null;
         if ($level) {
             $lvlSettings = is_array($level->settings) ? $level->settings : (array) ($level->settings ?? []);
 
@@ -2475,17 +2877,24 @@ class GamificationService
     /**
      * Get the list of dates that are currently freezeable for a student.
      *
+     * The student's level may be passed in, as getStudentLevel() returned it,
+     * by a caller that has just read it: the student's page asked for it here,
+     * in the freeze helpers and in the donation status, ten times a render, each
+     * a sum over every transaction the student has. It is never kept between
+     * calls on its own, because claiming a reward moves it within a request.
+     *
+     * @param  array<string, mixed>|null  $levelInfo
      * @return array<string>
      */
-    public static function getFreezeableDates(Student $student, Leaderboard $leaderboard): array
+    public static function getFreezeableDates(Student $student, Leaderboard $leaderboard, ?array $levelInfo = null): array
     {
         $settings = $leaderboard->settings ?? [];
         if (! ($settings['enthusiasm_enabled'] ?? false)) {
             return [];
         }
 
-        $levelInfo = self::getStudentLevel($student->id, $leaderboard->id);
-        $level = $levelInfo['current'] ?? null;
+        $levelInfo ??= self::getStudentLevel($student->id, $leaderboard->id);
+        $level = $levelInfo['perks'] ?? null;
         if ($level) {
             $lvlSettings = is_array($level->settings) ? $level->settings : (array) ($level->settings ?? []);
             if (! ($lvlSettings['has_freeze'] ?? true)) {
@@ -2515,7 +2924,7 @@ class GamificationService
             return [];
         }
 
-        $maxDays = self::getStudentMaxFreezeDays($student, $leaderboard);
+        $maxDays = self::getStudentMaxFreezeDays($student, $leaderboard, $levelInfo);
 
         // We can freeze from index: max(0, latestIdx - maxDays) to latestIdx
         $freezeableRange = [];
@@ -2529,14 +2938,29 @@ class GamificationService
 
     /**
      * Get total earned XP for a student in a leaderboard.
+     *
+     * Counted as the standings count the student's score: claimed earnings
+     * whose work falls inside the competition's dates (filterTransactionsWithinWindow).
+     * It used to add up every claimed earning, so a badge paid after the end
+     * date, or a day graded before the start, raised the level and the XP in
+     * the student's stats bar but not their score in the standings, and the
+     * two numbers disagreed with no word why.
      */
     public static function getStudentXP(int $studentId, int $leaderboardId): int
     {
-        return (int) GamificationTransaction::where('leaderboard_id', $leaderboardId)
+        $transactions = GamificationTransaction::where('leaderboard_id', $leaderboardId)
             ->where('student_id', $studentId)
             ->where('type', 'earn')
             ->claimed()
-            ->sum('xp_amount');
+            ->get(['id', 'reference_type', 'reference_id', 'xp_amount', 'created_at']);
+
+        $leaderboard = Leaderboard::find($leaderboardId);
+
+        if ($leaderboard) {
+            $transactions = self::filterTransactionsWithinWindow($transactions, $leaderboard);
+        }
+
+        return (int) $transactions->sum('xp_amount');
     }
 
     /**
@@ -2681,11 +3105,14 @@ class GamificationService
             ->toArray();
         $extraPoints = empty($extraPointIds) ? collect() : DB::table('leaderboard_extra_points')->whereIn('id', $extraPointIds)->get()->keyBy('id');
 
-        // Read both multiplier calendars once rather than per transaction.
+        // Read both multiplier calendars once rather than per transaction. A
+        // student's own multipliers count only where they were bought: in this
+        // competition, as getMultiplierForStudent() bakes them in.
         $studentMultipliers = self::multiplierCalendar(
             empty($teamStudentIds) ? collect() : GamificationStorePurchase::whereIn('student_id', $teamStudentIds)
                 ->whereNull('team_id')
                 ->where('status', 'approved')
+                ->whereHas('item', fn ($q) => $q->where('leaderboard_id', $leaderboard->id))
                 ->with('item')
                 ->get(),
             fn ($purchase) => $purchase->student_id,
@@ -2715,11 +3142,24 @@ class GamificationService
 
         foreach ($transactions as $tx) {
             $date = null;
+            $individualMultiplierDate = null;
 
             if ($tx->reference_type === Attendance::class) {
                 $date = $attendances->get($tx->reference_id)?->date;
             } elseif ($tx->reference_type === StudentPlanDay::class) {
-                $date = $planDays->get($tx->reference_id)?->date;
+                /*
+                 * A recited plan day counts on the day it was graded, as the
+                 * standings and the competition's gating date it. It used to
+                 * count on its scheduled date, so a late day recited today was
+                 * missing from today's «نقاط اليوم» and wasn't doubled by a team
+                 * multiplier bought for today, while a day scheduled for a
+                 * multiplier day but graded later was. Its own date still finds
+                 * the student's multiplier, which syncStudentPlanDayXP() bakes
+                 * in by the scheduled date.
+                 */
+                $planDay = $planDays->get($tx->reference_id);
+                $date = $planDay?->gamificationDate();
+                $individualMultiplierDate = $planDay?->date;
             } elseif ($tx->reference_type === FreeRecitation::class) {
                 $free = $freeRecitations->get($tx->reference_id);
                 $date = $free ? ($free->graded_at ?? $free->recited_on) : null;
@@ -2738,15 +3178,22 @@ class GamificationService
             // Every other XP source (team tasks, activity wins, manual adjustments, streak
             // milestones, ...) is dated by when it was credited, so the team multiplier
             // still applies to every source of XP, not just the ones with a business date.
+            // That includes «دعم الفريق» and its cancel, which copies the support row's
+            // created_at (cancelPurchase()), so the two land on one day and one multiplier.
             $date ??= $tx->created_at;
 
             $day = Carbon::parse($date)->format('Y-m-d');
+            $individualDay = $individualMultiplierDate !== null
+                ? Carbon::parse($individualMultiplierDate)->format('Y-m-d')
+                : $day;
 
+            // Capped at 2, as the syncs cap what they bake in, so the base XP
+            // recovered below is the one the earning started from.
             $individualMultiplier = 1;
             if (in_array($tx->reference_type, $individualMultiplierEligibleTypes, true)) {
                 $student = $teamStudents->firstWhere('id', $tx->student_id);
                 if ($student) {
-                    $individualMultiplier = $studentMultipliers[$student->id][$day] ?? 1;
+                    $individualMultiplier = min(2, $studentMultipliers[$student->id][$individualDay] ?? 1);
                 }
             }
 
@@ -2795,7 +3242,29 @@ class GamificationService
         // under the things no write hook covers.
         $key = "gamification.standings.{$leaderboard->id}.".self::standingsVersion($leaderboard->id).".{$date}";
 
-        return Cache::remember($key, now()->addSeconds(30), fn () => self::computeTeamStandings($leaderboard, $date));
+        /*
+         * Only plain values go into the cache: each team as its raw columns, made
+         * back into a team after the read. The cache refuses to rebuild objects
+         * (cache.serializable_classes is off), so a cached team model came back as
+         * __PHP_Incomplete_Class, and the second student to open the team tab
+         * within the 30 seconds got an error page. The tests' array store keeps
+         * values as they are, which is why they never saw it. Rebuilding the teams
+         * from their columns costs no query; their students aren't kept, and
+         * nothing that reads the standings asks for them.
+         */
+        $rows = Cache::remember($key, now()->addSeconds(30), fn () => array_map(
+            fn (array $row) => ['team' => $row['team']->getAttributes()] + $row,
+            self::computeTeamStandings($leaderboard, $date),
+        ));
+
+        $teams = GamificationTeam::hydrate(array_column($rows, 'team'));
+
+        foreach ($rows as $index => &$row) {
+            $row['team'] = $teams[$index];
+        }
+        unset($row);
+
+        return $rows;
     }
 
     /**
@@ -2873,9 +3342,12 @@ class GamificationService
      * query per row of a table that only grows. The purchases are the same handful
      * either way, so they are read once here and matched in PHP.
      *
-     * A purchase counts on the date it was bought for, and — when the item itself
-     * is a multiplier pinned to a date — on that date too, which is exactly the
-     * pair of conditions the per-row lookups spell out as SQL.
+     * Only multiplier products count, on the date each was bought for and, when
+     * the product itself is pinned to a date, on that date too: exactly the
+     * conditions the per-row lookups spell out as SQL. Every other dated
+     * purchase used to count on its own date as well, so a team's shield
+     * doubled the team's score that day, and a teammate's streak freeze was
+     * read as a multiplier on the day it froze.
      *
      * @param  \Illuminate\Support\Collection<int, GamificationStorePurchase>  $purchases
      * @param  callable(GamificationStorePurchase): (int|null)  $keyBy
@@ -2888,17 +3360,13 @@ class GamificationService
         foreach ($purchases as $purchase) {
             $owner = $keyBy($purchase);
 
-            if ($owner === null) {
+            if ($owner === null || ($purchase->item->item_type ?? null) !== 'multiplier') {
                 continue;
             }
 
             $factor = max(2, (int) ($purchase->item->value ?? 0));
 
-            $dates = [$purchase->target_date];
-
-            if (($purchase->item->item_type ?? null) === 'multiplier') {
-                $dates[] = $purchase->item->target_date;
-            }
+            $dates = [$purchase->target_date, $purchase->item->target_date];
 
             foreach (array_filter($dates) as $date) {
                 $day = Carbon::parse($date)->format('Y-m-d');
@@ -3104,7 +3572,10 @@ class GamificationService
     /**
      * Get student level and next level details.
      *
-     * @return array<string, mixed>
+     * 'current' is null below a first level that needs XP; read the store,
+     * freeze and donation settings from 'perks', which is never null then.
+     *
+     * @return array{xp: int, current: object|null, next: object|null, perks: object|null}
      */
     public static function getStudentLevel(int $studentId, int $leaderboardId): array
     {
@@ -3147,14 +3618,27 @@ class GamificationService
             }
         }
 
-        if (! $currentLevel && $levels->isNotEmpty()) {
+        /*
+         * No level reached. A first level that needs no XP is where everyone
+         * starts, even a student a deduction took below zero, so they stand on
+         * it with the second level next. A first level that does need XP is not
+         * reached yet: no current level (base 0), the first level next. Both
+         * cases used to make the first level current and next at once, so the
+         * meter read 100% «/ 50» at 10 XP and the first level's coin reward was
+         * paid before its threshold.
+         */
+        if (! $currentLevel && $levels->isNotEmpty() && (int) $levels->first()->xp_required <= 0) {
             $currentLevel = $levels->first();
+            $nextLevel = $levels->values()->get(1);
         }
 
         return [
             'xp' => $xp,
             'current' => $currentLevel,
             'next' => $nextLevel,
+            // Whose settings (store prices, freezes, donations) apply: the current
+            // level, or below the first level the first level's, as they always did.
+            'perks' => $currentLevel ?? $levels->first(),
         ];
     }
 

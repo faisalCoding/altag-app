@@ -83,8 +83,7 @@ it('automatically overrides dashboard to themed gamification when active', funct
     // 2. Access dashboard
     $response = $this->get(route('student.dashboard'));
     $response->assertSuccessful();
-    $response->assertSee('مسابقة الفضاء والمجرات للطلاب');
-    $response->assertSee('منصة التاج الرقمية'); // Gamification header brand
+    $response->assertSee('gam-stats-bar', false); // The themed view's pinned stats bar
     $response->assertDontSee('محفوظي من القرآن الكريم'); // Normal dashboard is overridden
 });
 
@@ -807,24 +806,23 @@ it('validates target date constraint on multiplier purchase', function () {
         'is_team_product' => true,
     ]);
 
-    $this->actingAs($this->student, 'student');
+    // The multiplier has its own button (purchaseDoublePoints), which checks the
+    // level and charges its price; the store's buyItem no longer sells it. The
+    // date rule lives in the service every button goes through, so it is
+    // exercised there.
 
     // 1. Try with invalid date (today or past)
     $today = now()->format('Y-m-d');
-    Livewire::test('student.gamification-dashboard')
-        ->set('targetDates.'.$multiplierItem->id, $today)
-        ->call('buyItem', $multiplierItem->id)
-        ->assertHasNoErrors();
+    expect(GamificationService::requestStorePurchase($this->student->id, $multiplierItem->id, null, $today))
+        ->toBe('invalid_target_date');
 
     $myTeam->refresh();
     expect($myTeam->coins)->toBe(200); // No coins deducted!
 
     // 2. Try with valid date (tomorrow)
     $tomorrow = now()->addDay()->format('Y-m-d');
-    Livewire::test('student.gamification-dashboard')
-        ->set('targetDates.'.$multiplierItem->id, $tomorrow)
-        ->call('buyItem', $multiplierItem->id)
-        ->assertHasNoErrors();
+    expect(GamificationService::requestStorePurchase($this->student->id, $multiplierItem->id, null, $tomorrow))
+        ->toBe('success');
 
     $myTeam->refresh();
     expect($myTeam->coins)->toBe(150); // 200 - 50
@@ -1263,7 +1261,8 @@ it('requires students to manually claim milestone rewards from the dashboard', f
     expect($freshRecord)->not->toBeNull();
     expect($freshRecord->status)->toBe('approved');
 
-    $component->call('claimMilestone', $freshRecord->id)
+    // The claim names the milestone, not its row: rows are rebuilt with new ids.
+    $component->call('claimMilestone', $milestone)
         ->assertHasNoErrors();
 
     // Verify milestone record status is now 'claimed'
@@ -1725,12 +1724,14 @@ it('ensures team multiplier doubles team score but does not affect student indiv
         'active_days' => [0, 1, 2, 3, 4, 5, 6],
     ]);
 
+    // Recited on the multiplier day itself: the team multiplier follows the
+    // day the work was graded.
     $day = StudentPlanDay::create([
         'student_plan_id' => $plan->id,
         'date' => $tomorrow,
         'day_name' => 'السبت',
         'hifz_achievement' => 3, // Excellent -> 10 points
-        'hifz_graded_at' => now(),
+        'hifz_graded_at' => Carbon\Carbon::parse($tomorrow.' 10:00:00'),
     ]);
 
     // Sync XP
@@ -2040,10 +2041,9 @@ it('displays gamification activities and recorded winners on the student dashboa
 
     $this->actingAs($this->student, 'student');
 
+    // The page draws the activities from their rounds; the separate list of
+    // activities it also read was never drawn, and is no longer read.
     Livewire::test('student.gamification-dashboard')
-        ->assertViewHas('teamActivities', function ($activities) use ($activity) {
-            return $activities->count() === 1 && $activities->first()->id === $activity->id;
-        })
         ->assertViewHas('allActivityRounds', function ($rounds) use ($round) {
             return $rounds->count() === 1 && $rounds->first()->id === $round->id;
         })
@@ -2354,7 +2354,7 @@ it('offers the plan links on the gamification dashboard as well', function () {
     $this->get(route('student.dashboard'))
         ->assertOk()
         // The gamification dashboard really is the one being served.
-        ->assertSee('مسابقة روابط الخطط')
+        ->assertSee('gam-stats-bar', false)
         ->assertSee('عرض وطباعة')
         ->assertSee(route('student.plan.print', ['kind' => 'quran', 'id' => $plan->id]), false);
 });
@@ -2377,4 +2377,25 @@ it('draws an uploaded coin image without letting its path break out of the tag',
 
     expect($html)->not->toContain('" onerror="')
         ->and($html)->toContain('&quot; onerror=&quot;');
+});
+
+it('pins the stats bar and shows no header of platform name, competition title or date above it', function () {
+    $leaderboard = Leaderboard::create([
+        'circle_id' => $this->circle->id,
+        'title' => 'مسابقة الفضاء والمجرات للطلاب',
+        'competition_type' => 'gamification',
+        'start_date' => now()->subDays(2),
+        'end_date' => now()->addDays(2),
+        'is_active' => true,
+        'settings' => [],
+    ]);
+    $leaderboard->circles()->attach($this->circle->id);
+
+    $html = $this->get(route('student.dashboard'))->assertSuccessful()->getContent();
+
+    // The wrapper sticks, not the bar: a sticky element holds only inside its parent.
+    expect($html)->toMatch('/<div class="sticky[^"]*">\s*(<!--.*?-->\s*)*@?\s*.*?id="gam-stats-bar"/s')
+        ->and($html)->not->toContain('منصة التاج الرقمية')
+        ->and($html)->not->toContain('<flux:subheading')
+        ->and(substr_count($html, 'مسابقة الفضاء والمجرات للطلاب'))->toBeLessThanOrEqual(1);
 });

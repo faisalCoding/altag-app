@@ -27,22 +27,31 @@
                 ->first();
             $theme = \App\Services\GamificationThemeService::getTheme($activeGamification);
             $navColor = $studentTeam ? ($studentTeam->color ?? ($theme['color'] ?? '#4f46e5')) : ($theme['color'] ?? '#4f46e5');
-            $teamName = $theme['team_possessive_my'] ?? 'فريقي';
 
-            $navItems = [
-                ['tab' => 'leaderboard', 'name' => 'الرئيسية',  'icon' => 'home'],
-                ['tab' => 'store',       'name' => 'المتجر',     'icon' => 'shopping-bag'],
-                ['tab' => 'badges',      'name' => 'الأوسمة',    'icon' => 'trophy'],
-                ['tab' => 'news',        'name' => 'الأخبار',    'icon' => 'newspaper'],
-            ];
-
-            if ($studentTeam) {
-                $navItems[] = ['tab' => 'team', 'name' => $teamName, 'icon' => 'users'];
-            }
+            // The same tabs as the dashboard's own strip on a wide screen.
+            $navItems = \App\Support\StudentGamificationTabs::for($studentTeam, $theme);
         @endphp
 
-        <div x-data="{ activeTab: localStorage.getItem('student-gam-tab') || 'leaderboard' }"
-            x-on:gamnav-changed.window="activeTab = $event.detail.tab; localStorage.setItem('student-gam-tab', $event.detail.tab)"
+        {{-- data-bottom-nav: steps aside while the side menu is open, as the
+             everyday bars do (app.css), instead of covering the menu's foot.
+
+             The dashboard decides which tab opens: it reads the sidebar's
+             fragment and checks the remembered tab against the ones it draws,
+             then announces its choice as gamnav-changed. This bar follows for
+             its highlight. Its own first guess is checked the same way, so a
+             remembered «فريقي» the student no longer has lights the home tab
+             rather than nothing. --}}
+        <div data-bottom-nav
+            x-data="{
+                tabs: @js(array_column($navItems, 'tab')),
+                activeTab: 'leaderboard',
+                init() {
+                    let remembered = null;
+                    try { remembered = localStorage.getItem('student-gam-tab'); } catch (e) {}
+                    this.activeTab = this.tabs.includes(remembered) ? remembered : 'leaderboard';
+                },
+            }"
+            x-on:gamnav-changed.window="if (tabs.includes($event.detail.tab)) { activeTab = $event.detail.tab; try { localStorage.setItem('student-gam-tab', activeTab); } catch (e) {} }"
             class="fixed bottom-0 w-full start-0 z-[9999] lg:hidden border-t border-white/10 shadow-none"
             style="background-color: {{ $navColor }}; padding-bottom: env(safe-area-inset-bottom, 12px);">
             <div class="flex items-center justify-around px-2 min-h-18 max-w-lg mx-auto">
@@ -55,8 +64,13 @@
 
                         <div :class="activeTab === '{{ $item['tab'] }}' ? 'bg-white/15 px-6 py-2' : 'p-2'"
                             class="relative flex items-center justify-center min-h-15 rounded-full duration-300">
-                            <flux:icon icon="{{ $item['icon'] }}" class="size-7 shrink-0"
-                                x-bind:variant="activeTab === '{{ $item['tab'] }}' ? 'solid' : 'outline'" />
+                            {{-- Both shapes are drawn here and Alpine shows one. Binding
+                                 variant on a single icon only set an attribute on an svg
+                                 already drawn as an outline, so the open tab never filled. --}}
+                            <flux:icon icon="{{ $item['icon'] }}" variant="solid" class="size-7 shrink-0"
+                                x-show="activeTab === '{{ $item['tab'] }}'" x-cloak />
+                            <flux:icon icon="{{ $item['icon'] }}" variant="outline" class="size-7 shrink-0"
+                                x-show="activeTab !== '{{ $item['tab'] }}'" />
                             <span x-show="activeTab === '{{ $item['tab'] }}'" x-cloak class="ms-2 font-bold text-sm truncate block">{{ $item['name'] }}</span>
 
                             @if($item['tab'] === 'news')

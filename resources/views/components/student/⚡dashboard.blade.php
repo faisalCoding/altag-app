@@ -9,6 +9,39 @@ new class extends Component {
     public function with()
     {
         $student = Auth::guard('student')->user();
+
+        // Fetch Active Leaderboard: supervisor competitions (active) have priority, then teacher competitions
+        $leaderboard = \App\Models\Leaderboard::whereHas('circles', fn($q) => $q->where('circles.id', $student->circle_id))
+            ->whereNotNull('supervisor_id')
+            ->where('is_active', true)
+            ->with('circles')
+            ->latest()
+            ->first();
+
+        if (!$leaderboard) {
+            $leaderboard = \App\Models\Leaderboard::where('circle_id', $student->circle_id)
+                ->whereNull('supervisor_id')
+                ->where('is_active', true)
+                ->with('circles')
+                ->latest()
+                ->first();
+        }
+
+        /*
+         * A themed competition draws its own page (the gamification dashboard
+         * component, which reads everything it shows itself); this one then
+         * shows only that and the pending surveys. Everything below feeds the
+         * everyday page alone, and it used to be read anyway and thrown away,
+         * the full standings included, on every load of the page.
+         */
+        if ($leaderboard && $leaderboard->competition_type === 'gamification') {
+            return [
+                'student' => $student,
+                'leaderboard' => $leaderboard,
+                'activeGamification' => $leaderboard,
+            ];
+        }
+
         $todayStr = Carbon::now()->format('Y-m-d');
         $last30Start = Carbon::now()->subDays(30)->format('Y-m-d');
 
@@ -136,23 +169,7 @@ new class extends Component {
 
         $lateness = \App\Models\Attendance::where('student_id', $student->id)->where('date', '>=', $periodStart)->where('status', 'late')->count();
 
-        // Fetch Active Leaderboard: supervisor competitions (active) have priority, then teacher competitions
-        $leaderboard = \App\Models\Leaderboard::whereHas('circles', fn($q) => $q->where('circles.id', $student->circle_id))
-            ->whereNotNull('supervisor_id')
-            ->where('is_active', true)
-            ->with('circles')
-            ->latest()
-            ->first();
-
-        if (!$leaderboard) {
-            $leaderboard = \App\Models\Leaderboard::where('circle_id', $student->circle_id)
-                ->whereNull('supervisor_id')
-                ->where('is_active', true)
-                ->with('circles')
-                ->latest()
-                ->first();
-        }
-
+        // The competition was resolved at the top; a themed one has returned already.
         $leaderboardStandings = [];
         if ($leaderboard) {
             $service = new \App\Services\LeaderboardService();
@@ -160,9 +177,6 @@ new class extends Component {
         }
 
         $activeGamification = null;
-        if ($leaderboard && $leaderboard->competition_type === 'gamification') {
-            $activeGamification = $leaderboard;
-        }
 
         // Last Attended Day Logic
         $lastAttendance = \App\Models\Attendance::where('student_id', $student->id)
@@ -449,22 +463,17 @@ new class extends Component {
 
         $todayStr = \Carbon\Carbon::now('Asia/Riyadh')->format('Y-m-d');
 
-        $existing = \App\Models\TurnReservation::where('turn_reservation_session_id', $sessionId)->whereDate('date', $todayStr)->where('student_id', $student->id)->first();
+        // Students booking at the same moment each get their own number; see reserveNext().
+        $reservation = \App\Models\TurnReservation::reserveNext($session->id, $student->id, $todayStr);
 
-        if ($existing) {
+        if (! $reservation) {
+            Flux::toast('الحجز مزدحم الآن، حاول مرة أخرى بعد لحظات.', variant: 'danger');
             return;
         }
 
-        $maxTurn = \App\Models\TurnReservation::where('turn_reservation_session_id', $sessionId)->whereDate('date', $todayStr)->max('turn_number') ?? 0;
-
-        \App\Models\TurnReservation::create([
-            'turn_reservation_session_id' => $sessionId,
-            'student_id' => $student->id,
-            'date' => $todayStr,
-            'turn_number' => $maxTurn + 1,
-        ]);
-
-        Flux::toast('تم حجز دورك بنجاح!', variant: 'success');
+        if ($reservation->wasRecentlyCreated) {
+            Flux::toast('تم حجز دورك بنجاح!', variant: 'success');
+        }
     }
 
     public function cancelTurn($sessionId)

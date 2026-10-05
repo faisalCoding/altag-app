@@ -27,8 +27,10 @@ class GamificationNewsService
     /**
      * Detect a student level-up and record it. A baseline is stored silently the
      * first time so existing levels are not announced retroactively.
+     *
+     * @param  array<string, mixed>|null  $levelInfo  the student's level, when the caller already has it; see GamificationService::recalculateStudentState()
      */
-    public static function syncStudentLevel(int $studentId, int $leaderboardId): void
+    public static function syncStudentLevel(int $studentId, int $leaderboardId, ?array $levelInfo = null): void
     {
         $state = GamificationStudentState::where('student_id', $studentId)
             ->where('leaderboard_id', $leaderboardId)
@@ -38,8 +40,10 @@ class GamificationNewsService
             return;
         }
 
-        $levelInfo = GamificationService::getStudentLevel($studentId, $leaderboardId);
-        $currentLevel = (int) ($levelInfo['current']->level_number ?? 1);
+        $levelInfo ??= GamificationService::getStudentLevel($studentId, $leaderboardId);
+        // Below a first level that needs XP the student has no level yet (0),
+        // so reaching the first level is announced like any other.
+        $currentLevel = (int) ($levelInfo['current']->level_number ?? 0);
 
         if ($state->notified_level === null) {
             $state->notified_level = $currentLevel;

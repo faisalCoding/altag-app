@@ -13,15 +13,16 @@
         </div>
     </td>
     <td class="p-2.5">
+        {{-- The avatar keeps its size: a long name beside it squashed the circle into an oval. --}}
         <div class="flex items-center gap-3">
             @if($standing['student']->avatar_path)
-                <img src="{{ Storage::url($standing['student']->avatar_path) }}" class="w-12 h-12 rounded-full object-cover border border-slate-200" />
+                <img src="{{ Storage::url($standing['student']->avatar_path) }}" class="w-12 h-12 shrink-0 rounded-full object-cover border border-slate-200" />
             @else
-                <div class="w-12 h-12 rounded-full flex items-center justify-center font-bold text-xs border border-slate-200" style="{{ $standing['student']->avatarStyle() }}">
+                <div class="w-12 h-12 shrink-0 rounded-full flex items-center justify-center font-bold text-xs border border-slate-200" style="{{ $standing['student']->avatarStyle() }}">
                     {{ $standing['student']->initials() }}
                 </div>
             @endif
-            <div class="flex flex-col items-start">
+            <div class="flex flex-col items-start min-w-0">
                 <span>{{ $standing['student']->name }}</span>
                 @php
                     $team = $standing['student']->gamificationTeams->first();

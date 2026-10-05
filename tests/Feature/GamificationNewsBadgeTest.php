@@ -80,3 +80,22 @@ it('renders the news badge inside the student gamification bottom nav', function
     $response->assertSuccessful();
     $response->assertSeeLivewire('student.gamification-news-badge');
 });
+
+it('marks as seen the newest news the tab drew, not only the ids the badge last asked for', function () {
+    GamificationNewsService::record($this->leaderboard->id, 'level_up', ['student_name' => 'أحمد', 'level_name' => 'المستوى 2']);
+    $newest = GamificationNewsService::record($this->leaderboard->id, 'level_up', ['student_name' => 'سارة', 'level_name' => 'المستوى 3']);
+
+    $html = $this->get(route('student.dashboard'))->assertSuccessful()->getContent();
+
+    // The tab is drawn on every tap on the page, so it may hold news newer
+    // than the badge's last ask once a minute; opening it marks that too.
+    expect($html)->toContain('data-news-max-id="'.$newest->id.'"')
+        ->and($html)->toContain("let drawn = Number(document.querySelector('[data-news-max-id]')?.dataset.newsMaxId || 0);")
+        ->and($html)->toContain('this.seen = Math.max(this.seen, max, drawn);');
+});
+
+it('draws no news id on the tab for a day without news', function () {
+    $html = $this->get(route('student.dashboard'))->assertSuccessful()->getContent();
+
+    expect($html)->toContain('data-news-max-id="0"');
+});

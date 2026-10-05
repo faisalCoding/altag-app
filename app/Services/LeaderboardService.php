@@ -84,6 +84,20 @@ class LeaderboardService
             }
         }
 
+        /*
+         * Read once for the whole competition rather than once per student: the
+         * per-student query ran for everyone in every circle of a supervisor
+         * competition, on every render of every page showing the standings. The
+         * same goes for each student's transactions, grouped once here instead
+         * of filtered out of the whole list student by student.
+         */
+        $extraPointsByStudent = DB::table('leaderboard_extra_points')
+            ->where('leaderboard_id', $leaderboard->id)
+            ->get()
+            ->groupBy('student_id');
+
+        $transactionsByStudent = $isGamification ? $transactions->groupBy('student_id') : collect();
+
         $standings = [];
 
         foreach ($students as $student) {
@@ -96,13 +110,10 @@ class LeaderboardService
             $criteriaCounts = [];
             $extraPointsScore = 0;
 
-            $extraPointsList = DB::table('leaderboard_extra_points')
-                ->where('leaderboard_id', $leaderboard->id)
-                ->where('student_id', $student->id)
-                ->get();
+            $extraPointsList = $extraPointsByStudent->get($student->id, collect());
 
             if ($isGamification) {
-                $allStudentTxs = $transactions->where('student_id', $student->id);
+                $allStudentTxs = $transactionsByStudent->get($student->id, collect());
                 // Only claimed rewards count toward the standing; pending is surfaced separately.
                 $studentTxs = $allStudentTxs->whereNotNull('claimed_at');
                 $totalScore = (int) $studentTxs->sum('xp_amount');
@@ -399,9 +410,15 @@ class LeaderboardService
      * "عام" group. Returns an empty collection when the competition has no tracks,
      * so callers can fall back to the flat leaderboard.
      *
+     * A caller that already holds getDetailedStandings() for the competition
+     * passes it in: working the standings out is the costliest read on the
+     * page, and the student's dashboard and the teacher's report each used to
+     * do it twice per render, once for the flat list and once again here.
+     *
+     * @param  Collection<int, array<string, mixed>>|null  $standings
      * @return Collection<int, array{id: int|null, name: string, description: ?string, standings: array<int, mixed>}>
      */
-    public function getStandingsByTrack(Leaderboard $leaderboard)
+    public function getStandingsByTrack(Leaderboard $leaderboard, ?Collection $standings = null)
     {
         $tracks = GamificationTrack::where('leaderboard_id', $leaderboard->id)
             ->orderBy('sort_order')
@@ -432,7 +449,7 @@ class LeaderboardService
         }
         $general = ['id' => null, 'name' => 'عام', 'description' => null, 'standings' => []];
 
-        foreach ($this->getDetailedStandings($leaderboard) as $row) {
+        foreach ($standings ?? $this->getDetailedStandings($leaderboard) as $row) {
             $trackId = $studentTrack[$row['student']->id] ?? null;
             if ($trackId !== null && isset($groups[$trackId])) {
                 $groups[$trackId]['standings'][] = $row;
