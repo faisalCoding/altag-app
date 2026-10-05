@@ -236,11 +236,12 @@ it('claims every pending reward with «استلام الكل» on a competition 
         'claimed_at' => null,
     ]);
 
+    // Counted as Arabic says it: «مكافأة واحدة», not «1 مكافأة».
     Livewire::test('student.gamification-dashboard')
         ->assertSee('استلام الكل')
         ->call('claimAllRewards')
-        ->assertDispatched('toast-show', toastSaying('تم استلام 1 مكافأة!'))
-        ->assertDispatched('reward-claimed');
+        ->assertDispatched('toast-show', toastSaying('تم استلام مكافأة واحدة!'))
+        ->assertDispatched('reward-claimed', xp: 20, coins: 5, keys: ['*panel']);
 
     expect($reward->fresh()->claimed_at)->not->toBeNull();
 });
@@ -248,9 +249,12 @@ it('claims every pending reward with «استلام الكل» on a competition 
 it('says so when «استلام الكل» finds nothing left to claim', function () {
     makeActionsLeaderboard($this->circle);
 
+    // The rows it hid come back, and only those: not award cards or badges
+    // still waiting on claims of their own.
     Livewire::test('student.gamification-dashboard')
         ->call('claimAllRewards')
         ->assertDispatched('toast-show', toastSaying('لا توجد مكافآت بانتظار الاستلام.'))
+        ->assertDispatched('gam-claim-failed', keys: ['*panel'])
         ->assertNotDispatched('reward-claimed');
 });
 
@@ -637,8 +641,9 @@ function makeReachedMilestone(Circle $circle, Student $student): array
 it('claims a milestone on the first tap even after a teacher rebuilt the streak while the modal was open', function () {
     [$leaderboard, $milestoneId] = makeReachedMilestone($this->circle, $this->student);
 
+    // The card's «استلام» names the milestone, through the claim store.
     $page = Livewire::test('student.gamification-dashboard')
-        ->assertSeeHtml('wire:click="claimMilestone('.$milestoneId.')"');
+        ->assertSeeHtml('() => $wire.claimMilestone('.$milestoneId.')');
 
     $rowShownOnScreen = DB::table('gamification_claimed_milestones')->where('milestone_id', $milestoneId)->value('id');
 
@@ -653,7 +658,8 @@ it('claims a milestone on the first tap even after a teacher rebuilt the streak 
         ->not->toBe($rowShownOnScreen);
 
     $page->call('claimMilestone', $milestoneId)
-        ->assertDispatched('toast-show', toastSaying('مبروك! لقد استلمت جائزة الحماسة 2 أيام بنجاح'));
+        ->assertDispatched('toast-show', toastSaying('مبروك! لقد استلمت جائزة حماسة يومين بنجاح'))
+        ->assertDispatched('reward-claimed', xp: 50, coins: 100, keys: ['milestone-'.$milestoneId]);
 
     expect(DB::table('gamification_claimed_milestones')->where('milestone_id', $milestoneId)->value('status'))->toBe('claimed')
         ->and(GamificationStudentState::where('student_id', $this->student->id)->value('coins'))->toBe(100);
@@ -679,7 +685,7 @@ it('never congratulates on a milestone claim whose row was replaced under it', f
 
     $page->call('claimMilestone', $milestoneId)
         ->assertDispatched('toast-show', toastSaying('لا يوجد جائزة معتمدة بانتظار الاستلام.'))
-        ->assertNotDispatched('toast-show', toastSaying('مبروك! لقد استلمت جائزة الحماسة 2 أيام بنجاح'));
+        ->assertNotDispatched('toast-show', toastSaying('مبروك! لقد استلمت جائزة حماسة يومين بنجاح'));
 
     // Nothing paid for a claim that marked nothing; the reward still awaits.
     expect($replaced)->toBeTrue()

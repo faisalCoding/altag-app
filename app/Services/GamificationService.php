@@ -9,6 +9,7 @@ use App\Models\GamificationBadge;
 use App\Models\GamificationLevel;
 use App\Models\GamificationStoreItem;
 use App\Models\GamificationStorePurchase;
+use App\Models\GamificationStreakMilestone;
 use App\Models\GamificationStudentState;
 use App\Models\GamificationTeam;
 use App\Models\GamificationTransaction;
@@ -3023,6 +3024,220 @@ class GamificationService
         self::syncStudentBadges($studentId, $leaderboardId);
 
         return $ids->count();
+    }
+
+    /**
+     * Take an approved badge's reward, for the student it was approved for.
+     *
+     * The reward belongs to the competition that issued the badge.
+     *
+     * It used to go to whichever competition happened to be running for the
+     * student, which is a different question with a different answer: a
+     * student in two competitions would have been paid by the wrong one,
+     * and once the competition ended there was no running one at all — so
+     * the badge was marked taken, the student was congratulated, and
+     * nothing was ever granted.
+     *
+     * The transaction is keyed by the badge, so a retry after a failure
+     * grants it once; and the badge is only marked taken afterwards, so a
+     * failure leaves it claimable rather than spent.
+     *
+     * @return array{0: 'claimed'|'nothing_to_claim', 1: GamificationBadge|null}
+     */
+    public static function claimBadgeReward(int $studentId, int $badgeId): array
+    {
+        $pivot = DB::table('gamification_badge_student')
+            ->where('student_id', $studentId)
+            ->where('badge_id', $badgeId)
+            ->where('status', 'approved')
+            ->first();
+
+        if (! $pivot) {
+            return ['nothing_to_claim', null];
+        }
+
+        $badge = GamificationBadge::findOrFail($badgeId);
+
+        if ($badge->reward_xp > 0 || $badge->reward_coins > 0) {
+            GamificationTransaction::firstOrCreate(
+                [
+                    'leaderboard_id' => $badge->leaderboard_id,
+                    'student_id' => $studentId,
+                    'reference_type' => GamificationBadge::class,
+                    'reference_id' => $badge->id,
+                ],
+                [
+                    'type' => 'earn',
+                    'amount' => $badge->reward_coins,
+                    'xp_amount' => $badge->reward_xp,
+                    'description' => "مكافأة الحصول على وسام: {$badge->name} (+{$badge->reward_xp} XP)",
+                ]
+            );
+
+            self::recalculateStudentState($studentId, $badge->leaderboard_id);
+        }
+
+        DB::table('gamification_badge_student')
+            ->where('student_id', $studentId)
+            ->where('badge_id', $badgeId)
+            ->update([
+                'status' => 'claimed',
+                'updated_at' => now(),
+            ]);
+
+        return ['claimed', $badge];
+    }
+
+    /**
+     * Take a reached streak milestone's reward.
+     *
+     * The caller names the milestone, not its claim row. The rows are deleted
+     * and written again whenever the streak is recalculated (whenever a
+     * teacher grades or marks the student), so they come back with new ids: a
+     * row id held by an open page went stale, and the first tap answered that
+     * there was no reward to take. The milestone's id does not change; its
+     * earliest row still awaiting a claim is the one claimed.
+     *
+     * The claim is one transaction, and its row is marked claimed before the
+     * reward is written, by an update only one request can win. A streak
+     * rebuild (itself one transaction) can then land only before or after it,
+     * never between the row being read and marked: in between, the mark fell on
+     * a row the rebuild had just replaced, and the student was congratulated on
+     * a reward the rebuild had wiped. Retried, as SQLite refuses a writer whose
+     * reads began before another writer's commit.
+     *
+     * It does not rebuild the streak afterwards; the caller does, once, after
+     * all its claims (see the student page's claimMilestone and claimAllAwards).
+     *
+     * @return array{0: 'claimed'|'nothing_to_claim'|'unknown_milestone', 1: object|null}
+     */
+    public static function claimMilestoneReward(int $studentId, int $milestoneId): array
+    {
+        return DB::transaction(function () use ($studentId, $milestoneId): array {
+            $pivot = DB::table('gamification_claimed_milestones')
+                ->where('student_id', $studentId)
+                ->where('milestone_id', $milestoneId)
+                ->where('status', 'approved')
+                ->orderBy('created_at')
+                ->orderBy('id')
+                ->first();
+
+            if (! $pivot) {
+                return ['nothing_to_claim', null];
+            }
+
+            $milestone = DB::table('gamification_streak_milestones')->where('id', $pivot->milestone_id)->first();
+            if (! $milestone) {
+                return ['unknown_milestone', null];
+            }
+
+            $marked = DB::table('gamification_claimed_milestones')
+                ->where('id', $pivot->id)
+                ->where('status', 'approved')
+                ->update([
+                    'status' => 'claimed',
+                    'updated_at' => now(),
+                ]) === 1;
+
+            if (! $marked) {
+                return ['nothing_to_claim', null];
+            }
+
+            // The same as the badge above: the reward belongs to the competition
+            // that set the milestone, and is keyed by this claim — a student may
+            // reach the same milestone again on a later streak run.
+            if ($milestone->reward_xp > 0 || $milestone->reward_coins > 0) {
+                GamificationTransaction::firstOrCreate(
+                    [
+                        'leaderboard_id' => $milestone->leaderboard_id,
+                        'student_id' => $studentId,
+                        'reference_type' => GamificationStreakMilestone::class,
+                        'reference_id' => $pivot->id,
+                    ],
+                    [
+                        'type' => 'earn',
+                        'amount' => $milestone->reward_coins,
+                        'xp_amount' => $milestone->reward_xp,
+                        'description' => "مكافأة أيام الحماسة لـ {$milestone->days_required} أيام متتالية: {$milestone->description}",
+                    ]
+                );
+
+                self::recalculateStudentState($studentId, $milestone->leaderboard_id);
+            }
+
+            return ['claimed', $milestone];
+        }, 3);
+    }
+
+    /**
+     * What reaching a level gave the student, for the level card on their page:
+     * the level reached, the perks gained since the last level celebrated with
+     * them, and the coins the levels in between reward.
+     *
+     * One query, and only when a celebration is due. Below the first level the
+     * store, freeze and donation settings are already the first level's (see
+     * getStudentLevel()'s 'perks'), so reaching it gains no perk, only its coins.
+     * A competition with no levels of its own uses the theme's default levels,
+     * which carry a name and an icon and the same settings throughout.
+     *
+     * @return array{level: int, name: string, icon: string, perks: list<array{key: string, days?: int, percent?: int}>, coins: int, level_ids: list<int>}
+     */
+    public static function levelUnlocks(Leaderboard $leaderboard, int $from, int $to, bool $isLeader, bool $hasTeam): array
+    {
+        $levels = GamificationLevel::where('leaderboard_id', $leaderboard->id)
+            ->where('level_number', '<=', $to)
+            ->orderBy('level_number')
+            ->get();
+
+        if ($levels->isEmpty()) {
+            $defaults = GamificationThemeService::getTheme($leaderboard)['default_levels'] ?? [];
+            $level = $defaults[$to] ?? null;
+
+            return [
+                'level' => $to,
+                'name' => (string) ($level['name'] ?? "المستوى {$to}"),
+                'icon' => (string) ($level['icon'] ?? 'sparkles'),
+                'perks' => [],
+                'coins' => 0,
+                'level_ids' => [],
+            ];
+        }
+
+        $target = $levels->firstWhere('level_number', $to) ?? $levels->last();
+        $baseline = $levels->firstWhere('level_number', $from) ?? $levels->first();
+        $before = is_array($baseline->settings) ? $baseline->settings : [];
+        $after = is_array($target->settings) ? $target->settings : [];
+
+        $gained = fn (string $flag): bool => ! ($before[$flag] ?? true) && (bool) ($after[$flag] ?? true);
+        $raised = fn (string $amount, int $default): bool => (int) ($after[$amount] ?? $default) > (int) ($before[$amount] ?? $default);
+
+        $perks = [];
+        if ($gained('has_individual_multiplier')) {
+            $perks[] = ['key' => 'individual_multiplier'];
+        }
+        if ($isLeader && $gained('has_team_multiplier')) {
+            $perks[] = ['key' => 'team_multiplier'];
+        }
+        if ($gained('has_freeze')) {
+            $perks[] = ['key' => 'freeze'];
+        }
+        if (($after['has_freeze'] ?? true) && $raised('freeze_max_days', 1)) {
+            $perks[] = ['key' => 'freeze_days', 'days' => (int) ($after['freeze_max_days'] ?? 1)];
+        }
+        if ($hasTeam && ($after['has_donation'] ?? true) && ($gained('has_donation') || $raised('donation_max_limit', 10))) {
+            $perks[] = ['key' => 'donation', 'percent' => (int) ($after['donation_max_limit'] ?? 10)];
+        }
+
+        $passed = $levels->filter(fn (GamificationLevel $level) => $level->level_number > $from && $level->level_number <= $to);
+
+        return [
+            'level' => (int) $target->level_number,
+            'name' => (string) $target->name,
+            'icon' => (string) ($target->icon ?: 'sparkles'),
+            'perks' => $perks,
+            'coins' => (int) $passed->sum(fn (GamificationLevel $level) => max(0, (int) ($level->settings['reward_coins'] ?? 0))),
+            'level_ids' => $passed->pluck('id')->map(fn ($id) => (int) $id)->values()->all(),
+        ];
     }
 
     /**

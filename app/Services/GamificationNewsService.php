@@ -26,7 +26,9 @@ class GamificationNewsService
 
     /**
      * Detect a student level-up and record it. A baseline is stored silently the
-     * first time so existing levels are not announced retroactively.
+     * first time so existing levels are not announced retroactively, and the
+     * same baseline is where the student's own level celebrations start
+     * (celebrated_level): their page celebrates only the levels reached after it.
      *
      * @param  array<string, mixed>|null  $levelInfo  the student's level, when the caller already has it; see GamificationService::recalculateStudentState()
      */
@@ -47,6 +49,7 @@ class GamificationNewsService
 
         if ($state->notified_level === null) {
             $state->notified_level = $currentLevel;
+            $state->celebrated_level = $currentLevel;
             $state->saveQuietly();
 
             return;

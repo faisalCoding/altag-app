@@ -1,3 +1,5 @@
+import './gamification/index.js';
+
 // A teacher leaves the roll open on their phone and comes back after the
 // session has lapsed: Livewire would ask, in English, whether to refresh.
 // Ask the same thing in the language the rest of the page speaks.

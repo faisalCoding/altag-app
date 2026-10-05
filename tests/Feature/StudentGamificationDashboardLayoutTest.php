@@ -139,7 +139,12 @@ function gamLayoutZIndex(DOMElement $element): int
         ?? throw new RuntimeException('No z-index class on <'.$element->tagName.' class="'.$element->getAttribute('class').'">');
 }
 
-it('keeps a pending badge claim above the bottom bar and scrollable, with its box clear of the top', function () {
+/*
+ * A badge awaiting its claim used to cover the whole screen until taken. It is
+ * a card now, above the phone's bottom bar, that leaves the page usable: no
+ * full-screen backdrop, and «لاحقاً» beside «استلام».
+ */
+it('shows a pending badge as a card above the bottom bar that leaves the page usable', function () {
     $badge = GamificationBadge::create([
         'leaderboard_id' => $this->leaderboard->id,
         'name' => 'وسام الثبات على الطريق',
@@ -160,19 +165,20 @@ it('keeps a pending badge claim above the bottom bar and scrollable, with its bo
 
     $xpath = gamLayoutXPath($this->get(route('student.dashboard'))->assertSuccessful()->getContent());
 
-    $overlay = gamLayoutElement($xpath, '//*[@data-claim-overlay]');
+    $card = gamLayoutElement($xpath, '//*[@data-award-card]');
     $bottomBar = gamLayoutElement($xpath, '//*[@data-bottom-nav]');
-    $box = gamLayoutElement($xpath, './div', $overlay);
 
-    expect(gamLayoutZIndex($overlay))->toBeGreaterThan(gamLayoutZIndex($bottomBar))
-        ->and(gamLayoutClasses($overlay))->toContain('fixed', 'inset-0', 'flex', 'overflow-y-auto', 'overscroll-contain')
-        // Centred by the wrapper, a box taller than the screen spilled off the top, out of scroll's reach.
-        ->and(gamLayoutClasses($overlay))->not->toContain('items-center')
-        ->and(gamLayoutClasses($box))->toContain('m-auto')
-        ->and($box->textContent)->toContain('استلام وقبول الوسام');
+    expect($xpath->query('//*[@data-claim-overlay]')->length)->toBe(0)
+        ->and(gamLayoutZIndex($card))->toBeGreaterThan(gamLayoutZIndex($bottomBar))
+        ->and(gamLayoutClasses($card))->toContain('fixed', 'bottom-[calc(env(safe-area-inset-bottom,0px)+5.75rem)]', 'lg:bottom-6', 'lg:w-96')
+        ->and(gamLayoutClasses($card))->not->toContain('inset-0')
+        ->and($card->getAttribute('role'))->toBe('dialog')
+        ->and($card->getAttribute('aria-modal'))->toBe('false')
+        ->and($card->hasAttribute('data-gam-floating'))->toBeTrue()
+        ->and($card->textContent)->toContain('وسام الثبات على الطريق', 'استلام', 'لاحقاً');
 });
 
-it('builds the milestone claim like the badge claim, above the bottom bar and scrollable', function () {
+it('shows a reached milestone as a card like the badge\'s, above the bottom bar', function () {
     $this->leaderboard->update(['settings' => [
         'enthusiasm_enabled' => true,
         'enthusiasm_type' => 'attendance',
@@ -204,14 +210,14 @@ it('builds the milestone claim like the badge claim, above the bottom bar and sc
 
     $xpath = gamLayoutXPath($this->get(route('student.dashboard'))->assertSuccessful()->getContent());
 
-    $overlay = gamLayoutElement($xpath, '//*[@data-claim-overlay]');
+    $card = gamLayoutElement($xpath, '//*[@data-award-card]');
     $bottomBar = gamLayoutElement($xpath, '//*[@data-bottom-nav]');
 
-    expect($overlay->textContent)->toContain('استلام وقبول الجائزة')
-        ->and(gamLayoutZIndex($overlay))->toBeGreaterThan(gamLayoutZIndex($bottomBar))
-        ->and(gamLayoutClasses($overlay))->toContain('overflow-y-auto', 'overscroll-contain')
-        ->and(gamLayoutClasses($overlay))->not->toContain('items-center')
-        ->and(gamLayoutClasses(gamLayoutElement($xpath, './div', $overlay)))->toContain('m-auto');
+    expect($card->textContent)->toContain('جائزة الحماسة', 'يومان من الحماسة المتتالية', 'استلام', 'لاحقاً')
+        ->and($xpath->query('//*[@data-claim-overlay]')->length)->toBe(0)
+        ->and(gamLayoutZIndex($card))->toBeGreaterThan(gamLayoutZIndex($bottomBar))
+        ->and(gamLayoutClasses($card))->toContain('fixed')
+        ->and(gamLayoutClasses($card))->not->toContain('inset-0');
 });
 
 it('stacks the pinned stats bar over the scrolling cards but under the phone side menu and its backdrop, which hides the bottom bar', function () {

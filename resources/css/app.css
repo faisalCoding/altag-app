@@ -59,6 +59,8 @@
 }
 
 @source '../views';
+/* The theme coin's SVG classes live here, out of the views. */
+@source '../../app/Support/GamificationEmoji.php';
 @source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
 @source '../../vendor/livewire/flux-pro/stubs/**/*.blade.php';
 @source '../../vendor/livewire/flux/stubs/**/*.blade.php';
@@ -271,9 +273,11 @@ select:focus[data-flux-control] {
 /*
  * The phone bottom bar steps aside while the side menu is open. It sits at
  * z-[100] so page content never paints over it, which also put it on top of
- * the menu (z-20) and hid the menu's last items under it.
+ * the menu (z-20) and hid the menu's last items under it. The gamification
+ * page's celebration cards float above that bar, so they step aside with it.
  */
-body:has(ui-sidebar[data-flux-sidebar-on-mobile]:not([data-flux-sidebar-collapsed-mobile])) [data-bottom-nav] {
+body:has(ui-sidebar[data-flux-sidebar-on-mobile]:not([data-flux-sidebar-collapsed-mobile])) [data-bottom-nav],
+body:has(ui-sidebar[data-flux-sidebar-on-mobile]:not([data-flux-sidebar-collapsed-mobile])) [data-gam-floating] {
     display: none;
 }
 

@@ -3,7 +3,9 @@
 use App\Models\AcademicCalendarEvent;
 use App\Models\Attendance;
 use App\Models\Circle;
+use App\Models\GamificationLevel;
 use App\Models\GamificationStoreItem;
+use App\Models\GamificationStudentState;
 use App\Models\GamificationTeam;
 use App\Models\GamificationTeamTask;
 use App\Models\GamificationTeamTaskAssignment;
@@ -258,6 +260,57 @@ it('leaves a claimed milestone\'s reward in the rebuild\'s own form, as the redr
 
     // And the next opening finds it standing: nothing written.
     expect(writesAmong(queriesDuring(fn () => Livewire::test('student.gamification-dashboard'))))->toBeEmpty();
+});
+
+/* ------------------------------------------------- the per-tap query pin */
+
+/*
+ * Every tap on the page draws it again, and with() runs whole each time. The
+ * total for one tap is pinned here so a change that adds a read to with()
+ * says so: raise the number only by what the change deliberately adds.
+ */
+it('pins the queries one tap on the page runs', function () {
+    $page = Livewire::test('student.gamification-dashboard');
+
+    $tap = queriesDuring(fn () => $page->call('setNewsDate', '2026-06-08'));
+
+    // Measured with a team, a track, a milestone and a rival team on screen.
+    expect($tap->count())->toBe(56);
+});
+
+/*
+ * The level-up card reads what the level unlocked: one query, and only while a
+ * level waits to be celebrated. Every other tap reads nothing more. The tap
+ * that brings the card counts too: drawn above the page's date pickers, the
+ * card shifted their component keys and they mounted again, reading more.
+ */
+it('reads one query more per tap only while a level waits to be celebrated', function () {
+    foreach ([[1, 0], [2, 5]] as [$number, $xp]) {
+        GamificationLevel::create([
+            'leaderboard_id' => $this->leaderboard->id,
+            'level_number' => $number,
+            'name' => 'رتبة '.$number,
+            'xp_required' => $xp,
+            'icon' => 'star',
+            'settings' => [],
+        ]);
+    }
+    $state = GamificationStudentState::where('student_id', $this->student->id)->where('leaderboard_id', $this->leaderboard->id)->sole();
+    $state->forceFill(['notified_level' => 2, 'celebrated_level' => 2])->saveQuietly();
+
+    $page = Livewire::test('student.gamification-dashboard')->assertDontSeeHtml('data-level-card');
+    $settled = queriesDuring(fn () => $page->call('setNewsDate', '2026-06-08'));
+
+    $state->forceFill(['celebrated_level' => 1])->saveQuietly();
+    $due = queriesDuring(fn () => $page->call('setNewsDate', '2026-06-08'));
+
+    $unlocksReads = fn (Collection $queries) => $queries->filter(fn (string $sql) => str_starts_with($sql, 'select * from "gamification_levels" where "leaderboard_id" = ? and "level_number" <= ?'))->count();
+
+    expect($page->html())->toContain('data-level-card')
+        ->and($due->count() - $settled->count())->toBe(1)
+        ->and($unlocksReads($due))->toBe(1)
+        ->and($unlocksReads($settled))->toBe(0)
+        ->and(writesAmong($due))->toBeEmpty();
 });
 
 /* ------------------------------------------------------- standings reads */
