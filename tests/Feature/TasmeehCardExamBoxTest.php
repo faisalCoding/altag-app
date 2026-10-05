@@ -61,7 +61,12 @@ function cardPendingExam(ExamLevel $level, string $dateTime): StudentExam
     ]);
 }
 
-it('shows the juz count of the student\'s next exam beside their name, linked to the exams page', function () {
+function cardOpensEditor(): string
+{
+    return 'wire:click="$dispatch(\'open-exam-editor\', { studentId: '.test()->student->id.' })"';
+}
+
+it('shows the juz count of the student\'s next exam beside their name, opening the exam editor', function () {
     $two = ExamLevel::create(['name' => 'اختبار جزء النبأ والملك', 'end_ayah_id' => 2]);
     $three = ExamLevel::create(['name' => 'ثلاثة أجزاء', 'end_ayah_id' => 3]);
 
@@ -69,12 +74,17 @@ it('shows the juz count of the student\'s next exam beside their name, linked to
     cardPendingExam($three, '2026-08-20 16:00:00');
     cardPendingExam($two, '2026-07-26 16:00:00'); // The earliest pending one.
 
-    examBoxCard()
+    $html = examBoxCard()
         ->assertSeeInOrder(['أحمد', '٢', 'جزآن'])
         ->assertDontSee('أجزاء')
-        ->assertSeeHtml('title="اختبار جزء النبأ والملك — '.HijriDate::full('2026-07-26').'"')
-        ->assertSeeHtml('href="'.route('teacher.student-exams').'"')
-        ->assertDontSee('إضافة الاختبار القادم');
+        ->assertSeeHtml('title="الاختبار القادم: اختبار جزء النبأ والملك، '.HijriDate::full('2026-07-26').' — '.$this->student->name.'"')
+        ->assertSeeHtml(cardOpensEditor())
+        ->assertDontSeeHtml(route('teacher.student-exams'))
+        ->assertDontSee('إضافة الاختبار القادم')
+        ->html();
+
+    expect($html)->toMatch('/<button\s[^>]*data-exam-box="upcoming"/')
+        ->toContain('size-12');
 });
 
 it('marks an exam a week away with a dot and one past its day in red', function (string $dateTime, string $state, bool $dot) {
@@ -95,11 +105,11 @@ it('shows a graduation cap for a level without an end', function () {
     cardPendingExam(ExamLevel::create(['name' => 'مستوى بلا نهاية']), '2026-07-26 16:00:00');
 
     examBoxCard()
-        ->assertSeeHtml('title="مستوى بلا نهاية — '.HijriDate::full('2026-07-26').'"')
+        ->assertSeeHtml('title="الاختبار القادم: مستوى بلا نهاية، '.HijriDate::full('2026-07-26').' — '.$this->student->name.'"')
         ->assertDontSee('جزء');
 });
 
-it('offers a dashed "+" to the exams page when no exam is pending', function () {
+it('offers a dashed "+" that opens the exam editor when no exam is pending', function () {
     StudentExam::create([
         'student_id' => $this->student->id,
         'exam_level_id' => ExamLevel::create(['name' => 'جزء واحد', 'end_ayah_id' => 1])->id,
@@ -107,20 +117,24 @@ it('offers a dashed "+" to the exams page when no exam is pending', function () 
         'date_time' => '2026-07-01 16:00:00',
     ]);
 
-    examBoxCard()
+    $html = examBoxCard()
         ->assertSeeHtml('data-exam-box="none"')
         ->assertSee('إضافة الاختبار القادم')
-        ->assertSeeHtml('href="'.route('teacher.student-exams').'"');
+        ->assertSeeHtml(cardOpensEditor())
+        ->assertDontSeeHtml(route('teacher.student-exams'))
+        ->html();
+
+    expect($html)->toMatch('/<button\s[^>]*type="button"[^>]*data-exam-box="none"/s');
 });
 
-it('shows the exam without a link, and no "+", while the exams page is switched off for teachers', function () {
+it('shows the exam as a plain box, and no "+", while the exams page is switched off for teachers', function () {
     RoleScreenPermission::where('screen_id', Screen::where('route_name', 'teacher.student-exams')->value('id'))->delete();
 
     cardPendingExam(ExamLevel::create(['name' => 'جزء واحد', 'end_ayah_id' => 1]), '2026-07-26 16:00:00');
 
     $html = examBoxCard()
         ->assertSeeInOrder(['١', 'جزء'])
-        ->assertDontSeeHtml(route('teacher.student-exams'))
+        ->assertDontSeeHtml('open-exam-editor\'')
         ->html();
 
     expect($html)->toMatch('/<div\s[^>]*data-exam-box="upcoming"/');
@@ -129,6 +143,15 @@ it('shows the exam without a link, and no "+", while the exams page is switched 
 
     examBoxCard()
         ->assertDontSeeHtml('data-exam-box')
-        ->assertDontSee('إضافة الاختبار القادم')
-        ->assertDontSeeHtml(route('teacher.student-exams'));
+        ->assertDontSee('إضافة الاختبار القادم');
+});
+
+it('draws its box again once the exam editor saves this student\'s exam', function () {
+    $card = examBoxCard()->assertSeeHtml('data-exam-box="none"');
+
+    cardPendingExam(ExamLevel::create(['name' => 'جزء واحد', 'end_ayah_id' => 1]), '2026-07-26 16:00:00');
+
+    $card->dispatch('exam-saved.'.$this->student->id)
+        ->assertSeeHtml('data-exam-box="upcoming"')
+        ->assertDontSeeHtml('data-exam-box="none"');
 });

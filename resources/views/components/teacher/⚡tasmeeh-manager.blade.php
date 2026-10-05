@@ -39,8 +39,20 @@ new class extends Component {
     public function refreshData()
     {
         // Quietly: these come from the other tabs (a mark on the attendance
-        // page, a new plan), where a word about the tasmeeh list means nothing.
+        // page, a new plan), where a word about the tasmeeh list means nothing,
+        // or from the exam editor, which has already said its own.
         $this->refreshToggle = ! $this->refreshToggle;
+    }
+
+    /**
+     * A saved exam redraws the boxes in place. Unlike refreshData it leaves
+     * the rows' keys alone, so the box that opened the editor stays, and
+     * focus returns to it when the editor closes.
+     */
+    #[On('exam-saved')]
+    public function examSaved(): void
+    {
+        //
     }
 
     public function with()
@@ -173,8 +185,10 @@ new class extends Component {
         $studentsWithPlansPresent = collect($studentsWithPlansPresent)->sortBy('turn_number')->values();
 
         // The small box beside each name in the list. Every student's next exam
-        // comes in one query for the whole list rather than one per row.
+        // comes in one query for the whole list rather than one per row, and
+        // whether the boxes open the exam editor is asked once for them all.
         $nextExams = NextExamBadge::forStudents($students->modelKeys());
+        $canScheduleExams = NextExamBadge::canSchedule();
 
         // Student cards render lazily (one request each) and fetch their own
         // plan/ode/hadith days via their built-in fallback queries, so nothing is
@@ -190,6 +204,9 @@ new class extends Component {
             'studentPlansList' => $studentPlansList,
             'activeSession' => $activeSession,
             'nextExams' => $nextExams,
+            'canScheduleExams' => $canScheduleExams,
+            // A column for the boxes once any is drawn, empty where a student has none.
+            'reserveExamColumn' => $canScheduleExams || $nextExams->isNotEmpty(),
         ];
     }
 
@@ -314,7 +331,8 @@ hifz/review — local state per day card for instant visual feedback
     </div>
 
     {{-- Selects & Student List Layout --}}
-    <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+    {{-- Between lg and xl the list takes a third: with a box on every row a quarter left no room for names. --}}
+    <div class="grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-4 gap-6">
 
         <!-- Students List Sidebar -->
         <div class="lg:col-span-1 flex flex-col gap-4 bg-zinc-50 dark:bg-zinc-900/50 p-4 rounded-2xl border border-zinc-200 dark:border-zinc-800 h-fit max-h-[calc(100vh-140px)] overflow-y-auto lg:sticky lg:top-24 scrollbar-thin">
@@ -335,21 +353,24 @@ hifz/review — local state per day card for instant visual feedback
                 </button>
                 <div x-show="openSection === 1"
                     class="p-2 space-y-1.5 border-t border-zinc-100 dark:border-zinc-800 max-h-[50vh] overflow-y-auto scrollbar-thin">
+                    {{--
+                        Each row is two controls side by side: the name opens the
+                        student's card, the box at its end their exam. One inside
+                        the other would be a button inside a button.
+                    --}}
                     @forelse($studentsWithPlansPresent as $student)
-                        <button wire:key="present-{{ $student->id }}-{{ $refreshToggle ? '1' : '0' }}" @click="selectStudent({{ $student->id }})"
-                            class="w-full flex items-center justify-between gap-2 p-2.5 rounded-xl border text-right transition-colors"
-                            :class="activeStudentId == {{ $student->id }} ? 'bg-indigo-50 border-indigo-200 dark:bg-indigo-900/40 dark:border-indigo-800' : 'bg-white dark:bg-zinc-800 border-transparent hover:border-zinc-200 dark:hover:border-zinc-700'">
-                            <div class="flex items-center gap-3 min-w-0">
-                                <div
-                                    class="size-2.5 rounded-full bg-{{ $student->tasmeeh_color }}-500 shadow-sm shadow-{{ $student->tasmeeh_color }}-500/30 shrink-0">
+                        <div wire:key="present-{{ $student->id }}-{{ $refreshToggle ? '1' : '0' }}" class="flex items-center gap-2">
+                            <button type="button" @click="selectStudent({{ $student->id }})"
+                                class="flex-1 min-w-0 min-h-10 flex items-center justify-between gap-2 px-2.5 py-2 rounded-xl border text-right transition-colors"
+                                :class="activeStudentId == {{ $student->id }} ? 'bg-indigo-50 border-indigo-200 dark:bg-indigo-900/40 dark:border-indigo-800' : 'bg-white dark:bg-zinc-800 border-transparent hover:border-zinc-200 dark:hover:border-zinc-700'">
+                                <div class="flex items-center gap-3 min-w-0">
+                                    <div
+                                        class="size-2.5 rounded-full bg-{{ $student->tasmeeh_color }}-500 shadow-sm shadow-{{ $student->tasmeeh_color }}-500/30 shrink-0">
+                                    </div>
+                                    <span
+                                        class="font-medium text-sm truncate"
+                                        :class="activeStudentId == {{ $student->id }} ? 'text-indigo-700 dark:text-indigo-400' : 'text-zinc-700 dark:text-zinc-300'">{{ $student->name }}</span>
                                 </div>
-                                <span
-                                    class="font-medium text-sm truncate"
-                                    :class="activeStudentId == {{ $student->id }} ? 'text-indigo-700 dark:text-indigo-400' : 'text-zinc-700 dark:text-zinc-300'">{{ $student->name }}</span>
-                            </div>
-                            {{-- The next exam nearer the name, the turn number at the far end. --}}
-                            <div class="shrink-0 flex items-center gap-1.5">
-                                <x-next-exam-chip :exam="$nextExams->get($student->id)" :student-id="$student->id" />
                                 @if($student->turn_number !== 9999)
                                     <span
                                         class="shrink-0 flex items-center justify-center min-w-[20px] h-5 px-1.5 text-[10px] font-bold rounded-md"
@@ -357,8 +378,9 @@ hifz/review — local state per day card for instant visual feedback
                                         {{ $student->turn_number }}
                                     </span>
                                 @endif
-                            </div>
-                        </button>
+                            </button>
+                            <x-tasmeeh-exam-box :exam="$nextExams->get($student->id)" :student-id="$student->id" :student-name="$student->name" :can-schedule="$canScheduleExams" :reserve="$reserveExamColumn" />
+                        </div>
                     @empty
                         <div class="text-xs text-center text-zinc-400 py-3">{{ __('لا يوجد طلاب حالياً.') }}</div>
                     @endforelse
@@ -383,19 +405,19 @@ hifz/review — local state per day card for instant visual feedback
                     <div x-show="openSection === 2"
                         class="p-2 space-y-1.5 border-t border-zinc-100 dark:border-zinc-800 max-h-[50vh] overflow-y-auto scrollbar-thin">
                         @forelse($studentsWithPlansAbsent as $student)
-                            <button wire:key="absent-{{ $student->id }}-{{ $refreshToggle ? '1' : '0' }}" @click="selectStudent({{ $student->id }})"
-                                class="w-full flex items-center justify-between gap-2 p-2.5 rounded-xl border text-right transition-colors"
-                                :class="activeStudentId == {{ $student->id }} ? 'bg-indigo-50 border-indigo-200 dark:bg-indigo-900/40 dark:border-indigo-800' : 'bg-rose-50 dark:bg-rose-900/10 border-transparent hover:border-rose-200 dark:hover:border-rose-800/50 opacity-75 hover:opacity-100'">
-                                <div class="flex items-center gap-3 min-w-0">
+                            <div wire:key="absent-{{ $student->id }}-{{ $refreshToggle ? '1' : '0' }}" class="flex items-center gap-2">
+                                <button type="button" @click="selectStudent({{ $student->id }})"
+                                    class="flex-1 min-w-0 min-h-10 flex items-center gap-3 px-2.5 py-2 rounded-xl border text-right transition-colors"
+                                    :class="activeStudentId == {{ $student->id }} ? 'bg-indigo-50 border-indigo-200 dark:bg-indigo-900/40 dark:border-indigo-800' : 'bg-rose-50 dark:bg-rose-900/10 border-transparent hover:border-rose-200 dark:hover:border-rose-800/50 opacity-75 hover:opacity-100'">
                                     <div
                                         class="size-2.5 rounded-full bg-{{ $student->tasmeeh_color }}-500 shadow-sm shadow-{{ $student->tasmeeh_color }}-500/30 shrink-0">
                                     </div>
                                     <span
                                         class="font-medium text-sm truncate"
                                         :class="activeStudentId == {{ $student->id }} ? 'text-indigo-700 dark:text-indigo-400' : 'text-rose-700 dark:text-rose-400'">{{ $student->name }}</span>
-                                </div>
-                                <x-next-exam-chip :exam="$nextExams->get($student->id)" :student-id="$student->id" ring="ring-rose-50 dark:ring-zinc-900" />
-                            </button>
+                                </button>
+                                <x-tasmeeh-exam-box :exam="$nextExams->get($student->id)" :student-id="$student->id" :student-name="$student->name" :can-schedule="$canScheduleExams" :reserve="$reserveExamColumn" />
+                            </div>
                         @empty
                         @endforelse
                     </div>
@@ -422,14 +444,14 @@ hifz/review — local state per day card for instant visual feedback
                         class="p-2 space-y-1.5 border-t border-zinc-100 dark:border-zinc-800 max-h-[50vh] overflow-y-auto scrollbar-thin">
                         @forelse($studentsWithoutPlans as $student)
                             <div wire:key="noplan-{{ $student->id }}-{{ $refreshToggle ? '1' : '0' }}" class="flex items-center gap-2">
-                                <button @click="selectStudent({{ $student->id }})"
-                                    class="flex-1 min-w-0 flex items-center justify-between gap-2 p-2.5 rounded-xl border text-right transition-colors"
+                                <button type="button" @click="selectStudent({{ $student->id }})"
+                                    class="flex-1 min-w-0 min-h-10 flex items-center px-2.5 py-2 rounded-xl border text-right transition-colors"
                                     :class="activeStudentId == {{ $student->id }} ? 'bg-indigo-50 border-indigo-200 dark:bg-indigo-900/40 dark:border-indigo-800' : 'bg-zinc-100/50 dark:bg-zinc-800/30 border-transparent hover:border-zinc-200 dark:hover:border-zinc-700'">
                                     <span
                                         class="font-medium text-sm truncate"
                                         :class="activeStudentId == {{ $student->id }} ? 'text-indigo-700 dark:text-indigo-400' : 'text-zinc-500 dark:text-zinc-400'">{{ $student->name }}</span>
-                                    <x-next-exam-chip :exam="$nextExams->get($student->id)" :student-id="$student->id" ring="ring-zinc-50 dark:ring-zinc-900" />
                                 </button>
+                                <x-tasmeeh-exam-box :exam="$nextExams->get($student->id)" :student-id="$student->id" :student-name="$student->name" :can-schedule="$canScheduleExams" :reserve="$reserveExamColumn" />
                                 <a href="{{ route('teacher.plan-creator', ['studentId' => $student->id]) }}"
                                     class="shrink-0 p-2.5 text-emerald-600 hover:text-white bg-emerald-50 hover:bg-emerald-500 dark:text-emerald-400 dark:bg-emerald-900/20 dark:hover:bg-emerald-600 rounded-xl   s"
                                     title="{{ __('إنشاء خطة') }}">
@@ -445,7 +467,7 @@ hifz/review — local state per day card for instant visual feedback
         </div>
 
         <!-- Main Content Area -->
-        <div id="grading-area" class="lg:col-span-3 space-y-6 scroll-mt-6">
+        <div id="grading-area" class="lg:col-span-2 xl:col-span-3 space-y-6 scroll-mt-6">
             {{-- Desktop only: on a phone the roll sits right above, and a 400px card
                  pointing at "the side list" only pushed it out of reach. --}}
             <div x-show="!activeStudentId" class="hidden lg:flex flex-col items-center justify-center p-12 bg-zinc-50/50 dark:bg-zinc-900/50 border border-dashed border-zinc-200 dark:border-zinc-800 rounded-2xl text-center h-full min-h-[400px]">
@@ -534,4 +556,7 @@ hifz/review — local state per day card for instant visual feedback
             </div>
         </div>
     </flux:modal>
+
+    {{-- The one exam editor every box on the page opens, in the list and in the cards. --}}
+    <livewire:teacher.tasmeeh-exam-editor wire:key="tasmeeh-exam-editor" />
 </div>

@@ -71,7 +71,7 @@ class ExamChangeService
         }
 
         try {
-            return Cache::lock("student-exam:{$student->id}", 10)->block(5, fn () => DB::transaction(
+            return Cache::lock(self::studentLockKey($student->id), 10)->block(5, fn () => DB::transaction(
                 fn () => $change['action'] === 'create'
                     ? self::create($student, $change, $today)
                     : self::update($student, $change, $today),
@@ -203,6 +203,16 @@ class ExamChangeService
     private static function isPast(string $date, string $editedOn, string $today): bool
     {
         return $date < min($editedOn, $today);
+    }
+
+    /**
+     * The lock both the API and the tasmeeh page's exam editor take to write
+     * a student's exams, so a phone and a browser setting the same student's
+     * exam at once cannot both find nothing pending and schedule two.
+     */
+    public static function studentLockKey(int $studentId): string
+    {
+        return "student-exam:{$studentId}";
     }
 
     /**

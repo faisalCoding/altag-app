@@ -59,7 +59,7 @@ class ExamSnapshot
      *
      * @return Collection<int, ExamLevel>
      */
-    private static function levels(): Collection
+    public static function levels(): Collection
     {
         return ExamLevel::with('endAyah:id,juz_number')
             ->orderBy('id')
@@ -69,6 +69,18 @@ class ExamSnapshot
                 fn (ExamLevel $a, ExamLevel $b) => $a->id <=> $b->id,
             ])
             ->values();
+    }
+
+    /**
+     * The level one student would sit next, by the rule the teacher app is
+     * sent below, so the tasmeeh page offers the same level the phone does.
+     * Null once they have passed the last level, or while none has an end.
+     *
+     * @param  Collection<int, ExamLevel>|null  $levels  The levels as read by levels(), when already at hand.
+     */
+    public static function suggestedLevelId(int $studentId, ?Collection $levels = null): ?int
+    {
+        return self::suggestions([$studentId], $levels ?? self::levels())[0]['level_id'] ?? null;
     }
 
     /**
