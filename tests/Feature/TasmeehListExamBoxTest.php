@@ -3,6 +3,7 @@
 use App\Models\Attendance;
 use App\Models\Ayah;
 use App\Models\Circle;
+use App\Models\CircleTurn;
 use App\Models\ExamLevel;
 use App\Models\RoleScreenPermission;
 use App\Models\Screen;
@@ -11,8 +12,6 @@ use App\Models\StudentExam;
 use App\Models\StudentPlan;
 use App\Models\Surah;
 use App\Models\Teacher;
-use App\Models\TurnReservation;
-use App\Models\TurnReservationSession;
 use App\Support\HijriDate;
 use App\Support\NextExamBadge;
 use Carbon\Carbon;
@@ -185,11 +184,8 @@ it('keeps the turn number inside the name\'s button and the box after it, at the
     $student = boxStudent('أحمد');
     boxExam($student, $this->three, '2026-07-26 16:00:00');
 
-    $session = TurnReservationSession::create([
-        'teacher_id' => $this->teacher->id, 'start_date' => '2026-07-01', 'end_date' => '2026-07-31',
-        'days_of_week' => [0, 1, 2, 3, 4, 5, 6], 'start_time' => '16:00', 'end_time' => '18:00',
-    ]);
-    TurnReservation::create(['turn_reservation_session_id' => $session->id, 'student_id' => $student->id, 'date' => '2026-07-08', 'turn_number' => 7]);
+    openTurnBooking($this->circle);
+    CircleTurn::create(['circle_id' => $this->circle->id, 'student_id' => $student->id, 'date' => '2026-07-08', 'turn_number' => 7]);
 
     [$button, $box] = listRow(Livewire::test('teacher.⚡tasmeeh-manager')->html(), $student);
 

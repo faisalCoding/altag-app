@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['name', 'description', 'level', 'position', 'require_edit_reason', 'hadith_enabled', 'odes_enabled', 'whatsapp_group_url'])]
+#[Fillable(['name', 'description', 'level', 'position', 'require_edit_reason', 'hadith_enabled', 'odes_enabled', 'whatsapp_group_url', 'turn_booking_enabled', 'turn_booking_days', 'turn_booking_starts_at', 'turn_booking_ends_at'])]
 class Stage extends Model
 {
     /** @use HasFactory<StageFactory> */
@@ -21,6 +21,8 @@ class Stage extends Model
         'hadith_enabled' => 'boolean',
         'odes_enabled' => 'boolean',
         'position' => 'integer',
+        'turn_booking_enabled' => 'boolean',
+        'turn_booking_days' => 'array',
     ];
 
     /**

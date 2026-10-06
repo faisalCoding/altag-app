@@ -4,6 +4,7 @@ use App\Livewire\Teacher\LeaderboardGrade;
 use App\Models\AcademicCalendarEvent;
 use App\Models\Attendance;
 use App\Models\Circle;
+use App\Models\CircleTurn;
 use App\Models\GamificationActivity;
 use App\Models\GamificationActivityRound;
 use App\Models\GamificationActivityWinner;
@@ -22,8 +23,6 @@ use App\Models\Student;
 use App\Models\StudentPlan;
 use App\Models\StudentPlanDay;
 use App\Models\Teacher;
-use App\Models\TurnReservation;
-use App\Models\TurnReservationSession;
 use App\Services\GamificationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -968,41 +967,24 @@ it('lets the student reserve and cancel a tasmeeh turn from the gamification das
     ]);
     $leaderboard->circles()->attach($this->circle->id);
 
-    $teacher = Teacher::create([
-        'name' => 'معلم الطابور',
-        'email' => 'queue-teacher@example.com',
-        'password' => bcrypt('password'),
-        'status' => 'active',
-        'is_approved' => true,
-    ]);
-    $teacher->circles()->attach($this->circle->id);
-
-    $now = Carbon\Carbon::now('Asia/Riyadh');
-    $session = TurnReservationSession::create([
-        'teacher_id' => $teacher->id,
-        'start_date' => $now->copy()->subDay()->format('Y-m-d'),
-        'end_date' => $now->copy()->addDay()->format('Y-m-d'),
-        'days_of_week' => [0, 1, 2, 3, 4, 5, 6],
-        'start_time' => $now->copy()->subHour()->format('H:i:s'),
-        'end_time' => $now->copy()->addHour()->format('H:i:s'),
-    ]);
+    openTurnBooking($this->circle);
 
     Livewire::test('student.gamification-dashboard')
-        ->assertViewHas('activeSession')
-        ->call('reserveTurn', $session->id)
+        ->assertViewHas('turnWindow')
+        ->call('reserveTurn')
         ->assertHasNoErrors();
 
-    $reservation = TurnReservation::where('turn_reservation_session_id', $session->id)
+    $turn = CircleTurn::where('circle_id', $this->circle->id)
         ->where('student_id', $this->student->id)
         ->first();
-    expect($reservation)->not->toBeNull();
-    expect($reservation->turn_number)->toBe(1);
+    expect($turn)->not->toBeNull();
+    expect($turn->turn_number)->toBe(1);
 
     Livewire::test('student.gamification-dashboard')
-        ->call('cancelTurn', $session->id)
+        ->call('cancelTurn')
         ->assertHasNoErrors();
 
-    expect(TurnReservation::where('turn_reservation_session_id', $session->id)
+    expect(CircleTurn::where('circle_id', $this->circle->id)
         ->where('student_id', $this->student->id)
         ->exists())->toBeFalse();
 });
@@ -1019,30 +1001,14 @@ it('does not reserve a turn when the session window is closed', function () {
     ]);
     $leaderboard->circles()->attach($this->circle->id);
 
-    $teacher = Teacher::create([
-        'name' => 'معلم الطابور المغلق',
-        'email' => 'closed-teacher@example.com',
-        'password' => bcrypt('password'),
-        'status' => 'active',
-        'is_approved' => true,
-    ]);
-    $teacher->circles()->attach($this->circle->id);
-
-    $now = Carbon\Carbon::now('Asia/Riyadh');
-    // Active today (so the card shows) but the time window has already passed.
-    $session = TurnReservationSession::create([
-        'teacher_id' => $teacher->id,
-        'start_date' => $now->copy()->subDay()->format('Y-m-d'),
-        'end_date' => $now->copy()->addDay()->format('Y-m-d'),
-        'days_of_week' => [0, 1, 2, 3, 4, 5, 6],
-        'start_time' => $now->copy()->subHours(3)->format('H:i:s'),
-        'end_time' => $now->copy()->subHours(2)->format('H:i:s'),
-    ]);
+    // Booking opens today (so the card shows) but not at this hour.
+    openTurnBooking($this->circle, openNow: false);
 
     Livewire::test('student.gamification-dashboard')
-        ->call('reserveTurn', $session->id);
+        ->assertViewHas('turnWindow')
+        ->call('reserveTurn');
 
-    expect(TurnReservation::where('turn_reservation_session_id', $session->id)->exists())->toBeFalse();
+    expect(CircleTurn::where('circle_id', $this->circle->id)->exists())->toBeFalse();
 });
 
 it('calculates competition working days and their enthusiasm status correctly', function () {

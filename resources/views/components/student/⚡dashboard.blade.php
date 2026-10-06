@@ -6,6 +6,8 @@ use App\Models\StudentPlanDay;
 use Carbon\Carbon;
 
 new class extends Component {
+    use \App\Concerns\BooksTasmeehTurns;
+
     public function with()
     {
         $student = Auth::guard('student')->user();
@@ -309,25 +311,11 @@ new class extends Component {
             ];
         }
 
-        // Turn Reservation logic
-        $activeSession = null;
-        if ($student->circle_id) {
-            $teacherIds = \Illuminate\Support\Facades\DB::table('circle_teacher')->where('circle_id', $student->circle_id)->pluck('teacher_id');
-
-            $sessions = \App\Models\TurnReservationSession::whereIn('teacher_id', $teacherIds)->get();
-
-            foreach ($sessions as $session) {
-                if ($session->isActiveToday()) {
-                    $activeSession = $session;
-                    break;
-                }
-            }
-        }
-
-        $studentReservation = null;
-        if ($activeSession) {
-            $studentReservation = \App\Models\TurnReservation::where('turn_reservation_session_id', $activeSession->id)->whereDate('date', $todayStr)->where('student_id', $student->id)->first();
-        }
+        // The tasmeeh queue: the window the supervisor set for the circle's
+        // stage, shown on the days it opens, and the turn the student holds.
+        $turnWindow = \App\Services\TurnBooking::windowFor($student);
+        $turnWindow = $turnWindow?->opensToday() ? $turnWindow : null;
+        $studentTurn = $turnWindow ? \App\Services\TurnBooking::turnOf($student, \App\Services\TurnBooking::today()) : null;
 
         $pendingChallenges = \App\Models\Challenge::where('student_id', $student->id)->where('status', 'pending')->with('items', 'guardian')->get();
 
@@ -419,8 +407,8 @@ new class extends Component {
             'leaderboard' => $leaderboard,
             'leaderboardStandings' => $leaderboardStandings,
             'lastDayStats' => $lastDayStats,
-            'activeSession' => $activeSession,
-            'studentReservation' => $studentReservation,
+            'turnWindow' => $turnWindow,
+            'studentTurn' => $studentTurn,
             'pendingChallenges' => $pendingChallenges,
             'activeChallenges' => $activeChallenges,
             'nextExam' => $nextExam,
@@ -457,40 +445,6 @@ new class extends Component {
         return \App\Support\HijriDate::full($parsed->getTimestamp());
     }
 
-    public function reserveTurn($sessionId)
-    {
-        $student = Auth::guard('student')->user();
-        $session = \App\Models\TurnReservationSession::find($sessionId);
-
-        if (!$session || !$session->isActiveNow()) {
-            Flux::toast('عذراً، وقت الحجز غير متاح حالياً.', variant: 'danger');
-            return;
-        }
-
-        $todayStr = \Carbon\Carbon::now('Asia/Riyadh')->format('Y-m-d');
-
-        // Students booking at the same moment each get their own number; see reserveNext().
-        $reservation = \App\Models\TurnReservation::reserveNext($session->id, $student->id, $todayStr);
-
-        if (! $reservation) {
-            Flux::toast('الحجز مزدحم الآن، حاول مرة أخرى بعد لحظات.', variant: 'danger');
-            return;
-        }
-
-        if ($reservation->wasRecentlyCreated) {
-            Flux::toast('تم حجز دورك بنجاح!', variant: 'success');
-        }
-    }
-
-    public function cancelTurn($sessionId)
-    {
-        $student = Auth::guard('student')->user();
-        $todayStr = \Carbon\Carbon::now('Asia/Riyadh')->format('Y-m-d');
-
-        \App\Models\TurnReservation::where('turn_reservation_session_id', $sessionId)->whereDate('date', $todayStr)->where('student_id', $student->id)->delete();
-
-        Flux::toast('تم إلغاء حجزك بنجاح.', variant: 'success');
-    }
 };
 ?>
 
@@ -874,13 +828,13 @@ new class extends Component {
                                 {{ __('اختبار قادم: :date', ['date' => $nextExam->date_time->translatedFormat('d F')]) }}
                             </div>
                         @endif
-                        @if($activeSession)
+                        @if($turnWindow)
                             <div class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
                                 <flux:icon icon="user-circle" class="size-4 text-amber-500 shrink-0" />
                                 {{ __('لديك جلسة تسميع اليوم') }}
                             </div>
                         @endif
-                        @if(!$nextExam && !$activeSession)
+                        @if(!$nextExam && !$turnWindow)
                             <div class="text-sm text-zinc-400">{{ __('لا توجد تنبيهات حالياً') }}</div>
                         @endif
                     </div>
@@ -1120,7 +1074,7 @@ new class extends Component {
                 </div>
             @endif
 
-            @if ($activeSession)
+            @if ($turnWindow)
                 <flux:card
                     class="border-indigo-200 dark:border-indigo-800 bg-indigo-50/50 dark:bg-indigo-900/20 overflow-hidden relative">
                     <div class="absolute top-0 right-0 p-4 opacity-10">
@@ -1130,17 +1084,16 @@ new class extends Component {
                         <div>
                             <flux:heading size="lg" class="text-indigo-800 dark:text-indigo-300 flex items-center gap-2">
                                 <flux:icon icon="ticket" class="size-5" />
-                                {{ $activeSession->isActiveNow() ? __('حجز دور التسميع متاح الآن') : __('جدول التسميع لليوم') }}
+                                {{ $turnWindow->isOpenNow() ? __('حجز دور التسميع متاح الآن') : __('جدول التسميع لليوم') }}
                             </flux:heading>
                             <p class="text-indigo-600/80 dark:text-indigo-400 mt-1 text-sm">
                                 {{ __('بادر بحجز رقمك في طابور التسميع قبل انتهاء الوقت المخصص.') }}
-                                ({{ \Carbon\Carbon::parse($activeSession->start_time)->format('g:i A') }} -
-                                {{ \Carbon\Carbon::parse($activeSession->end_time)->format('g:i A') }})
+                                ({{ $turnWindow->hours() }})
                             </p>
                         </div>
 
                         <div class="shrink-0 w-full sm:w-auto">
-                            @if ($studentReservation)
+                            @if ($studentTurn)
                                 <div class="flex flex-col sm:flex-row items-center gap-2">
                                     <div
                                         class="bg-indigo-600 text-white px-6 py-3 rounded-xl flex items-center gap-3 shadow-lg shadow-indigo-500/30 w-full sm:w-auto justify-center">
@@ -1150,12 +1103,12 @@ new class extends Component {
                                                 {{ __('تم الحجز') }}
                                             </div>
                                             <div class="font-bold text-xl">{{ __('رقمك: ') }}
-                                                {{ $studentReservation->turn_number }}
+                                                {{ $studentTurn->turn_number }}
                                             </div>
                                         </div>
                                     </div>
-                                    @if ($activeSession->isActiveNow())
-                                        <flux:button wire:click="cancelTurn({{ $activeSession->id }})"
+                                    @if ($turnWindow->isOpenNow())
+                                        <flux:button wire:click="cancelTurn"
                                             wire:confirm="{{ __('هل أنت متأكد من إلغاء حجزك؟') }}" variant="danger" icon="x-mark"
                                             class="w-full sm:w-auto h-full min-h-[52px] rounded-xl px-4">
                                             {{ __('إلغاء') }}
@@ -1163,8 +1116,8 @@ new class extends Component {
                                     @endif
                                 </div>
                             @else
-                                @if ($activeSession->isActiveNow())
-                                    <flux:button wire:click="reserveTurn({{ $activeSession->id }})" variant="primary" icon="ticket"
+                                @if ($turnWindow->isOpenNow())
+                                    <flux:button wire:click="reserveTurn" variant="primary" icon="ticket"
                                         class="w-full bg-indigo-600 hover:bg-indigo-700 border-none shadow-lg shadow-indigo-500/20 text-white">
                                         {{ __('احجز دوري الآن') }}
                                     </flux:button>

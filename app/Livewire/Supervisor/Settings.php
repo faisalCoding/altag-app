@@ -4,6 +4,7 @@ namespace App\Livewire\Supervisor;
 
 use App\Models\Stage;
 use App\Rules\WhatsappGroupLink;
+use App\Support\TurnBookingWindow;
 use Flux\Flux;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
@@ -30,6 +31,21 @@ class Settings extends Component
     /** @var array<int, bool> stage id => memorises the odes */
     public array $odesEnabled = [];
 
+    /** Students of all this supervisor's stages may book a tasmeeh turn. */
+    public bool $turnBookingEnabled = false;
+
+    /**
+     * Carbon's day numbers booking opens on, 0 for Sunday — as strings, which
+     * is how the checkboxes hold their values.
+     *
+     * @var array<int, string>
+     */
+    public array $turnBookingDays = ['0', '1', '2', '3', '4'];
+
+    public string $turnBookingStartsAt = '16:00';
+
+    public string $turnBookingEndsAt = '18:00';
+
     public function mount(): void
     {
         $this->loadStages();
@@ -54,6 +70,59 @@ class Settings extends Component
         $this->odesEnabled = $stages
             ->mapWithKeys(fn (Stage $stage) => [$stage->id => (bool) $stage->odes_enabled])
             ->all();
+
+        // One window for all the stages: read from the first that has one.
+        $booking = $stages->first(fn (Stage $stage) => $stage->turn_booking_starts_at !== null);
+
+        if ($booking) {
+            $this->turnBookingEnabled = (bool) $booking->turn_booking_enabled;
+            $this->turnBookingDays = array_map('strval', $booking->turn_booking_days ?? TurnBookingWindow::DEFAULT_DAYS);
+            $this->turnBookingStartsAt = $booking->turn_booking_starts_at;
+            $this->turnBookingEndsAt = $booking->turn_booking_ends_at;
+        }
+    }
+
+    /**
+     * Set when students book their tasmeeh turn, for every stage this
+     * supervisor holds. Each circle numbers its own queue; teachers only see
+     * the window.
+     */
+    public function saveTurnBooking(): void
+    {
+        $this->validate([
+            'turnBookingEnabled' => ['boolean'],
+            'turnBookingDays' => ['array', 'required_if:turnBookingEnabled,true'],
+            'turnBookingDays.*' => ['integer', 'between:0,6'],
+            'turnBookingStartsAt' => ['required', 'date_format:H:i'],
+            'turnBookingEndsAt' => ['required', 'date_format:H:i', 'after:turnBookingStartsAt'],
+        ], [
+            'turnBookingDays.required_if' => __('اختر يوماً واحداً على الأقل.'),
+            'turnBookingEndsAt.after' => __('وقت النهاية بعد وقت البداية.'),
+        ]);
+
+        $stages = $this->stages();
+
+        if ($stages->isEmpty()) {
+            return;
+        }
+
+        $days = collect($this->turnBookingDays)->map(fn ($day) => (int) $day)->unique()->sort()->values()->all();
+
+        Stage::whereKey($stages->modelKeys())->update([
+            'turn_booking_enabled' => $this->turnBookingEnabled,
+            'turn_booking_days' => json_encode($days),
+            'turn_booking_starts_at' => $this->turnBookingStartsAt,
+            'turn_booking_ends_at' => $this->turnBookingEndsAt,
+        ]);
+
+        $this->turnBookingDays = array_map('strval', $days);
+
+        Flux::toast(
+            $this->turnBookingEnabled
+                ? __('حُفظ وقت حجز الأدوار لجميع مراحلك.')
+                : __('أُوقف حجز الأدوار في جميع مراحلك.'),
+            variant: 'success',
+        );
     }
 
     /**

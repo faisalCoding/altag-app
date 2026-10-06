@@ -275,7 +275,9 @@ it('pins the queries one tap on the page runs', function () {
     $tap = queriesDuring(fn () => $page->call('setNewsDate', '2026-06-08'));
 
     // Measured with a team, a track, a milestone and a rival team on screen.
-    expect($tap->count())->toBe(56);
+    // Two fewer since the turn queue reads the circle's stage, not every
+    // teacher's booking session.
+    expect($tap->count())->toBe(54);
 });
 
 /*

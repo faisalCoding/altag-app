@@ -1,5 +1,7 @@
 <?php
 
+use App\Models\Circle;
+use App\Models\Stage;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -47,4 +49,30 @@ expect()->extend('toBeOne', function () {
 function something()
 {
     // ..
+}
+
+/**
+ * Open tasmeeh turn booking on a circle's stage every day of the week, as the
+ * supervisor sets it: all day, or — with $openNow false — at hours already
+ * past or still to come, so the booking card shows without a button.
+ */
+function openTurnBooking(Circle $circle, bool $openNow = true): Stage
+{
+    $stage = $circle->stage ?? Stage::factory()->create();
+
+    if (! $circle->stage_id) {
+        $circle->update(['stage_id' => $stage->id]);
+    }
+
+    $closed = Carbon\Carbon::now('Asia/Riyadh')->hour >= 1 ? ['00:00', '00:30'] : ['23:00', '23:30'];
+    [$startsAt, $endsAt] = $openNow ? ['00:00', '23:59'] : $closed;
+
+    $stage->update([
+        'turn_booking_enabled' => true,
+        'turn_booking_days' => [0, 1, 2, 3, 4, 5, 6],
+        'turn_booking_starts_at' => $startsAt,
+        'turn_booking_ends_at' => $endsAt,
+    ]);
+
+    return $stage;
 }

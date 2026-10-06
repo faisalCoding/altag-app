@@ -16,14 +16,6 @@ use Flux\Flux;
 use Livewire\Attributes\On;
 
 new class extends Component {
-    // Reservation session properties
-    public $showSessionModal = false;
-    public $sessionStartTime = '16:00';
-    public $sessionEndTime = '18:00';
-    public $sessionStartDate;
-    public $sessionEndDate;
-    public $sessionDaysOfWeek = [0, 1, 2, 3, 4, 5, 6];
-
     public $gradedAtDate;
     public $refreshToggle = false;
 
@@ -99,29 +91,11 @@ new class extends Component {
             ->get()
             ->keyBy('student_id');
 
-        // The reservation queue is shared between all teachers of the same circles,
-        // so co-teachers see the session and turn numbers whoever activated it.
-        $coTeacherIds = \Illuminate\Support\Facades\DB::table('circle_teacher')
-            ->whereIn('circle_id', $circleIds)
-            ->pluck('teacher_id')
-            ->unique();
-
-        $allSessions = \App\Models\TurnReservationSession::whereIn('teacher_id', $coTeacherIds)->get();
-        $activeSession = null;
-        foreach ($allSessions as $session) {
-            if ($session->isActiveToday()) {
-                $activeSession = $session;
-                break;
-            }
-        }
-
-        $reservations = collect();
-        if ($activeSession) {
-            $reservations = \App\Models\TurnReservation::where('turn_reservation_session_id', $activeSession->id)
-                ->whereDate('date', $todayStr)
-                ->get()
-                ->keyBy('student_id');
-        }
+        // The supervisor sets when students book their turn; each circle
+        // numbers its own queue, which every teacher of the circle sees.
+        $turnWindow = \App\Services\TurnBooking::windowToday($teacher->circles()->with('stage')->get());
+        $bookingDay = \App\Services\TurnBooking::today();
+        $reservations = \App\Services\TurnBooking::turnsBetween($circleIds->all(), $bookingDay, $bookingDay)->keyBy('student_id');
 
         $studentsWithPlansPresent = [];
         $studentsWithPlansAbsent = [];
@@ -204,93 +178,12 @@ new class extends Component {
             'studentsWithoutPlans' => collect($studentsWithoutPlans),
             'activePlans' => $activePlans,
             'studentPlansList' => $studentPlansList,
-            'activeSession' => $activeSession,
+            'turnWindow' => $turnWindow,
             'nextExams' => $nextExams,
             'canScheduleExams' => $canScheduleExams,
             // A column for the boxes once any is drawn, empty where a student has none.
             'reserveExamColumn' => $canScheduleExams || $nextExams->isNotEmpty(),
         ];
-    }
-
-    /**
-     * The queue session shared by all teachers of the same circles: the teacher's
-     * own session first, otherwise a co-teacher's, so settings edit one shared
-     * session instead of creating a duplicate competing queue.
-     */
-    protected function findSharedSession()
-    {
-        $teacher = Auth::guard('teacher')->user();
-        $circleIds = $teacher->circles()->pluck('circles.id');
-
-        $coTeacherIds = \Illuminate\Support\Facades\DB::table('circle_teacher')
-            ->whereIn('circle_id', $circleIds)
-            ->pluck('teacher_id')
-            ->unique();
-
-        return \App\Models\TurnReservationSession::whereIn('teacher_id', $coTeacherIds)
-            ->orderByRaw('(teacher_id = ?) desc', [$teacher->id])
-            ->first();
-    }
-
-    public function openSessionModal()
-    {
-        $session = $this->findSharedSession();
-
-        if ($session) {
-            $this->sessionStartTime = \Carbon\Carbon::parse($session->start_time)->format('H:i');
-            $this->sessionEndTime = \Carbon\Carbon::parse($session->end_time)->format('H:i');
-            $this->sessionStartDate = \Carbon\Carbon::parse($session->start_date)->format('Y-m-d');
-            $this->sessionEndDate = \Carbon\Carbon::parse($session->end_date)->format('Y-m-d');
-            $this->sessionDaysOfWeek = $session->days_of_week ?? [0, 1, 2, 3, 4, 5, 6];
-        } else {
-            $this->sessionStartTime = '16:00';
-            $this->sessionEndTime = '18:00';
-            $this->sessionStartDate = \Carbon\Carbon::now('Asia/Riyadh')->format('Y-m-d');
-            $this->sessionEndDate = \Carbon\Carbon::now('Asia/Riyadh')->addMonths(1)->format('Y-m-d');
-            $this->sessionDaysOfWeek = [0, 1, 2, 3, 4]; // Default to Sunday-Thursday
-        }
-
-        $this->showSessionModal = true;
-    }
-
-    public function saveSession()
-    {
-        $this->validate([
-            'sessionStartTime' => 'required',
-            'sessionEndTime' => 'required',
-            'sessionStartDate' => 'required|date',
-            'sessionEndDate' => 'required|date|after_or_equal:sessionStartDate',
-            'sessionDaysOfWeek' => 'required|array|min:1',
-        ]);
-
-        $teacher = Auth::guard('teacher')->user();
-
-        // Convert string arrays to integers
-        $days = array_map('intval', $this->sessionDaysOfWeek);
-
-        $session = $this->findSharedSession();
-
-        if ($session) {
-            $session->update([
-                'start_time' => $this->sessionStartTime,
-                'end_time' => $this->sessionEndTime,
-                'start_date' => $this->sessionStartDate,
-                'end_date' => $this->sessionEndDate,
-                'days_of_week' => $days,
-            ]);
-        } else {
-            \App\Models\TurnReservationSession::create([
-                'teacher_id' => $teacher->id,
-                'start_time' => $this->sessionStartTime,
-                'end_time' => $this->sessionEndTime,
-                'start_date' => $this->sessionStartDate,
-                'end_date' => $this->sessionEndDate,
-                'days_of_week' => $days,
-            ]);
-        }
-
-        $this->showSessionModal = false;
-        Flux::toast('تم حفظ إعدادات حجز الأدوار بنجاح', variant: 'success');
     }
 };
 ?>
@@ -319,16 +212,12 @@ hifz/review — local state per day card for instant visual feedback
             </flux:subheading>
         </div>
         <div class="flex flex-col md:flex-row md:items-center gap-2">
-            @if($activeSession)
+            @if($turnWindow)
                 <flux:badge color="emerald" variant="pill" icon="clock">
-                    {{ __('حجز الأدوار مفعل') }}
-                    ({{ \Carbon\Carbon::parse($activeSession->start_time)->format('g:i A') }} -
-                    {{ \Carbon\Carbon::parse($activeSession->end_time)->format('g:i A') }})
+                    {{ __('حجز الأدوار اليوم') }}
+                    ({{ $turnWindow->hours() }})
                 </flux:badge>
             @endif
-            <flux:button wire:click="openSessionModal" icon="ticket" variant="outline" class="shrink-0">
-                {{ __('إعدادات حجز الأدوار') }}
-            </flux:button>
         </div>
     </div>
 
@@ -507,57 +396,6 @@ hifz/review — local state per day card for instant visual feedback
             @endforeach
         </div>
     </div>
-
-    <!-- Session Settings Modal -->
-    <flux:modal wire:model="showSessionModal" class="md:w-[500px]">
-        <div class="space-y-6">
-            <div>
-                <flux:heading size="lg">{{ __('إعدادات طابور التسميع') }}</flux:heading>
-                <flux:subheading>{{ __('قم بتحديد جدول طابور التسميع والأيام التي سيكون متاحاً فيها للطلاب.') }}
-                </flux:subheading>
-            </div>
-
-            <div class="space-y-4">
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <livewire:shared.hijri-datepicker wire:model="sessionStartDate" label="{{ __('تاريخ البداية') }}" />
-                    <livewire:shared.hijri-datepicker wire:model="sessionEndDate" label="{{ __('تاريخ النهاية') }}" />
-                </div>
-
-                <flux:field>
-                    <flux:label>{{ __('أيام الحجز') }}</flux:label>
-                    <div class="grid grid-cols-3 sm:grid-cols-4 gap-2 mt-2">
-                        <flux:checkbox wire:model="sessionDaysOfWeek" value="0" label="الأحد" />
-                        <flux:checkbox wire:model="sessionDaysOfWeek" value="1" label="الإثنين" />
-                        <flux:checkbox wire:model="sessionDaysOfWeek" value="2" label="الثلاثاء" />
-                        <flux:checkbox wire:model="sessionDaysOfWeek" value="3" label="الأربعاء" />
-                        <flux:checkbox wire:model="sessionDaysOfWeek" value="4" label="الخميس" />
-                        <flux:checkbox wire:model="sessionDaysOfWeek" value="5" label="الجمعة" />
-                        <flux:checkbox wire:model="sessionDaysOfWeek" value="6" label="السبت" />
-                    </div>
-                    <flux:error name="sessionDaysOfWeek" />
-                </flux:field>
-
-                <div class="grid grid-cols-2 gap-4">
-                    <flux:input type="time" wire:model="sessionStartTime" label="{{ __('وقت بداية الحجز') }}" />
-                    <flux:input type="time" wire:model="sessionEndTime" label="{{ __('وقت نهاية الحجز') }}" />
-                </div>
-
-                <div class="text-xs text-zinc-500 bg-zinc-50 dark:bg-zinc-800/50 p-3 rounded-lg flex gap-2">
-                    <flux:icon icon="information-circle" class="size-4 shrink-0 mt-0.5" />
-                    <p>{{ __('الأدوار تتجدد يومياً بناءً على هذا الجدول. في الوقت المحدد سيظهر للطلاب زر لطلب رقم. الطلاب أصحاب الأرقام سيظهرون أعلى قائمة "حاضر" هنا.') }}
-                    </p>
-                </div>
-            </div>
-
-            <div class="flex justify-end gap-2">
-                <flux:button wire:click="$set('showSessionModal', false)" variant="ghost">{{ __('إلغاء') }}
-                </flux:button>
-                <flux:button wire:click="saveSession" variant="primary"
-                    class="bg-indigo-600 hover:bg-indigo-700 text-white border-none">{{ __('حفظ التفعيل') }}
-                </flux:button>
-            </div>
-        </div>
-    </flux:modal>
 
     {{-- The one exam editor every box on the page opens, in the list and in the cards. --}}
     <livewire:teacher.tasmeeh-exam-editor wire:key="tasmeeh-exam-editor" />

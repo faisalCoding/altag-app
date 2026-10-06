@@ -8,6 +8,7 @@ use App\Http\Resources\V1\SyncCircleResource;
 use App\Http\Resources\V1\SyncCompetitionResource;
 use App\Http\Resources\V1\SyncScoreResource;
 use App\Http\Resources\V1\SyncStudentResource;
+use App\Http\Resources\V1\SyncTurnResource;
 use App\Models\AcademicCalendarEvent;
 use App\Models\Attendance;
 use App\Models\AttendanceRevision;
@@ -153,6 +154,10 @@ class TeacherSyncSnapshot
             'scores' => SyncScoreResource::collection($scores),
             'extra_points' => self::extraPoints($competitionIds->all(), $students->modelKeys(), $from, $today),
             ...$tasmeeh,
+            // The turns students booked in the teacher's circles' queues.
+            'turns' => $pages['tasmeeh']
+                ? SyncTurnResource::collection(TurnBooking::turnsBetween($circles->modelKeys(), $from, $today))
+                : [],
             ...($pages['tasmeeh'] || $pages['student_exams'] ? ExamSnapshot::for($students->modelKeys()) : ExamSnapshot::empty()),
             'hijri_months' => self::hijriMonths(min($from, $periodsFrom ?? $from, $planDays[0] ?? $from), $today, $planDays[1] ?? null),
             'days' => self::days($from, $to),

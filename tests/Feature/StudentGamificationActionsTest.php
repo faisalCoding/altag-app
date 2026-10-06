@@ -3,6 +3,7 @@
 use App\Models\AcademicCalendarEvent;
 use App\Models\Attendance;
 use App\Models\Circle;
+use App\Models\CircleTurn;
 use App\Models\GamificationLevel;
 use App\Models\GamificationStoreItem;
 use App\Models\GamificationStorePurchase;
@@ -13,8 +14,6 @@ use App\Models\Leaderboard;
 use App\Models\Stage;
 use App\Models\Student;
 use App\Models\Teacher;
-use App\Models\TurnReservation;
-use App\Models\TurnReservationSession;
 use App\Services\GamificationService;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -314,49 +313,26 @@ it('opens donations on the first day by the academy clock, before the UTC date c
 
 /* --------------------------------------------------------------- reserveTurn */
 
-function makeOpenTurnSession(Circle $circle): TurnReservationSession
-{
-    $teacher = Teacher::create([
-        'name' => 'معلم الطابور المزدحم',
-        'email' => 'busy-queue-teacher@example.com',
-        'password' => bcrypt('password'),
-        'status' => 'active',
-        'is_approved' => true,
-    ]);
-    $teacher->circles()->attach($circle->id);
-
-    $now = Carbon::now('Asia/Riyadh');
-
-    return TurnReservationSession::create([
-        'teacher_id' => $teacher->id,
-        'start_date' => $now->copy()->subDay()->format('Y-m-d'),
-        'end_date' => $now->copy()->addDay()->format('Y-m-d'),
-        'days_of_week' => [0, 1, 2, 3, 4, 5, 6],
-        'start_time' => $now->copy()->subHour()->format('H:i:s'),
-        'end_time' => $now->copy()->addHour()->format('H:i:s'),
-    ]);
-}
-
 /**
  * Make the next booking lose the race once: just before it is written, another
  * student is written with the very number it read, as when both tapped together.
  */
-function makeNextTurnLoseTheRace(TurnReservationSession $session, Student $rival): void
+function makeNextTurnLoseTheRace(Circle $circle, Student $rival): void
 {
     $raced = false;
 
-    TurnReservation::creating(function (TurnReservation $reservation) use (&$raced, $session, $rival) {
-        if ($raced || $reservation->student_id === $rival->id) {
+    CircleTurn::creating(function (CircleTurn $turn) use (&$raced, $circle, $rival) {
+        if ($raced || $turn->student_id === $rival->id) {
             return;
         }
 
         $raced = true;
 
-        DB::table('turn_reservations')->insert([
-            'turn_reservation_session_id' => $session->id,
+        DB::table('circle_turns')->insert([
+            'circle_id' => $circle->id,
             'student_id' => $rival->id,
-            'date' => $reservation->date,
-            'turn_number' => $reservation->turn_number,
+            'date' => $turn->date,
+            'turn_number' => $turn->turn_number,
             'created_at' => now(),
             'updated_at' => now(),
         ]);
@@ -365,16 +341,16 @@ function makeNextTurnLoseTheRace(TurnReservationSession $session, Student $rival
 
 it('gives students booking at the same moment their own turn numbers instead of an error', function () {
     makeActionsLeaderboard($this->circle);
-    $session = makeOpenTurnSession($this->circle);
+    openTurnBooking($this->circle);
     $rival = makeActionsStudent('طالب سبق بالحجز', 'rival-booker@example.com', $this->circle);
 
-    makeNextTurnLoseTheRace($session, $rival);
+    makeNextTurnLoseTheRace($this->circle, $rival);
 
     Livewire::test('student.gamification-dashboard')
-        ->call('reserveTurn', $session->id)
+        ->call('reserveTurn')
         ->assertDispatched('toast-show', toastSaying('تم حجز دورك بنجاح!'));
 
-    $turns = TurnReservation::where('turn_reservation_session_id', $session->id)
+    $turns = CircleTurn::where('circle_id', $this->circle->id)
         ->orderBy('turn_number')
         ->pluck('turn_number', 'student_id');
 
@@ -382,29 +358,28 @@ it('gives students booking at the same moment their own turn numbers instead of 
 });
 
 it('books the same way from the plain student dashboard', function () {
-    $session = makeOpenTurnSession($this->circle);
+    openTurnBooking($this->circle);
     $rival = makeActionsStudent('طالب سبق بالحجز', 'rival-booker@example.com', $this->circle);
 
-    makeNextTurnLoseTheRace($session, $rival);
+    makeNextTurnLoseTheRace($this->circle, $rival);
 
     Livewire::test('student.dashboard')
-        ->call('reserveTurn', $session->id)
+        ->call('reserveTurn')
         ->assertDispatched('toast-show', toastSaying('تم حجز دورك بنجاح!'));
 
-    expect(TurnReservation::where('student_id', $this->student->id)->value('turn_number'))->toBe(2);
+    expect(CircleTurn::where('student_id', $this->student->id)->value('turn_number'))->toBe(2);
 });
 
 it('returns the booking a student already holds rather than a second one', function () {
-    $session = makeOpenTurnSession($this->circle);
     $today = now('Asia/Riyadh')->toDateString();
 
-    $first = TurnReservation::reserveNext($session->id, $this->student->id, $today);
-    $again = TurnReservation::reserveNext($session->id, $this->student->id, $today);
+    $first = CircleTurn::reserveNext($this->circle->id, $this->student->id, $today);
+    $again = CircleTurn::reserveNext($this->circle->id, $this->student->id, $today);
 
     expect($first->wasRecentlyCreated)->toBeTrue()
         ->and($again->wasRecentlyCreated)->toBeFalse()
         ->and($again->id)->toBe($first->id)
-        ->and(TurnReservation::count())->toBe(1);
+        ->and(CircleTurn::count())->toBe(1);
 });
 
 /* ------------------------------------------------------------ team treasury */

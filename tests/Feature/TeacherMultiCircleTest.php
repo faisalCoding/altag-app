@@ -3,12 +3,11 @@
 use App\Livewire\Teacher\LeaderboardGrade;
 use App\Livewire\Teacher\Leaderboards;
 use App\Models\Circle;
+use App\Models\CircleTurn;
 use App\Models\Leaderboard;
 use App\Models\Stage;
 use App\Models\Student;
 use App\Models\Teacher;
-use App\Models\TurnReservation;
-use App\Models\TurnReservationSession;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
 
@@ -89,103 +88,59 @@ it('lists competitions from every teacher circle on the leaderboards page', func
     expect($listedIds->all())->toContain($boardB->id);
 });
 
-it('numbers tasmeeh turn reservations sequentially across all teacher circles', function () {
-    $now = Carbon\Carbon::now('Asia/Riyadh');
-    $session = TurnReservationSession::create([
-        'teacher_id' => $this->teacher->id,
-        'start_date' => $now->copy()->subDay()->format('Y-m-d'),
-        'end_date' => $now->copy()->addDay()->format('Y-m-d'),
-        'days_of_week' => [0, 1, 2, 3, 4, 5, 6],
-        'start_time' => $now->copy()->subHour()->format('H:i:s'),
-        'end_time' => $now->copy()->addHour()->format('H:i:s'),
-    ]);
+it('numbers each circle\'s tasmeeh queue from one', function () {
+    openTurnBooking($this->circleA);
 
-    // A student from each circle reserves; numbering continues, never restarts.
+    // A student from each of the teacher's circles books; each circle counts its own.
     $this->actingAs($this->studentA, 'student');
-    Livewire::test('student.⚡dashboard')->call('reserveTurn', $session->id);
+    Livewire::test('student.⚡dashboard')->call('reserveTurn');
 
     $this->actingAs($this->studentB, 'student');
-    Livewire::test('student.⚡dashboard')->call('reserveTurn', $session->id);
+    Livewire::test('student.⚡dashboard')->call('reserveTurn');
 
-    $turnA = TurnReservation::where('student_id', $this->studentA->id)->first();
-    $turnB = TurnReservation::where('student_id', $this->studentB->id)->first();
+    $turnA = CircleTurn::where('student_id', $this->studentA->id)->first();
+    $turnB = CircleTurn::where('student_id', $this->studentB->id)->first();
 
-    expect($turnA->turn_number)->toBe(1);
-    expect($turnB->turn_number)->toBe(2);
-    expect($turnA->turn_reservation_session_id)->toBe($session->id);
-    expect($turnB->turn_reservation_session_id)->toBe($session->id);
+    expect([$turnA->circle_id, $turnA->turn_number])->toBe([$this->circleA->id, 1])
+        ->and([$turnB->circle_id, $turnB->turn_number])->toBe([$this->circleB->id, 1]);
 });
 
-it('shows the reservation queue to co-teachers of the same circle', function () {
+it('shows the booking window and the circle\'s turns to every teacher of the circle', function () {
     $coTeacher = Teacher::factory()->create();
     $coTeacher->circles()->attach($this->circleA->id);
 
-    $now = Carbon\Carbon::now('Asia/Riyadh');
-    $session = TurnReservationSession::create([
-        'teacher_id' => $this->teacher->id,
-        'start_date' => $now->copy()->subDay()->format('Y-m-d'),
-        'end_date' => $now->copy()->addDay()->format('Y-m-d'),
-        'days_of_week' => [0, 1, 2, 3, 4, 5, 6],
-        'start_time' => $now->copy()->subHour()->format('H:i:s'),
-        'end_time' => $now->copy()->addHour()->format('H:i:s'),
-    ]);
+    openTurnBooking($this->circleA);
 
-    TurnReservation::create([
-        'turn_reservation_session_id' => $session->id,
+    CircleTurn::create([
+        'circle_id' => $this->circleA->id,
         'student_id' => $this->studentA->id,
-        'date' => $now->format('Y-m-d'),
+        'date' => now('Asia/Riyadh')->toDateString(),
         'turn_number' => 1,
     ]);
 
-    // The co-teacher (who did not create the session) sees the same active queue.
     $this->actingAs($coTeacher, 'teacher');
     $component = Livewire::test('teacher.⚡tasmeeh-manager');
 
-    expect($component->viewData('activeSession'))->not->toBeNull();
-    expect($component->viewData('activeSession')->id)->toBe($session->id);
+    expect($component->viewData('turnWindow'))->not->toBeNull()
+        ->and($component->viewData('turnWindow')->hours())->toBe('12:00 ص - 11:59 م');
 });
 
-it('lets a co-teacher edit the shared session instead of creating a duplicate queue', function () {
-    $coTeacher = Teacher::factory()->create();
-    $coTeacher->circles()->attach($this->circleA->id);
+it('leaves the booking window to the supervisor: the teacher has no settings for it', function () {
+    openTurnBooking($this->circleA);
 
-    $now = Carbon\Carbon::now('Asia/Riyadh');
-    $session = TurnReservationSession::create([
-        'teacher_id' => $this->teacher->id,
-        'start_date' => $now->copy()->subDay()->format('Y-m-d'),
-        'end_date' => $now->copy()->addDay()->format('Y-m-d'),
-        'days_of_week' => [0, 1, 2, 3, 4],
-        'start_time' => '16:00:00',
-        'end_time' => '18:00:00',
-    ]);
-
-    $this->actingAs($coTeacher, 'teacher');
+    $this->actingAs($this->teacher, 'teacher');
 
     Livewire::test('teacher.⚡tasmeeh-manager')
-        ->call('openSessionModal')
-        ->assertSet('sessionStartTime', '16:00')
-        ->set('sessionStartTime', '15:00')
-        ->set('sessionEndTime', '19:00')
-        ->call('saveSession');
-
-    expect(TurnReservationSession::count())->toBe(1);
-    expect(Carbon\Carbon::parse($session->refresh()->start_time)->format('H:i'))->toBe('15:00');
+        ->assertSee('حجز الأدوار اليوم')
+        ->assertDontSee('إعدادات حجز الأدوار');
 });
 
-it('finds the reservation session for students of the teacher second circle', function () {
-    $now = Carbon\Carbon::now('Asia/Riyadh');
-    TurnReservationSession::create([
-        'teacher_id' => $this->teacher->id,
-        'start_date' => $now->copy()->subDay()->format('Y-m-d'),
-        'end_date' => $now->copy()->addDay()->format('Y-m-d'),
-        'days_of_week' => [0, 1, 2, 3, 4, 5, 6],
-        'start_time' => $now->copy()->subHour()->format('H:i:s'),
-        'end_time' => $now->copy()->addHour()->format('H:i:s'),
-    ]);
+it('opens booking for students of the teacher\'s second circle', function () {
+    openTurnBooking($this->circleA);
 
     $this->actingAs($this->studentB, 'student');
 
     $component = Livewire::test('student.⚡dashboard');
 
-    expect($component->viewData('activeSession'))->not->toBeNull();
+    expect($component->viewData('turnWindow'))->not->toBeNull();
 });

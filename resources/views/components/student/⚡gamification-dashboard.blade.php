@@ -9,6 +9,7 @@ new class extends Component {
     use \Livewire\WithFileUploads {
         _uploadErrored as protected livewireUploadErrored;
     }
+    use \App\Concerns\BooksTasmeehTurns;
 
     public $profile_image_file = null;
     public array $targetTeams = [];
@@ -1135,37 +1136,18 @@ new class extends Component {
             ? \App\Services\GamificationService::getDailyDonationStatus($student->id, $activeGamification->id, $gamificationLevelInfo)
             : ['has_donation' => false, 'percentage' => 0, 'base' => 0, 'limit' => 0, 'donated' => 0, 'remaining' => 0];
 
-        // Turn Reservation: let students book their tasmeeh turn from within the competition view too.
-        $todayStr = \Carbon\Carbon::now('Asia/Riyadh')->format('Y-m-d');
-        $activeSession = null;
-        if ($student->circle_id) {
-            $teacherIds = \Illuminate\Support\Facades\DB::table('circle_teacher')
-                ->where('circle_id', $student->circle_id)
-                ->pluck('teacher_id');
-
-            $sessions = \App\Models\TurnReservationSession::whereIn('teacher_id', $teacherIds)->get();
-            foreach ($sessions as $session) {
-                if ($session->isActiveToday()) {
-                    $activeSession = $session;
-                    break;
-                }
-            }
-        }
-
-        $studentReservation = null;
-        if ($activeSession) {
-            $studentReservation = \App\Models\TurnReservation::where('turn_reservation_session_id', $activeSession->id)
-                ->whereDate('date', $todayStr)
-                ->where('student_id', $student->id)
-                ->first();
-        }
+        // The tasmeeh queue, bookable from the competition view too: the window
+        // the supervisor set for the circle's stage, and the student's turn.
+        $turnWindow = \App\Services\TurnBooking::windowFor($student);
+        $turnWindow = $turnWindow?->opensToday() ? $turnWindow : null;
+        $studentTurn = $turnWindow ? \App\Services\TurnBooking::turnOf($student, \App\Services\TurnBooking::today()) : null;
 
         $pendingRewards = $activeGamification ? \App\Services\GamificationService::getPendingRewards($student->id, $activeGamification->id) : collect();
         $pendingMilestoneClaims ??= collect();
 
         return [
-            'activeSession' => $activeSession,
-            'studentReservation' => $studentReservation,
+            'turnWindow' => $turnWindow,
+            'studentTurn' => $studentTurn,
             'student' => $student,
             'activeGamification' => $activeGamification,
             'gamificationState' => $gamificationState,
@@ -1232,43 +1214,6 @@ new class extends Component {
         ];
     }
 
-    public function reserveTurn($sessionId)
-    {
-        $student = Auth::guard('student')->user();
-        $session = \App\Models\TurnReservationSession::find($sessionId);
-
-        if (!$session || !$session->isActiveNow()) {
-            Flux::toast('عذراً، وقت الحجز غير متاح حالياً.', variant: 'danger');
-            return;
-        }
-
-        $todayStr = \Carbon\Carbon::now('Asia/Riyadh')->format('Y-m-d');
-
-        // Students booking at the same moment each get their own number; see reserveNext().
-        $reservation = \App\Models\TurnReservation::reserveNext($session->id, $student->id, $todayStr);
-
-        if (! $reservation) {
-            Flux::toast('الحجز مزدحم الآن، حاول مرة أخرى بعد لحظات.', variant: 'danger');
-            return;
-        }
-
-        if ($reservation->wasRecentlyCreated) {
-            Flux::toast('تم حجز دورك بنجاح!', variant: 'success');
-        }
-    }
-
-    public function cancelTurn($sessionId)
-    {
-        $student = Auth::guard('student')->user();
-        $todayStr = \Carbon\Carbon::now('Asia/Riyadh')->format('Y-m-d');
-
-        \App\Models\TurnReservation::where('turn_reservation_session_id', $sessionId)
-            ->whereDate('date', $todayStr)
-            ->where('student_id', $student->id)
-            ->delete();
-
-        Flux::toast('تم إلغاء حجزك بنجاح.', variant: 'success');
-    }
 
     /**
      * Take an approved badge, from its celebration card or its row in the
@@ -1935,7 +1880,7 @@ new class extends Component {
     --}}
     <div x-show="currentTab === 'leaderboard'" x-cloak class="space-y-8 p-3 md:p-8">
     <!-- Turn Reservation: book tasmeeh turn from the competition view -->
-    @if($activeSession)
+    @if($turnWindow)
         <div class="relative z-10 rounded-3xl border border-slate-200 bg-white overflow-hidden shadow-sm">
             <div class="absolute top-0 left-0 p-4 opacity-[0.06] pointer-events-none">
                 <flux:icon icon="ticket" class="w-28 h-28 text-team-primary" />
@@ -1947,27 +1892,27 @@ new class extends Component {
                             <flux:icon icon="ticket" class="size-5" />
                         </div>
                         <div class="font-bold text-slate-900">
-                            {{ $activeSession->isActiveNow() ? __('حجز دور التسميع متاح الآن') : __('جدول التسميع لليوم') }}
+                            {{ $turnWindow->isOpenNow() ? __('حجز دور التسميع متاح الآن') : __('جدول التسميع لليوم') }}
                         </div>
                     </div>
                     <p class="text-sm text-slate-500 mt-1.5">
                         {{ __('بادر بحجز رقمك في طابور التسميع قبل انتهاء الوقت المخصص.') }}
-                        <span class="font-semibold text-slate-600">({{ \Carbon\Carbon::parse($activeSession->start_time)->format('g:i A') }} - {{ \Carbon\Carbon::parse($activeSession->end_time)->format('g:i A') }})</span>
+                        <span class="font-semibold text-slate-600">({{ $turnWindow->hours() }})</span>
                     </p>
                 </div>
 
                 <div class="shrink-0 w-full sm:w-auto">
-                    @if($studentReservation)
+                    @if($studentTurn)
                         <div class="flex flex-col sm:flex-row items-center gap-2">
                             <div class="bg-team-primary text-white px-6 py-3 rounded-2xl flex items-center gap-3 shadow-lg w-full sm:w-auto justify-center">
                                 <flux:icon icon="check-badge" class="size-6 text-white/70" />
                                 <div>
                                     <div class="text-[11px] text-white/80 uppercase tracking-wider font-semibold">{{ __('تم الحجز') }}</div>
-                                    <div class="font-bold text-xl">{{ __('رقمك: ') }} {{ $studentReservation->turn_number }}</div>
+                                    <div class="font-bold text-xl">{{ __('رقمك: ') }} {{ $studentTurn->turn_number }}</div>
                                 </div>
                             </div>
-                            @if($activeSession->isActiveNow())
-                                <flux:button wire:click="cancelTurn({{ $activeSession->id }})"
+                            @if($turnWindow->isOpenNow())
+                                <flux:button wire:click="cancelTurn"
                                     wire:confirm="{{ __('هل أنت متأكد من إلغاء حجزك؟') }}" variant="danger" icon="x-mark"
                                     class="w-full sm:w-auto h-full min-h-[52px] rounded-2xl px-4">
                                     {{ __('إلغاء') }}
@@ -1975,8 +1920,8 @@ new class extends Component {
                             @endif
                         </div>
                     @else
-                        @if($activeSession->isActiveNow())
-                            <button wire:click="reserveTurn({{ $activeSession->id }})" wire:loading.attr="disabled"
+                        @if($turnWindow->isOpenNow())
+                            <button wire:click="reserveTurn" wire:loading.attr="disabled"
                                 class="w-full inline-flex items-center justify-center gap-2 px-6 py-3 rounded-2xl bg-team-primary hover:bg-team-primary-hover text-white font-bold shadow-lg transition-colors">
                                 <flux:icon icon="ticket" class="size-5" />
                                 {{ __('احجز دوري الآن') }}

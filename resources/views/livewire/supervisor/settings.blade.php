@@ -84,6 +84,45 @@
             الإخفاء لا يحذف شيئاً: الخطط والتقييمات المسجّلة تبقى، وتعود كما كانت حين تُفعِّلها من جديد.
         </p>
 
+        {{-- ─────────── حجز أدوار التسميع ─────────── --}}
+        <div class="flex items-center gap-3 pt-2">
+            <div class="p-2 rounded-lg bg-zinc-50 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+                <flux:icon icon="ticket" />
+            </div>
+            <div>
+                <flux:heading size="lg" class="font-bold text-zinc-900 dark:text-white">حجز أدوار التسميع</flux:heading>
+                <flux:subheading>وقت واحد يسري على جميع مراحلك، ولكل حلقة ترقيمها من ١</flux:subheading>
+            </div>
+        </div>
+
+        <form wire:submit="saveTurnBooking"
+            class="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-100 dark:border-zinc-800 shadow-xs p-4 space-y-5">
+            <flux:switch wire:model.live="turnBookingEnabled" label="يحجز الطلاب أدوارهم في هذا الوقت" align="left" />
+
+            <div @class(['space-y-5', 'opacity-50' => ! $turnBookingEnabled])>
+                <flux:checkbox.group wire:model="turnBookingDays" label="أيام الحجز">
+                    <div class="grid grid-cols-3 sm:grid-cols-7 gap-2 mt-1">
+                        @foreach (['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'] as $day => $dayName)
+                            <flux:checkbox value="{{ $day }}" label="{{ $dayName }}" />
+                        @endforeach
+                    </div>
+                </flux:checkbox.group>
+
+                <div class="grid grid-cols-2 gap-4 sm:max-w-md">
+                    <flux:input type="time" wire:model="turnBookingStartsAt" label="من" />
+                    <flux:input type="time" wire:model="turnBookingEndsAt" label="إلى" />
+                </div>
+            </div>
+
+            <div class="flex justify-end">
+                <flux:button type="submit" variant="primary">حفظ</flux:button>
+            </div>
+        </form>
+
+        <p class="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
+            في هذا الوقت يظهر للطالب زر لحجز دوره، ويرى المعلم الأرقام بجانب أسماء طلابه في التسميع على الموقع والتطبيق.
+        </p>
+
         <div class="flex items-center gap-3 pt-2">
             <div class="p-2 rounded-lg bg-zinc-50 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
                 <flux:icon icon="chat-bubble-left-right" />

@@ -7,6 +7,12 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
+/**
+ * A booking window a teacher used to set for the circles they shared with
+ * other teachers. The supervisor now sets the window for their stages
+ * (TurnBookingWindow) and each circle keeps its own queue (CircleTurn); the
+ * sessions stay for the turns booked in them, and are no longer read.
+ */
 class TurnReservationSession extends Model
 {
     protected $fillable = [
