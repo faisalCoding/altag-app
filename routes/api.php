@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\V1\Teacher\AuthController as V1AuthController;
 use App\Http\Controllers\Api\V1\Teacher\ExamChangeController;
 use App\Http\Controllers\Api\V1\Teacher\ExtraPointChangeController;
 use App\Http\Controllers\Api\V1\Teacher\ScoreChangeController;
+use App\Http\Controllers\Api\V1\Teacher\StudentContactController;
 use App\Http\Controllers\Api\V1\Teacher\SyncController;
 use App\Http\Controllers\Api\V1\Teacher\TasmeehChangeController;
 use Illuminate\Support\Facades\Route;
@@ -46,6 +47,14 @@ Route::prefix('v1/teacher')->name('api.v1.teacher.')->group(function () {
 
         Route::middleware(['teacher.api:teacher.student-exams', 'throttle:120,1'])->group(function () {
             Route::post('/exams/changes', [ExamChangeController::class, 'store'])->name('exams.changes.store');
+        });
+
+        // The student's number and their guardian, from the student card.
+        Route::middleware(['teacher.api:teacher.students', 'throttle:60,1'])->prefix('/students/{student}')->name('students.')->whereNumber('student')->group(function () {
+            Route::post('/phone', [StudentContactController::class, 'phone'])->name('phone');
+            Route::post('/guardian/lookup', [StudentContactController::class, 'lookupGuardian'])->name('guardian.lookup');
+            Route::post('/guardian', [StudentContactController::class, 'saveGuardian'])->name('guardian');
+            Route::post('/guardian/phone', [StudentContactController::class, 'guardianPhone'])->name('guardian.phone');
         });
     });
 });
