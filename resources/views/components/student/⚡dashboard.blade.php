@@ -82,12 +82,18 @@ new class extends Component {
         $pendingReviewMission = collect($pendingMissions)->firstWhere('pendingPart', 'review');
 
         // Fetch Earliest Pending Hadith Missions (one per active Hadith plan)
-        $activeHadithPlans = \App\Models\StudentHadithPlan::where('student_id', $student->id)->where('status', 'active')->get();
+        // A stage that does not memorise the mutun or the odes shows the
+        // student neither; emptied here so every section built on them hides.
+        $activeHadithPlans = $student->memorisesHadith()
+            ? \App\Models\StudentHadithPlan::where('student_id', $student->id)->where('status', 'active')->get()
+            : collect();
 
         // Ode plans had no place on this dashboard at all, so the student could
         // not reach one from here.
-        $activeOdePlans = \App\Models\StudentOdePlan::where('student_id', $student->id)
-            ->where('status', 'active')->with('path.ode')->get();
+        $activeOdePlans = $student->memorisesOdes()
+            ? \App\Models\StudentOdePlan::where('student_id', $student->id)
+                ->where('status', 'active')->with('path.ode')->get()
+            : collect();
         $pendingHadithMissions = [];
         foreach ($activeHadithPlans as $plan) {
             $mission = \App\Models\HadithPathDay::with(['fromHadith', 'toHadith', 'reviewFromHadith', 'reviewToHadith'])

@@ -24,6 +24,12 @@ class Settings extends Component
     /** @var array<int, string> stage id => the WhatsApp group its absence messages go to */
     public array $whatsappGroupUrls = [];
 
+    /** @var array<int, bool> stage id => memorises the mutun (hadith texts) */
+    public array $hadithEnabled = [];
+
+    /** @var array<int, bool> stage id => memorises the odes */
+    public array $odesEnabled = [];
+
     public function mount(): void
     {
         $this->loadStages();
@@ -40,6 +46,56 @@ class Settings extends Component
         $this->whatsappGroupUrls = $stages
             ->mapWithKeys(fn (Stage $stage) => [$stage->id => (string) $stage->whatsapp_group_url])
             ->all();
+
+        $this->hadithEnabled = $stages
+            ->mapWithKeys(fn (Stage $stage) => [$stage->id => (bool) $stage->hadith_enabled])
+            ->all();
+
+        $this->odesEnabled = $stages
+            ->mapWithKeys(fn (Stage $stage) => [$stage->id => (bool) $stage->odes_enabled])
+            ->all();
+    }
+
+    /**
+     * Turn the mutun on or off for one stage. Off hides them from the teacher's
+     * tasmeeh and the student's pages; the plans and grades already recorded
+     * are kept, and come back as they were when it is turned on again.
+     */
+    public function toggleHadith(int $stageId): void
+    {
+        $this->toggleMemorisation($stageId, 'hadith_enabled', 'المتون');
+    }
+
+    /** Turn the odes on or off for one stage, on the same terms as the mutun. */
+    public function toggleOdes(int $stageId): void
+    {
+        $this->toggleMemorisation($stageId, 'odes_enabled', 'المنظومات');
+    }
+
+    private function toggleMemorisation(int $stageId, string $column, string $label): void
+    {
+        $stage = $this->stages()->firstWhere('id', $stageId);
+
+        if (! $stage) {
+            Flux::toast(__('هذه المرحلة خارج نطاق صلاحياتك.'), variant: 'danger');
+
+            return;
+        }
+
+        $stage->update([$column => ! $stage->{$column}]);
+
+        if ($column === 'hadith_enabled') {
+            $this->hadithEnabled[$stageId] = (bool) $stage->hadith_enabled;
+        } else {
+            $this->odesEnabled[$stageId] = (bool) $stage->odes_enabled;
+        }
+
+        Flux::toast(
+            $stage->{$column}
+                ? __('فُعِّلت :what في «:stage».', ['what' => $label, 'stage' => $stage->name])
+                : __('أُخفيت :what من «:stage».', ['what' => $label, 'stage' => $stage->name]),
+            variant: 'success',
+        );
     }
 
     /**

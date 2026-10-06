@@ -43,6 +43,47 @@
     </div>
 
     @if ($stages->isNotEmpty())
+        {{-- ─────────── المتون والمنظومات ─────────── --}}
+        <div class="flex items-center gap-3 pt-2">
+            <div class="p-2 rounded-lg bg-zinc-50 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+                <flux:icon icon="book-open" />
+            </div>
+            <div>
+                <flux:heading size="lg" class="font-bold text-zinc-900 dark:text-white">المتون والمنظومات</flux:heading>
+                <flux:subheading>ما لا تحفظه المرحلة يختفي من تسميع المعلم ومن صفحات الطالب</flux:subheading>
+            </div>
+        </div>
+
+        <div class="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-100 dark:border-zinc-800 shadow-xs overflow-hidden">
+            <div class="divide-y divide-zinc-100 dark:divide-zinc-800">
+                @foreach ($stages as $stage)
+                    <div wire:key="stage-memorisation-{{ $stage->id }}"
+                        class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-3.5">
+                        <div class="text-sm font-bold text-zinc-800 dark:text-zinc-100 truncate">{{ $stage->name }}</div>
+
+                        <div class="flex items-center gap-6 shrink-0">
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <span class="text-sm text-zinc-600 dark:text-zinc-300">المتون</span>
+                                <flux:switch wire:click="toggleHadith({{ $stage->id }})"
+                                    :checked="$hadithEnabled[$stage->id] ?? true"
+                                    aria-label="المتون في {{ $stage->name }}" />
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <span class="text-sm text-zinc-600 dark:text-zinc-300">المنظومات</span>
+                                <flux:switch wire:click="toggleOdes({{ $stage->id }})"
+                                    :checked="$odesEnabled[$stage->id] ?? true"
+                                    aria-label="المنظومات في {{ $stage->name }}" />
+                            </label>
+                        </div>
+                    </div>
+                @endforeach
+            </div>
+        </div>
+
+        <p class="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
+            الإخفاء لا يحذف شيئاً: الخطط والتقييمات المسجّلة تبقى، وتعود كما كانت حين تُفعِّلها من جديد.
+        </p>
+
         <div class="flex items-center gap-3 pt-2">
             <div class="p-2 rounded-lg bg-zinc-50 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
                 <flux:icon icon="chat-bubble-left-right" />

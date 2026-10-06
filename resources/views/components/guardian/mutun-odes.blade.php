@@ -1,8 +1,14 @@
 @props(['student'])
 
 @php
-    $hadithPlansProgress = \App\Services\MutunProgressService::hadithPlansProgress($student);
-    $odePlansProgress = \App\Services\MutunProgressService::odePlansProgress($student);
+    // Each hidden on its own when the student's stage has switched it off, as
+    // the student's own pages do — and the whole card when both are.
+    $hadithPlansProgress = $student->memorisesHadith()
+        ? \App\Services\MutunProgressService::hadithPlansProgress($student)
+        : collect();
+    $odePlansProgress = $student->memorisesOdes()
+        ? \App\Services\MutunProgressService::odePlansProgress($student)
+        : collect();
 @endphp
 
 @if($hadithPlansProgress->isNotEmpty() || $odePlansProgress->isNotEmpty())

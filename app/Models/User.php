@@ -159,6 +159,37 @@ class User extends Authenticatable
         return $this->circle?->stage_id ?? $this->stage_id;
     }
 
+    /**
+     * Whether this student's stage memorises the mutun — the hadith texts.
+     *
+     * A stage switches it off from the supervisor's settings, and then it is
+     * gone from the teacher's tasmeeh and the student's own pages alike. A
+     * student with no stage keeps it: there is no one to have turned it off.
+     */
+    public function memorisesHadith(): bool
+    {
+        return $this->effectiveStage()?->hadith_enabled ?? true;
+    }
+
+    /** Whether this student's stage memorises the odes. */
+    public function memorisesOdes(): bool
+    {
+        return $this->effectiveStage()?->odes_enabled ?? true;
+    }
+
+    /**
+     * The stage itself, by the same precedence as effective_stage_id: the
+     * circle's stage first, the student's own only when there is no circle.
+     */
+    private function effectiveStage(): ?Stage
+    {
+        if ($this->circle_id) {
+            return $this->circle?->stage;
+        }
+
+        return $this->stage_id ? $this->stage : null;
+    }
+
     /** @return BelongsTo<Guardian, $this> */
     public function guardian(): BelongsTo
     {

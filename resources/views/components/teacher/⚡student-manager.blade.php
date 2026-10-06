@@ -875,6 +875,8 @@ new class extends Component {
                     </div>
                 </div>
 
+                {{-- Gone with the stage's switch, like everywhere else the odes appear. --}}
+                @if ($viewingStudent->memorisesOdes())
                 <flux:separator />
 
                 <!-- Ode Plans -->
@@ -908,6 +910,7 @@ new class extends Component {
                         @endforelse
                     </div>
                 </div>
+                @endif
 
                 <flux:separator />
 

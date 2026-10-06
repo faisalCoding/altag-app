@@ -140,6 +140,11 @@ new class extends Component {
     {
         $this->ensureValidGrade($type, $value);
 
+        if (! $this->student->memorisesOdes()) {
+            Flux::toast('المنظومات مُخفاة في مرحلة هذا الطالب', variant: 'danger');
+            return;
+        }
+
         // Find the student's active ode plan
         $activeOdePlan = StudentOdePlan::where('student_id', $this->student->id)
             ->where('status', 'active')
@@ -201,6 +206,11 @@ new class extends Component {
     public function saveHadithAchievement($pathDayId, $type, $value)
     {
         $this->ensureValidGrade($type, $value);
+
+        if (! $this->student->memorisesHadith()) {
+            Flux::toast('المتون مُخفاة في مرحلة هذا الطالب', variant: 'danger');
+            return;
+        }
 
         // Find the student's active hadith plan
         $activeHadithPlan = StudentHadithPlan::where('student_id', $this->student->id)
@@ -287,7 +297,20 @@ new class extends Component {
      */
     private function teacherPermissions(): array
     {
-        return auth('teacher')->user()?->effectivePermissions() ?? [];
+        $permissions = auth('teacher')->user()?->effectivePermissions() ?? [];
+
+        // A stage that does not memorise the mutun or the odes cannot be
+        // enrolled in them either, whatever the teacher may do elsewhere —
+        // which also shuts the enrol and change-path actions below.
+        if (! $this->student->memorisesHadith()) {
+            $permissions['can_manage_hadith_paths'] = false;
+        }
+
+        if (! $this->student->memorisesOdes()) {
+            $permissions['can_manage_ode_paths'] = false;
+        }
+
+        return $permissions;
     }
 
     public function openPathModal(string $type): void
@@ -498,6 +521,19 @@ new class extends Component {
                 ->where('student_id', $this->student->id)
                 ->get();
             $activeHadithPlan = $studentHadithPlans->firstWhere('status', 'active');
+        }
+
+        // A stage that switched these off sees neither them nor their days.
+        // Emptied here, at the source, so every block that hangs on a plan
+        // hides on its own rather than each carrying the same condition.
+        if (! $this->student->memorisesOdes()) {
+            $activeOdePlan = null;
+            $studentOdePlans = collect();
+        }
+
+        if (! $this->student->memorisesHadith()) {
+            $activeHadithPlan = null;
+            $studentHadithPlans = collect();
         }
 
         // Selected Quranic plan (inactive plans never show on the tasmeeh page)
