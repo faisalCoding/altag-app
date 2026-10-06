@@ -58,6 +58,9 @@ new class extends Component {
     public $memorizedUpToSurah = 114;
     public $memorizedUpToVerse = 1;
 
+    /** Switch the student's other active plans off once the new one is saved. */
+    public bool $deactivatePrevious = false;
+
     public function mount()
     {
         $this->userLevel = Auth::guard('student')->check() ? 'student' : 'teacher';
@@ -362,6 +365,7 @@ new class extends Component {
         $this->isGenerated = false;
         $this->step = $this->userLevel === 'teacher' ? 1 : 2;
         $this->planDays = [];
+        $this->deactivatePrevious = false;
     }
 
     public function updatedBulkStartSurah()
@@ -461,7 +465,23 @@ new class extends Component {
 
         return [
             'students' => $students,
+            'activePlansCount' => $this->activePlansCount(),
         ];
+    }
+
+    /**
+     * The student's plans running now, which a teacher may switch off as the
+     * new one is saved. None to offer while editing, or for a student, whose
+     * plan waits for the teacher's approval and must not stop the one running;
+     * and read only at the last step, where the choice is made.
+     */
+    private function activePlansCount(): int
+    {
+        if ($this->edit || $this->userLevel !== 'teacher' || ! $this->studentId || ! $this->isGenerated) {
+            return 0;
+        }
+
+        return StudentPlan::where('student_id', $this->studentId)->where('status', 'active')->count();
     }
 
     public function generateDays()
@@ -937,6 +957,15 @@ new class extends Component {
             } else {
                 $plan->days()->create($dayAttributes);
             }
+        }
+
+        // The new plan takes over: the student's others stop, as the plans
+        // page's own deactivation stops them — kept, and switched on again there.
+        if (! $this->edit && $this->userLevel === 'teacher' && $this->deactivatePrevious) {
+            StudentPlan::where('student_id', $this->studentId)
+                ->whereKeyNot($plan->id)
+                ->where('status', 'active')
+                ->update(['status' => 'inactive']);
         }
 
         if ($this->userLevel === 'student') {
@@ -1652,9 +1681,16 @@ new class extends Component {
                     </div>
 
                     <div
-                        class="p-4 border-t border-zinc-100 dark:border-zinc-800 flex justify-between bg-zinc-50 dark:bg-zinc-800/90 z-20">
-                        <div class="text-sm text-zinc-500 pt-2">
-                            {{ __('تأكد من مراجعة النطاقات التلقائية أو تعديلها قبل الحفظ النهائي.') }}
+                        class="p-4 border-t border-zinc-100 dark:border-zinc-800 flex flex-col sm:flex-row sm:items-end justify-between gap-4 bg-zinc-50 dark:bg-zinc-800/90 z-20">
+                        <div class="space-y-3 pt-2">
+                            <div class="text-sm text-zinc-500">
+                                {{ __('تأكد من مراجعة النطاقات التلقائية أو تعديلها قبل الحفظ النهائي.') }}
+                            </div>
+                            @if ($activePlansCount > 0)
+                                <flux:checkbox wire:model="deactivatePrevious"
+                                    label="{{ __('إلغاء تفعيل الخطط السابقة لهذا الطالب') }}"
+                                    description="{{ $activePlansCount === 1 ? __('له خطة مفعّلة واحدة، تتوقف عند حفظ هذه وتبقى في قائمة الخطط.') : __('له :count خطط مفعّلة، تتوقف عند حفظ هذه وتبقى في قائمة الخطط.', ['count' => $activePlansCount]) }}" />
+                            @endif
                         </div>
                         <flux:button variant="primary" wire:click="save" icon="check"
                             class="bg-emerald-600 hover:bg-emerald-700 text-white min-w-[200px] border-none">

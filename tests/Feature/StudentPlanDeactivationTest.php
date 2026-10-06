@@ -249,3 +249,72 @@ it('moves a plan only to one of the teacher\'s own students', function () {
 
     expect($this->plan->fresh()->student_id)->toBe($this->student->id);
 });
+
+/**
+ * A new plan through the creator, for the student set up above.
+ *
+ * @param  array<string, mixed>  $set
+ */
+function createPlanThroughCreator(array $set = [])
+{
+    $creator = Livewire::test('shared.plan-creator')
+        ->set('studentId', test()->student->id)
+        ->set('planType', 'hifz');
+
+    foreach ($set as $property => $value) {
+        $creator->set($property, $value);
+    }
+
+    return $creator
+        ->set('planDays', [[
+            'date' => now()->addDay()->toDateString(), 'day_name_ar' => 'الأحد',
+            'from_surah_id' => 1, 'from_verse' => 1, 'to_surah_id' => 1, 'to_verse' => 7,
+        ]])
+        ->call('save');
+}
+
+it('switches the student\'s other active plans off when the teacher asks, as the new plan is saved', function () {
+    $second = $this->plan->replicate()->fill(['description' => 'خطة المراجعة']);
+    $second->save();
+    $finished = $this->plan->replicate()->fill(['status' => 'completed']);
+    $finished->save();
+    $stranger = $this->plan->replicate()->fill(['student_id' => Student::factory()->create(['circle_id' => $this->circle->id])->id]);
+    $stranger->save();
+
+    createPlanThroughCreator(['deactivatePrevious' => true])->assertHasNoErrors();
+
+    $created = StudentPlan::latest('id')->first();
+
+    expect($created->status)->toBe('active')
+        ->and($this->plan->refresh()->status)->toBe('inactive')
+        ->and($second->refresh()->status)->toBe('inactive')
+        ->and($finished->refresh()->status)->toBe('completed')
+        ->and($stranger->refresh()->status)->toBe('active');
+});
+
+it('leaves the student\'s other plans running unless the teacher asks', function () {
+    createPlanThroughCreator()->assertHasNoErrors();
+
+    expect($this->plan->refresh()->status)->toBe('active')
+        ->and(StudentPlan::where('student_id', $this->student->id)->where('status', 'active')->count())->toBe(2);
+});
+
+it('offers the option with the count of plans it would stop', function () {
+    Livewire::test('shared.plan-creator')
+        ->set('studentId', $this->student->id)
+        ->assertViewHas('activePlansCount', 0)
+        ->set('isGenerated', true)
+        ->set('step', 7)
+        ->set('planDays', [[
+            'date' => now()->addDay()->toDateString(), 'day_name_ar' => 'الأحد', 'hijri' => '', 'selected' => false,
+            'from_surah_id' => 1, 'from_verse' => 1, 'to_surah_id' => 1, 'to_verse' => 7,
+            'review_from_surah_id' => null, 'review_from_verse' => null, 'review_to_surah_id' => null, 'review_to_verse' => null,
+        ]])
+        ->assertViewHas('activePlansCount', 1)
+        ->assertSee('إلغاء تفعيل الخطط السابقة لهذا الطالب');
+
+    // A student drawing up a plan has nothing to stop: it waits for approval.
+    $this->actingAs($this->student, 'student');
+
+    Livewire::test('shared.plan-creator')->set('isGenerated', true)->assertViewHas('activePlansCount', 0);
+});
