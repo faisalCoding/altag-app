@@ -370,17 +370,23 @@ new class extends Component
             ->get()
             ->each(fn ($day) => $this->pushParts($entries, 'quran', __('قرآن'), 'indigo', $day, $day->date, fn ($r, $p) => $r->formatRecitedRange($p) ?? $r->formatRange($p, false)));
 
-        StudentOdeAchievement::with('plan', 'pathDay')
-            ->whereHas('plan', fn ($q) => $q->where('student_id', $this->studentId))
-            ->where(fn ($q) => $q->whereNotNull('hifz_achievement')->orWhereNotNull('review_achievement'))
-            ->get()
-            ->each(fn ($ach) => $this->pushParts($entries, 'ode', __('منظومة'), 'purple', $ach, $ach->pathDay?->date, fn ($r, $p) => $r->formatOdeRange($p)));
+        // The odes and the mutun show only while the student's stage memorises
+        // them; switched off, the log is the Quran's alone, its filter with it.
+        if ($student->memorisesOdes()) {
+            StudentOdeAchievement::with('plan', 'pathDay')
+                ->whereHas('plan', fn ($q) => $q->where('student_id', $this->studentId))
+                ->where(fn ($q) => $q->whereNotNull('hifz_achievement')->orWhereNotNull('review_achievement'))
+                ->get()
+                ->each(fn ($ach) => $this->pushParts($entries, 'ode', __('منظومة'), 'purple', $ach, $ach->pathDay?->date, fn ($r, $p) => $r->formatOdeRange($p)));
+        }
 
-        StudentHadithAchievement::with('plan', 'pathDay')
-            ->whereHas('plan', fn ($q) => $q->where('student_id', $this->studentId))
-            ->where(fn ($q) => $q->whereNotNull('hifz_achievement')->orWhereNotNull('review_achievement'))
-            ->get()
-            ->each(fn ($ach) => $this->pushParts($entries, 'hadith', __('متن'), 'teal', $ach, $ach->pathDay?->date, fn ($r, $p) => $r->formatHadithRange($p)));
+        if ($student->memorisesHadith()) {
+            StudentHadithAchievement::with('plan', 'pathDay')
+                ->whereHas('plan', fn ($q) => $q->where('student_id', $this->studentId))
+                ->where(fn ($q) => $q->whereNotNull('hifz_achievement')->orWhereNotNull('review_achievement'))
+                ->get()
+                ->each(fn ($ach) => $this->pushParts($entries, 'hadith', __('متن'), 'teal', $ach, $ach->pathDay?->date, fn ($r, $p) => $r->formatHadithRange($p)));
+        }
 
         // Graded entries keyed by the day they are credited to (grading date).
         $entriesByDate = $entries->groupBy(fn ($e) => optional($e['graded_at'] ?? $e['scheduled'])->format('Y-m-d') ?? '__undated__');

@@ -45,7 +45,8 @@ new class extends Component {
         } else {
             $teacher = Auth::guard('teacher')->user();
             if (!$teacher) return [];
-            return $teacher->circles()->pluck('id')->toArray();
+            // Only the circles whose stage still memorises the odes.
+            return $teacher->odeCircles()->pluck('circles.id')->toArray();
         }
     }
 

@@ -220,7 +220,12 @@ Route::middleware(['auth:teacher', 'approved', 'page.enabled', 'surveys.required
     Route::view('/discipline', 'teacher.discipline')->name('discipline');
     Route::view('/quranic-discipline', 'teacher.quranic-discipline')->name('quranic-discipline');
     Route::view('/student-plans', 'teacher.student-plans')->name('student-plans');
-    Route::view('/ode-plans', 'teacher.ode-plans')->name('ode-plans');
+    // Gone once every stage the teacher teaches in has switched the odes off.
+    Route::get('/ode-plans', function () {
+        abort_unless(auth('teacher')->user()->teachesOdes(), 404);
+
+        return view('teacher.ode-plans');
+    })->name('ode-plans');
     Route::view('/exceeded-limits', 'teacher.exceeded-limits')->name('exceeded-limits');
     Route::view('/pairs', 'teacher.pairs')->name('pairs');
     Route::view('/student-exams', 'teacher.student-exams')->name('student-exams');

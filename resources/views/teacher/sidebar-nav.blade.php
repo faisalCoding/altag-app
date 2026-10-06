@@ -55,7 +55,7 @@
         @endif
     </flux:sidebar.group>
 
-    @if(\App\Support\RolePages::isEnabled('teacher', 'teacher.ode-plans'))
+    @if(\App\Support\RolePages::isEnabled('teacher', 'teacher.ode-plans') && auth('teacher')->user()?->teachesOdes())
         <flux:sidebar.group heading="{{ __('خطط المنظومات') }}" class="mt-4">
             <flux:sidebar.item class="[&_svg]:bg-[#f97316] hover:[&_svg]:bg-[#ea580c]" icon="clipboard-document-list" wire:navigate
                 :current="request()->routeIs('teacher.ode-plans')" href="{{ route('teacher.ode-plans') }}">

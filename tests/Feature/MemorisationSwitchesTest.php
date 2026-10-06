@@ -232,3 +232,59 @@ it('keeps the plans, and shows them again when switched back on', function () {
     $this->stage->update(['odes_enabled' => true]);
     switchCard($this->student->fresh())->assertSee('مسار التحفة');
 });
+
+// ── صفحات المعلم ─────────────────────────────────────────────────────────────
+
+it('takes the odes page and its link from a teacher once their stages stop memorising odes', function () {
+    $this->actingAs($this->teacher, 'teacher');
+
+    $this->get(route('teacher.ode-plans'))->assertSuccessful();
+    $this->get(route('teacher.dashboard'))->assertSee('خطط المنظومات');
+
+    $this->stage->update(['odes_enabled' => false]);
+
+    $this->get(route('teacher.ode-plans'))->assertNotFound();
+    $this->get(route('teacher.dashboard'))->assertDontSee('خطط المنظومات');
+});
+
+it('keeps the odes page for a teacher with one stage still memorising them, listing only its plans', function () {
+    $otherStage = Stage::create(['name' => 'المتوسطة']);
+    $otherCircle = Circle::create(['name' => 'حلقة الضحى', 'stage_id' => $otherStage->id]);
+    $this->teacher->circles()->attach($otherCircle->id);
+    $other = Student::create([
+        'name' => 'طالب المتوسطة', 'email' => 'odes-other@example.com', 'password' => bcrypt('password'),
+        'circle_id' => $otherCircle->id, 'is_approved' => true, 'status' => 'active',
+    ]);
+
+    enrol($this->student, 'ode', $this->odePath);
+    enrol($other, 'ode', $this->odePath);
+
+    $this->stage->update(['odes_enabled' => false]);
+    $this->actingAs($this->teacher, 'teacher');
+
+    $this->get(route('teacher.ode-plans'))->assertSuccessful();
+
+    Livewire::test('shared.ode-plans-list', ['role' => 'teacher'])
+        ->assertSee('طالب المتوسطة')
+        ->assertDontSee('طالب المتون');
+});
+
+it('drops the mutun and the odes from the recitation log of a student whose stage switched them off', function () {
+    enrol($this->student, 'ode', $this->odePath);
+    enrol($this->student, 'hadith', $this->hadithPath);
+
+    $odeDay = $this->odePath->days()->create(['day_number' => 1, 'date' => '2026-07-01', 'from_verse_number' => 1, 'to_verse_number' => 2]);
+    StudentOdeAchievement::create([
+        'student_ode_plan_id' => StudentOdePlan::sole()->id, 'ode_path_day_id' => $odeDay->id,
+        'hifz_achievement' => 3, 'hifz_graded_at' => '2026-07-01 09:00:00',
+    ]);
+
+    $this->actingAs($this->teacher, 'teacher');
+    $log = fn () => Livewire::test('teacher.student-recitation-log', ['studentId' => $this->student->id]);
+
+    $log()->assertSee('منظومة');
+
+    $this->stage->update(['odes_enabled' => false]);
+
+    $log()->assertDontSee('منظومة');
+});

@@ -171,6 +171,28 @@ class User extends Authenticatable
         return $this->effectiveStage()?->hadith_enabled ?? true;
     }
 
+    /**
+     * The teacher's circles whose stage memorises the odes. A circle outside
+     * any stage keeps them, as a student with no stage does.
+     *
+     * @return BelongsToMany<Circle, $this>
+     */
+    public function odeCircles(): BelongsToMany
+    {
+        return $this->circles()->where(fn ($query) => $query
+            ->whereNull('circles.stage_id')
+            ->orWhereHas('stage', fn ($stage) => $stage->where('odes_enabled', true)));
+    }
+
+    /**
+     * Whether any of the teacher's circles memorises the odes. Their odes pages
+     * go once every stage they teach in has switched them off.
+     */
+    public function teachesOdes(): bool
+    {
+        return $this->odeCircles()->exists();
+    }
+
     /** Whether this student's stage memorises the odes. */
     public function memorisesOdes(): bool
     {
