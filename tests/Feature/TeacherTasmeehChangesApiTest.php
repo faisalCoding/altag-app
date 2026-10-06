@@ -7,6 +7,7 @@ use App\Models\FreeRecitation;
 use App\Models\GamificationStudentState;
 use App\Models\GamificationTransaction;
 use App\Models\Leaderboard;
+use App\Models\PlanDayAttempt;
 use App\Models\RoleScreenPermission;
 use App\Models\Screen;
 use App\Models\Student;
@@ -15,6 +16,7 @@ use App\Models\StudentPlanDay;
 use App\Models\Surah;
 use App\Models\Teacher;
 use App\Services\GamificationService;
+use App\Services\PlanDayAttempts;
 use Carbon\Carbon;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
@@ -493,4 +495,124 @@ it('records a carried grade for a day only once', function () {
     postTasmeeh($change)->assertJsonPath('data.results.0.result', 'applied');
 
     expect($this->day->fresh()->hifz_graded_at->toDateTimeString())->toBe('2026-07-08 10:00:00');
+});
+
+/**
+ * The sessions a part of the test day holds, oldest first, as date => grade.
+ *
+ * @return array<string, ?int>
+ */
+function sessionsOf(string $part = 'hifz'): array
+{
+    return PlanDayAttempt::where('student_plan_day_id', test()->day->id)->where('part', $part)
+        ->orderBy('recited_on')->pluck('grade', 'recited_on')->all();
+}
+
+it('keeps a «لم يسمع» on its own day when the portion is graded the next day', function () {
+    Carbon::setTestNow('2026-07-07 10:00:00');
+    postTasmeeh(tasmeehChange(['date' => '2026-07-07', 'grade' => 0, 'session' => true]))
+        ->assertJsonPath('data.results.0.result', 'applied')
+        ->assertJsonPath('data.results.0.attempt.date', '2026-07-07')
+        ->assertJsonPath('data.results.0.attempt.grade', 0);
+
+    // The next day starts ungraded: the phone grades that day's session.
+    Carbon::setTestNow('2026-07-08 10:00:00');
+    postTasmeeh(tasmeehChange(['session' => true]))
+        ->assertJsonPath('data.results.0.result', 'applied')
+        ->assertJsonPath('data.results.0.attempt.date', '2026-07-08')
+        ->assertJsonPath('data.results.0.attempt.grade', 3)
+        ->assertJsonPath('data.results.0.cell.grade', 3)
+        ->assertJsonPath('data.results.0.cell.graded_on', '2026-07-08');
+
+    expect(sessionsOf())->toBe(['2026-07-07' => 0, '2026-07-08' => 3])
+        ->and($this->day->fresh()->hifz_achievement)->toBe(3)
+        ->and(GamificationTransaction::where('reference_type', StudentPlanDay::class)->sum('xp_amount'))->toEqual(10)
+        ->and(AppNotification::where('type', 'grading')->count())->toBe(1);
+});
+
+it('holds back a session grade when another teacher graded that session first', function () {
+    PlanDayAttempts::record($this->day, 'hifz', '2026-07-08', '2026-07-08', 2, null, $this->teacher->id);
+
+    postTasmeeh(tasmeehChange(['session' => true]))
+        ->assertJsonPath('data.results.0.result', 'conflict')
+        ->assertJsonPath('data.results.0.attempt.grade', 2);
+
+    expect(sessionsOf())->toBe(['2026-07-08' => 2]);
+});
+
+it('compares a session grade with that session only, not with the day\'s latest grade', function () {
+    PlanDayAttempts::record($this->day, 'hifz', '2026-07-07', '2026-07-08', 0, null, $this->teacher->id);
+
+    // The phone saw nothing on the 8th, though the day holds a «لم يسمع».
+    postTasmeeh(tasmeehChange(['session' => true, 'base' => ['grade' => null, 'recited' => null]]))
+        ->assertJsonPath('data.results.0.result', 'applied');
+
+    expect(sessionsOf())->toBe(['2026-07-07' => 0, '2026-07-08' => 3]);
+});
+
+it('answers a resent session grade as applied without writing it twice', function () {
+    $change = tasmeehChange(['session' => true]);
+
+    postTasmeeh($change);
+    Carbon::setTestNow('2026-07-08 12:00:00');
+    postTasmeeh($change)->assertJsonPath('data.results.0.result', 'applied');
+
+    expect(PlanDayAttempt::count())->toBe(1)
+        ->and(PlanDayAttempt::first()->graded_at->toDateTimeString())->toBe('2026-07-08 10:00:00')
+        ->and(AppNotification::count())->toBe(1);
+});
+
+it('leaves the latest grade as the day\'s when an earlier session is corrected', function () {
+    PlanDayAttempts::record($this->day, 'hifz', '2026-07-07', '2026-07-08', 0, null, $this->teacher->id);
+    PlanDayAttempts::record($this->day, 'hifz', '2026-07-08', '2026-07-08', 3, null, $this->teacher->id);
+
+    postTasmeeh(tasmeehChange(['date' => '2026-07-07', 'grade' => 1, 'session' => true, 'base' => ['grade' => 0, 'recited' => null]]))
+        ->assertJsonPath('data.results.0.result', 'applied')
+        ->assertJsonPath('data.results.0.cell.grade', 3);
+
+    expect(sessionsOf())->toBe(['2026-07-07' => 1, '2026-07-08' => 3])
+        ->and($this->day->fresh()->hifz_achievement)->toBe(3);
+});
+
+it('falls back to the earlier session when the latest is cleared, with its points', function () {
+    PlanDayAttempts::record($this->day, 'hifz', '2026-07-07', '2026-07-08', 0, null, $this->teacher->id);
+    PlanDayAttempts::record($this->day, 'hifz', '2026-07-08', '2026-07-08', 3, null, $this->teacher->id);
+    expect(GamificationTransaction::count())->toBe(1);
+
+    postTasmeeh(tasmeehChange(['grade' => null, 'session' => true, 'base' => ['grade' => 3, 'recited' => null]]))
+        ->assertJsonPath('data.results.0.result', 'applied')
+        ->assertJsonPath('data.results.0.attempt', null)
+        ->assertJsonPath('data.results.0.cell.grade', 0)
+        ->assertJsonPath('data.results.0.cell.graded_on', '2026-07-07');
+
+    expect(sessionsOf())->toBe(['2026-07-07' => 0])
+        ->and(GamificationTransaction::count())->toBe(0);
+});
+
+it('keeps the earlier «لم يسمع» when an app from before sessions grades the carried day', function () {
+    PlanDayAttempts::record($this->day, 'hifz', '2026-07-07', '2026-07-08', 0, null, $this->teacher->id);
+
+    // Such an app shows the day's latest grade and sends it as the base.
+    postTasmeeh(tasmeehChange(['redate' => true, 'base' => ['grade' => 0, 'recited' => null]]))
+        ->assertJsonPath('data.results.0.result', 'applied')
+        ->assertJsonPath('data.results.0.cell.grade', 3);
+
+    expect(sessionsOf())->toBe(['2026-07-07' => 0, '2026-07-08' => 3]);
+});
+
+it('sends every session with the snapshot, and a grade set straight on a day as one', function () {
+    PlanDayAttempts::record($this->day, 'hifz', '2026-07-07', '2026-07-08', 0, null, $this->teacher->id);
+    PlanDayAttempts::record($this->day, 'hifz', '2026-07-08', '2026-07-08', 2, [1, 6], $this->teacher->id);
+    $this->day->update(['review_achievement' => 3, 'review_graded_at' => '2026-07-06 09:00:00']);
+
+    $attempts = collect($this->getJson('/api/v1/teacher/sync')->assertSuccessful()->json('data.tasmeeh_attempts'));
+
+    expect($attempts->map(fn (array $attempt) => [$attempt['part'], $attempt['date'], $attempt['grade']])->all())->toBe([
+        ['hifz', '2026-07-07', 0],
+        ['hifz', '2026-07-08', 2],
+        ['review', '2026-07-06', 3],
+    ])
+        ->and($attempts[1]['recited'])->toBe(recited(1, 1, 1, 6))
+        ->and($attempts[1]['day_id'])->toBe($this->day->id)
+        ->and($attempts[1]['updated_by'])->toBe($this->teacher->name);
 });

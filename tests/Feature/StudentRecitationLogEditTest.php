@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Circle;
+use App\Models\PlanDayAttempt;
 use App\Models\Student;
 use App\Models\StudentPlan;
 use App\Models\StudentPlanDay;
@@ -189,4 +190,37 @@ it('forbids a teacher who does not own the student from editing the grading date
 
     // Whatever the surfaced status, the grading date must stay untouched.
     expect($day->fresh()->hifz_graded_at->format('Y-m-d'))->toBe('2026-07-08');
+});
+
+it('moves the session a Quran grade stands for, so the teacher app sees the same day', function () {
+    [$teacher, $student, $day] = makeGradedHifzDay();
+
+    $this->actingAs($teacher, 'teacher');
+
+    Livewire::test('teacher.student-recitation-log', ['studentId' => $student->id])
+        ->set('editKey', "quran:{$day->id}:hifz")
+        ->set('editDate', '2026-07-05')
+        ->call('saveGradingDate');
+
+    expect(PlanDayAttempt::where('student_plan_day_id', $day->id)->pluck('recited_on')->all())->toBe(['2026-07-05'])
+        ->and($day->fresh()->hifz_graded_at->format('Y-m-d H:i:s'))->toBe('2026-07-05 09:30:00');
+});
+
+it('refuses to move a Quran grade onto a day the portion has another session on', function () {
+    [$teacher, $student, $day] = makeGradedHifzDay();
+
+    // «لم يسمع» on the 6th, then the grade on the 8th.
+    PlanDayAttempt::create(['student_plan_day_id' => $day->id, 'part' => 'hifz', 'recited_on' => '2026-07-06', 'grade' => 0, 'graded_at' => '2026-07-06 09:00:00']);
+    PlanDayAttempt::create(['student_plan_day_id' => $day->id, 'part' => 'hifz', 'recited_on' => '2026-07-08', 'grade' => 3, 'graded_at' => '2026-07-08 09:30:00']);
+
+    $this->actingAs($teacher, 'teacher');
+
+    Livewire::test('teacher.student-recitation-log', ['studentId' => $student->id])
+        ->set('editKey', "quran:{$day->id}:hifz")
+        ->set('editDate', '2026-07-06')
+        ->call('saveGradingDate');
+
+    expect(PlanDayAttempt::where('student_plan_day_id', $day->id)->orderBy('recited_on')->pluck('grade', 'recited_on')->all())
+        ->toBe(['2026-07-06' => 0, '2026-07-08' => 3])
+        ->and($day->fresh()->hifz_graded_at->format('Y-m-d'))->toBe('2026-07-08');
 });

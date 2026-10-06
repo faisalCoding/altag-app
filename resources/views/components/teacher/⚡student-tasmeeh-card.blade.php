@@ -66,6 +66,11 @@ new class extends Component {
         abort_unless($value === null || ((is_int($value) || is_string($value)) && in_array((string) $value, $allowed, true)), 422);
     }
 
+    /**
+     * Grade the session of the date picked above the list. A portion marked
+     * «لم يسمع» on one day and graded on the next keeps both: each day is a
+     * session of its own, and the plan day shows the latest.
+     */
     public function saveAchievement($dayId, $type, $value)
     {
         $this->ensureValidGrade($type, $value, allowNotHeard: true);
@@ -78,55 +83,37 @@ new class extends Component {
             404
         );
 
-        $updateData = [];
-        $gradeTime = now();
-        if ($this->gradedAtDate) {
-            if ($this->gradedAtDate === now()->format('Y-m-d')) {
-                $gradeTime = now();
-            } else {
-                $gradeTime = \Carbon\Carbon::parse($this->gradedAtDate)->setHour(12)->setMinute(0);
-            }
-        }
-
-        $updateData["{$type}_achievement"] = $value;
-        $updateData["{$type}_graded_at"] = $value !== null ? $gradeTime : null;
-        $updateData["{$type}_recorded_by"] = auth()->id();
+        // The academy's day, never one after it: a session cannot be graded
+        // before it happens.
+        $today = \App\Services\TeacherSyncSnapshot::today();
+        $date = is_string($this->gradedAtDate) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $this->gradedAtDate)
+            ? min($this->gradedAtDate, $today)
+            : $today;
 
         // The teacher app writes plan days under the same per-day lock — both
         // parts share one points row — so a web grade and a phone grade of
         // the same day can never race into duplicate points.
         try {
-            $day = \Illuminate\Support\Facades\Cache::lock(\App\Services\TasmeehChangeService::dayLockKey((int) $dayId), 10)->block(5, function () use ($dayId, $updateData) {
-                StudentPlanDay::where('id', $dayId)->update($updateData);
+            \Illuminate\Support\Facades\Cache::lock(\App\Services\TasmeehChangeService::dayLockKey((int) $dayId), 10)->block(5, function () use ($dayId, $type, $date, $today, $value) {
+                $day = StudentPlanDay::with('plan.student')->find($dayId);
 
-                $day = StudentPlanDay::find($dayId);
-
-                if ($day) {
-                    \App\Services\GamificationService::syncStudentPlanDayXP($day);
+                if (! $day) {
+                    return;
                 }
 
-                return $day;
+                // The web grades only; a range the app recorded for the
+                // session stays with it.
+                \App\Services\PlanDayAttempts::adopt($day, $type);
+                $attempt = \App\Services\PlanDayAttempts::on($day, $type, $date);
+                $recited = $attempt ? \App\Services\TasmeehSnapshot::withoutScheduled($day, $type, $attempt->recitedAyahIds()) : null;
+
+                \App\Services\PlanDayAttempts::record($day, $type, $date, $today, $value, $recited, auth()->id(), $attempt);
             });
         } catch (\Illuminate\Contracts\Cache\LockTimeoutException) {
             // The phone is writing this day right now; nothing was saved.
             Flux::toast('لم يُحفظ التقييم: يجري تعديل هذا اليوم من جهاز آخر، أعد المحاولة.', variant: 'danger');
 
             return;
-        }
-
-        if ($day) {
-            // «لم يسمع» is not news worth a notification.
-            if ($value !== null && $value >= 1) {
-                $label = $type === 'hifz' ? 'الحفظ' : 'المراجعة';
-                \App\Services\NotificationService::notify(
-                    'student',
-                    $this->student->id,
-                    'grading',
-                    'تقييم جديد',
-                    "قام معلمك بتقييم {$label} الخاص بك",
-                    route('student.hifz'),
-                );
-            }
         }
 
         Flux::toast('تم حفظ التقييم', variant: 'success');
@@ -624,7 +611,7 @@ new class extends Component {
             if (app()->bound('tasmeeh_days_cache')) {
                 $days = app('tasmeeh_days_cache')->get($activePlan->id) ?? collect();
             } else {
-                $days = StudentPlanDay::with(['fromAyah.surah', 'toAyah.surah', 'reviewFromAyah.surah', 'reviewToAyah.surah', 'hifzRecitedFromAyah.surah', 'hifzRecitedToAyah.surah', 'reviewRecitedFromAyah.surah', 'reviewRecitedToAyah.surah', 'plan'])
+                $days = StudentPlanDay::with(['fromAyah.surah', 'toAyah.surah', 'reviewFromAyah.surah', 'reviewToAyah.surah', 'hifzRecitedFromAyah.surah', 'hifzRecitedToAyah.surah', 'reviewRecitedFromAyah.surah', 'reviewRecitedToAyah.surah', 'attempts.recitedFromAyah.surah', 'attempts.recitedToAyah.surah', 'plan'])
                     ->where('student_plan_id', $activePlan->id)
                     ->orderBy('date', 'asc')
                     ->get();
@@ -922,6 +909,7 @@ new class extends Component {
             {{-- The days themselves, as data: the card builds its own markup from these. --}}
             quranDays: @js(\App\Support\TasmeehPayload::quranDays($days)),
             quranDateToDayIdMap: @js($quranDateToDayIdMap),
+            today: @js(\App\Services\TeacherSyncSnapshot::today()),
 
             init() {
                 this.$watch('$wire.gradedAtDate', (newVal) => {
@@ -932,6 +920,48 @@ new class extends Component {
             },
             currentQuranDay() {
                 return this.quranDays.find(day => day.id == this.activeDayId) ?? null;
+            },
+            {{-- The session graded is the one of the date picked above the list. --}}
+            gradingDate() {
+                const picked = this.$wire.gradedAtDate || this.today;
+                return picked > this.today ? this.today : picked;
+            },
+            session(part) {
+                return this.currentQuranDay()?.[part].sessions.find(s => s.date === this.gradingDate()) ?? null;
+            },
+            grade(part) {
+                return this.session(part)?.grade ?? null;
+            },
+            otherSessions(part) {
+                return (this.currentQuranDay()?.[part].sessions ?? []).filter(s => s.date !== this.gradingDate());
+            },
+            setGrade(part, value) {
+                const day = this.currentQuranDay();
+                const session = this.session(part);
+                const v = this.grade(part) === value ? null : value;
+
+                if (session) {
+                    session.grade = v;
+                    if (v === null && ! session.recited_range) {
+                        day[part].sessions = day[part].sessions.filter(s => s !== session);
+                    }
+                } else if (v !== null) {
+                    day[part].sessions.push({ date: this.gradingDate(), grade: v, recited_range: null });
+                }
+
+                this.syncing = part;
+                this.$wire.saveAchievement(day.id, part, v).finally(() => this.syncing = null);
+            },
+            gradeLabel(grade) {
+                return { 0: '{{ __('لم يسمع') }}', 1: '{{ __('مقبول') }}', 2: '{{ __('جيد') }}', 3: '{{ __('ممتاز') }}' }[grade] ?? '{{ __('لم يقيَّم') }}';
+            },
+            sessionDay(date) {
+                try {
+                    return new Intl.DateTimeFormat('ar-SA-u-ca-islamic-umalqura', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' })
+                        .format(new Date(date + 'T12:00:00Z'));
+                } catch (e) {
+                    return date;
+                }
             },
             hasPrevDay() {
                 const index = this.studentPlanDayIds.findIndex(id => id == this.activeDayId);
@@ -987,9 +1017,9 @@ new class extends Component {
                                 <p class="text-zinc-700 dark:text-zinc-300 font-medium text-base md:text-lg leading-snug md:leading-relaxed"
                                     x-text="currentQuranDay()?.{{ $part }}.range || '{{ __('لا يوجد نص محدد') }}'"></p>
                                 {{-- Recorded from the teacher app when the student recited something other than the wird. --}}
-                                <p x-show="currentQuranDay()?.{{ $part }}.recited_range" x-cloak
+                                <p x-show="session('{{ $part }}')?.recited_range" x-cloak
                                     class="text-xs md:text-sm font-medium text-amber-700 dark:text-amber-400 mt-1"
-                                    x-text="'{{ __('المُسمَّع فعلياً:') }} ' + currentQuranDay()?.{{ $part }}.recited_range"></p>
+                                    x-text="'{{ __('المُسمَّع فعلياً:') }} ' + session('{{ $part }}')?.recited_range"></p>
 
                                 {{-- One surah opens directly; several fold into a list. --}}
                                 <template x-if="currentQuranDay()?.{{ $part }}.links.length === 1">
@@ -1028,11 +1058,25 @@ new class extends Component {
                                 <div class="grid grid-cols-4 gap-1.5 md:gap-2">
                                     @foreach ($quranGradeChoices as $choice)
                                         <button type="button"
-                                            @click="const d = currentQuranDay(); const v = d.{{ $part }}.achievement === {{ $choice['js'] }} ? null : {{ $choice['js'] }}; d.{{ $part }}.achievement = v; syncing = '{{ $part }}'; $wire.saveAchievement(d.id, '{{ $part }}', v).finally(() => syncing = null)"
+                                            @click="setGrade('{{ $part }}', {{ $choice['js'] }})"
                                             class="px-1 py-2.5 md:p-3 rounded-lg md:rounded-xl border-2 transition-colors font-bold text-center text-xs md:text-base"
-                                            :class="currentQuranDay()?.{{ $part }}.achievement === {{ $choice['js'] }} ? '{{ $choice['active'] }}' : '{{ $choice['inactive'] }}'">{{ $choice['label'] }}</button>
+                                            :class="grade('{{ $part }}') === {{ $choice['js'] }} ? '{{ $choice['active'] }}' : '{{ $choice['inactive'] }}'">{{ $choice['label'] }}</button>
                                     @endforeach
                                 </div>
+
+                                {{-- The part's other sessions: a «لم يسمع» given on an earlier day stays there. --}}
+                                <template x-if="otherSessions('{{ $part }}').length">
+                                    <div class="mt-3 space-y-1">
+                                        <div class="text-xs font-semibold text-zinc-500 dark:text-zinc-400">{{ __('جلسات أخرى') }}</div>
+                                        <template x-for="other in otherSessions('{{ $part }}')" :key="other.date">
+                                            <div class="flex flex-wrap items-baseline gap-x-2 text-xs text-zinc-600 dark:text-zinc-300">
+                                                <span x-text="sessionDay(other.date)"></span>
+                                                <span class="font-bold" x-text="gradeLabel(other.grade)"></span>
+                                                <span x-show="other.recited_range" class="text-amber-700 dark:text-amber-400" x-text="other.recited_range"></span>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </template>
                             </div>
                         </div>
                     @endforeach

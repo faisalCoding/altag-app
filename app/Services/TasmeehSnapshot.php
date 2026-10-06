@@ -3,10 +3,12 @@
 namespace App\Services;
 
 use App\Http\Resources\V1\SyncFreeRecitationResource;
+use App\Http\Resources\V1\SyncTasmeehAttemptResource;
 use App\Http\Resources\V1\SyncTasmeehCellResource;
 use App\Http\Resources\V1\SyncTasmeehDayResource;
 use App\Http\Resources\V1\SyncTasmeehPlanResource;
 use App\Models\FreeRecitation;
+use App\Models\PlanDayAttempt;
 use App\Models\StudentPlan;
 use App\Models\StudentPlanDay;
 use Illuminate\Support\Collection;
@@ -14,7 +16,8 @@ use Illuminate\Support\Collection;
 /**
  * The Quran plans the teacher app grades offline: every active, approved hifz
  * and review plan of the teacher's students with all of its days, what has
- * been recorded on them, and the free recitations of the sync window.
+ * been recorded on them — the latest grade of each part, and every session it
+ * was recited in — and the free recitations of the sync window.
  *
  * All days travel rather than a slice around today: which day the phone shows
  * follows the last ayah recited, which may sit anywhere in the plan.
@@ -34,7 +37,7 @@ class TasmeehSnapshot
 
     /**
      * @param  array<int, int>  $studentIds
-     * @return array{tasmeeh_plans: array<int, SyncTasmeehPlanResource>, tasmeeh_days: array<int, SyncTasmeehDayResource>, tasmeeh_cells: array<int, SyncTasmeehCellResource>, free_recitations: array<int, SyncFreeRecitationResource>}
+     * @return array{tasmeeh_plans: array<int, SyncTasmeehPlanResource>, tasmeeh_days: array<int, SyncTasmeehDayResource>, tasmeeh_cells: array<int, SyncTasmeehCellResource>, tasmeeh_attempts: array<int, SyncTasmeehAttemptResource>, free_recitations: array<int, SyncFreeRecitationResource>}
      */
     public static function for(array $studentIds, string $from, string $today): array
     {
@@ -70,6 +73,7 @@ class TasmeehSnapshot
             'tasmeeh_plans' => self::plans($plans),
             'tasmeeh_days' => self::days($plans, $days),
             'tasmeeh_cells' => self::cells($plans, $days),
+            'tasmeeh_attempts' => self::attempts($plans, $days),
             'free_recitations' => SyncFreeRecitationResource::collection($freeRecitations)->all(),
         ];
     }
@@ -77,11 +81,11 @@ class TasmeehSnapshot
     /**
      * The nothing an app sees while the page is switched off for teachers.
      *
-     * @return array{tasmeeh_plans: array{}, tasmeeh_days: array{}, tasmeeh_cells: array{}, free_recitations: array{}}
+     * @return array{tasmeeh_plans: array{}, tasmeeh_days: array{}, tasmeeh_cells: array{}, tasmeeh_attempts: array{}, free_recitations: array{}}
      */
     public static function empty(): array
     {
-        return ['tasmeeh_plans' => [], 'tasmeeh_days' => [], 'tasmeeh_cells' => [], 'free_recitations' => []];
+        return ['tasmeeh_plans' => [], 'tasmeeh_days' => [], 'tasmeeh_cells' => [], 'tasmeeh_attempts' => [], 'free_recitations' => []];
     }
 
     /**
@@ -195,6 +199,43 @@ class TasmeehSnapshot
         }
 
         return $cells;
+    }
+
+    /**
+     * Every session the parts of the plans' days were recited in.
+     *
+     * @param  Collection<int, StudentPlan>  $plans
+     * @param  Collection<int, Collection<int, StudentPlanDay>>  $days
+     * @return array<int, SyncTasmeehAttemptResource>
+     */
+    private static function attempts(Collection $plans, Collection $days): array
+    {
+        $byId = $plans->flatMap(fn (StudentPlan $plan) => $days[$plan->id])->keyBy('id');
+        $parts = $plans->mapWithKeys(fn (StudentPlan $plan) => [$plan->id => self::PARTS[$plan->plan_type]]);
+
+        $attempts = PlanDayAttempt::whereIn('student_plan_day_id', StudentPlanDay::select('id')->whereIn('student_plan_id', $plans->modelKeys()))
+            ->with('recorder:id,name')
+            ->orderBy('id')
+            ->get()
+            // Like the cells: a part the plan's type does not grade stays out.
+            ->filter(fn (PlanDayAttempt $attempt) => $byId->has($attempt->student_plan_day_id)
+                && in_array($attempt->part, $parts[$byId[$attempt->student_plan_day_id]->student_plan_id], true));
+
+        $held = $attempts->mapWithKeys(fn (PlanDayAttempt $attempt) => ["{$attempt->student_plan_day_id}:{$attempt->part}" => true]);
+
+        // A grade set straight on the day travels as the session it stands for.
+        foreach ($byId as $day) {
+            foreach ($parts[$day->student_plan_id] as $part) {
+                if (! $held->has("{$day->id}:{$part}") && ($summary = PlanDayAttempts::fromSummary($day, $part))) {
+                    $attempts->push($summary->setRelation('recorder', $day->{"{$part}Recorder"}));
+                }
+            }
+        }
+
+        return $attempts
+            ->map(fn (PlanDayAttempt $attempt) => new SyncTasmeehAttemptResource($attempt->setRelation('day', $byId[$attempt->student_plan_day_id])))
+            ->values()
+            ->all();
     }
 
     /**

@@ -30,8 +30,12 @@ class TasmeehChangeController extends Controller
             'changes.*.student_id' => ['required_if:changes.*.kind,free', 'nullable', 'integer'],
             'changes.*.date' => ['required', 'date_format:Y-m-d'],
             'changes.*.grade' => $grade,
-            // Record a grade carried from another session for this day.
+            // Record a grade carried from another session for this day. Sent
+            // by apps that hold one grade per plan day.
             'changes.*.redate' => ['sometimes', 'boolean'],
+            // The change is to the session of its date, not to the plan day's
+            // latest grade. Sent by apps that hold every session.
+            'changes.*.session' => ['sometimes', 'boolean'],
             ...self::rangeRules('changes.*.recited'),
             'changes.*.base' => ['required', 'array'],
             'changes.*.base.grade' => $grade,

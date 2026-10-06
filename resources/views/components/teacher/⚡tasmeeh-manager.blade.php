@@ -29,7 +29,9 @@ new class extends Component {
 
     public function mount()
     {
-        $this->gradedAtDate = now()->format('Y-m-d');
+        // The academy's day: on UTC it would still be yesterday for the first
+        // three hours of every Riyadh day, and grade yesterday's session.
+        $this->gradedAtDate = now('Asia/Riyadh')->format('Y-m-d');
     }
 
     #[On('attendance-updated')]

@@ -134,9 +134,10 @@ it('drives the grade highlight from client state so a tap shows at once', functi
         'activePlanId' => $this->plan->id,
     ])->html();
 
-    // The selected state is bound to Alpine, not baked in by the server.
-    expect($html)->toContain('hifz.achievement === 3 ?')
-        ->and($html)->toContain('review.achievement === 0 ?');
+    // The selected state is bound to Alpine, not baked in by the server: the
+    // grade of the session on the date picked above the list.
+    expect($html)->toContain("grade('hifz') === 3 ?")
+        ->and($html)->toContain("grade('review') === 0 ?");
 });
 
 /**

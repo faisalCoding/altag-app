@@ -166,11 +166,38 @@ new class extends Component
         }
 
         $original = $record->{$field};
-        $record->{$field} = Carbon::parse($date)->setTimeFromTimeString($original->format('H:i:s'));
+        $gradedAt = Carbon::parse($date)->setTimeFromTimeString($original->format('H:i:s'));
+
+        // A Quran grade is the latest session of its part: the session moves,
+        // under the lock every writer of the day takes, and the day follows.
+        if ($kind === 'quran') {
+            try {
+                $moved = \Illuminate\Support\Facades\Cache::lock(\App\Services\TasmeehChangeService::dayLockKey($record->id), 10)
+                    ->block(5, fn () => \App\Services\PlanDayAttempts::move($record, $part === 'review' ? 'review' : 'hifz', Carbon::parse($date)->toDateString(), $gradedAt));
+            } catch (\Illuminate\Contracts\Cache\LockTimeoutException) {
+                $moved = null;
+            }
+
+            if (! $moved) {
+                Flux::toast(
+                    $moved === null
+                        ? __('يجري تعديل هذا اليوم من جهاز آخر، أعد المحاولة.')
+                        : __('لهذا الورد تقييم آخر في ذلك اليوم؛ اختر يوماً غيره.'),
+                    variant: 'warning',
+                );
+
+                return;
+            }
+
+            Flux::toast(__('تم تحديث تاريخ التقييم وإعادة احتساب النقاط والاستريك.'), variant: 'success');
+
+            return;
+        }
+
+        $record->{$field} = $gradedAt;
         $record->save();
 
         match ($kind) {
-            'quran' => GamificationService::syncStudentPlanDayXP($record->fresh('plan.student')),
             'ode' => GamificationService::syncStudentOdeAchievementXP($record->fresh(['plan.student', 'pathDay'])),
             'hadith' => GamificationService::syncStudentHadithAchievementXP($record->fresh(['plan.student', 'pathDay'])),
             default => null,

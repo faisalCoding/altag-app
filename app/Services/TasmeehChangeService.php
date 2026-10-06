@@ -3,8 +3,10 @@
 namespace App\Services;
 
 use App\Http\Resources\V1\SyncFreeRecitationResource;
+use App\Http\Resources\V1\SyncTasmeehAttemptResource;
 use App\Http\Resources\V1\SyncTasmeehCellResource;
 use App\Models\FreeRecitation;
+use App\Models\PlanDayAttempt;
 use App\Models\Student;
 use App\Models\StudentPlanDay;
 use App\Models\Teacher;
@@ -115,7 +117,7 @@ class TasmeehChangeService
                 // points row, which the web card writes under the same key.
                 return Cache::lock(self::dayLockKey($day->id), 10)->block(5, fn () => self::settlePlan(
                     $teacher, $student, $day->id, $part, $date, $today, [$grade, $recited], [$baseGrade, $baseRecited],
-                    (bool) ($change['redate'] ?? false),
+                    (bool) ($change['session'] ?? false), (bool) ($change['redate'] ?? false),
                 ));
             }
 
@@ -138,74 +140,112 @@ class TasmeehChangeService
     }
 
     /**
-     * Compare the change with the plan day as it stands now, and write it when
-     * the server still holds what the phone last saw.
+     * Compare the change with what the server holds, and write it when the
+     * server still holds what the phone last saw.
      *
-     * A teacher who edits a grade the day carries from another session — a
-     * second «لم يسمع», or the rest of a portion recited before — asks for it
-     * to be recorded for the day being graded ($redate), even when the grade
-     * itself stays the same.
+     * A plan day keeps every session its parts were recited in. An app that
+     * holds them all ($session) grades the session of the change's date, so a
+     * «لم يسمع» given on Sunday stays when the same portion is graded on Monday.
+     *
+     * An app from before sessions holds only the day's latest grade, and its
+     * change is read the way it meant it: compared with that grade, a new or
+     * changed grade — or one it asks to record for the day ($redate) — goes to
+     * the session of the change's date, and correcting only the range edits
+     * the session the grade was given in.
      *
      * @param  array{0: ?int, 1: array{0: int, 1: int}|null}  $value
      * @param  array{0: ?int, 1: array{0: int, 1: int}|null}  $base
      * @return array<string, mixed>
      */
-    private static function settlePlan(Teacher $teacher, Student $student, int $dayId, string $part, string $date, string $today, array $value, array $base, bool $redate = false): array
+    private static function settlePlan(Teacher $teacher, Student $student, int $dayId, string $part, string $date, string $today, array $value, array $base, bool $session, bool $redate = false): array
     {
-        $day = StudentPlanDay::find($dayId);
+        $day = StudentPlanDay::with('plan.student')->find($dayId);
 
         if (! $day) {
             return self::rejected('day_unavailable', 'حُذف هذا اليوم من خطة الطالب.');
         }
 
-        // Reciting exactly the day's portion is recorded as no range. All three
+        // Reciting exactly the day's portion is recorded as no range. All
         // values are read against the schedule as it stands now: a plan edited
         // since can make a stored range equal to the day's new portion.
         $value[1] = TasmeehSnapshot::withoutScheduled($day, $part, $value[1]);
         $base[1] = TasmeehSnapshot::withoutScheduled($day, $part, $base[1]);
-        $server = [$day->{"{$part}_achievement"}, TasmeehSnapshot::recitedAyahIds($day, $part)];
-        $gradedOn = $day->{"{$part}_graded_at"}?->copy()->setTimezone(TeacherSyncSnapshot::TIMEZONE)->toDateString();
-        $recordForDay = $redate && $value[0] !== null && $gradedOn !== $date;
 
-        if (self::same($server, $value) && ! $recordForDay) {
-            return ['result' => 'applied', 'cell' => self::presentCell($day, $part)];
+        PlanDayAttempts::adopt($day, $part);
+        $attempt = PlanDayAttempts::on($day, $part, $date);
+
+        if ($session) {
+            $server = self::attemptValue($day, $part, $attempt);
+        } else {
+            $server = [$day->{"{$part}_achievement"}, TasmeehSnapshot::recitedAyahIds($day, $part)];
+            $latest = PlanDayAttempts::latest($day, $part);
+
+            // The app sees one grade per day and dates nothing itself: a grade
+            // it carries from another session is recorded for this one only
+            // when it asks, or when the grade itself changes.
+            $recordForDay = $redate && $value[0] !== null && $latest?->recited_on !== $date;
+
+            if (self::same($server, $value) && ! $recordForDay) {
+                return self::applied($day, $part, $attempt);
+            }
+
+            // Correcting only the range, or clearing the grade, is about the
+            // session the app was shown.
+            if (! $recordForDay && $latest && ($server[0] === $value[0] || $value === [null, null])) {
+                $attempt = $latest;
+            }
+        }
+
+        if (self::same($server, $value) && $session) {
+            return self::applied($day, $part, $attempt);
         }
 
         if (! self::same($server, $value) && ! self::same($server, $base)) {
-            return ['result' => 'conflict', 'cell' => self::presentCell($day, $part)];
+            return ['result' => 'conflict'] + self::present($day, $part, $attempt);
         }
 
         [$grade, $recited] = $value;
 
-        // A grade is dated when it changes, or when the teacher records it for
-        // the day being graded. Correcting only the range otherwise keeps the
-        // day the grade was given on — and a date the web moved it to since.
-        $redated = $server[0] !== $grade || $recordForDay;
+        $attempt = PlanDayAttempts::record($day, $part, $attempt?->recited_on ?? $date, $today, $grade, $recited, $teacher->id, $attempt);
 
-        DB::transaction(function () use ($day, $part, $grade, $recited, $redated, $teacher, $date, $today) {
-            $attributes = [
-                "{$part}_achievement" => $grade,
-                "{$part}_recited_from_ayah_id" => $recited[0] ?? null,
-                "{$part}_recited_to_ayah_id" => $recited[1] ?? null,
-                "{$part}_recorded_by" => $teacher->id,
-            ];
+        return self::applied($day->fresh(), $part, $attempt);
+    }
 
-            if ($redated) {
-                $attributes["{$part}_graded_at"] = $grade === null ? null : self::gradeTime($date, $today);
-            }
+    /**
+     * What a session holds, read like a cell: the grade and the range recited
+     * when it was not the day's portion.
+     *
+     * @return array{0: ?int, 1: array{0: int, 1: int}|null}
+     */
+    private static function attemptValue(StudentPlanDay $day, string $part, ?PlanDayAttempt $attempt): array
+    {
+        return $attempt
+            ? [$attempt->grade, TasmeehSnapshot::withoutScheduled($day, $part, $attempt->recitedAyahIds())]
+            : [null, null];
+    }
 
-            $day->update($attributes);
+    /**
+     * @return array<string, mixed>
+     */
+    private static function applied(StudentPlanDay $day, string $part, ?PlanDayAttempt $attempt): array
+    {
+        return ['result' => 'applied'] + self::present($day, $part, $attempt);
+    }
 
-            if ($redated) {
-                GamificationService::syncStudentPlanDayXP($day->fresh());
-            }
-        });
+    /**
+     * The plan day's summary, which apps from before sessions read, and the
+     * session the change was about.
+     *
+     * @return array{cell: ?SyncTasmeehCellResource, attempt: ?SyncTasmeehAttemptResource}
+     */
+    private static function present(StudentPlanDay $day, string $part, ?PlanDayAttempt $attempt): array
+    {
+        $attempt = $attempt?->exists ? $attempt->fresh() : null;
 
-        if ($redated) {
-            self::notifyGrade($student, $part, $grade);
-        }
-
-        return ['result' => 'applied', 'cell' => self::presentCell($day->fresh(), $part)];
+        return [
+            'cell' => self::presentCell($day, $part),
+            'attempt' => $attempt ? new SyncTasmeehAttemptResource($attempt->setRelation('day', $day)->load('recorder:id,name')) : null,
+        ];
     }
 
     /**
@@ -290,7 +330,7 @@ class TasmeehChangeService
      * When a grade counts as given: now when the teacher grades today, else
      * midday of the day they chose, as the web card dates it.
      */
-    private static function gradeTime(string $date, string $today): CarbonInterface
+    public static function gradeTime(string $date, string $today): CarbonInterface
     {
         return $date === $today
             ? now()

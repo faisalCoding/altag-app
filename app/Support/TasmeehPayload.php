@@ -4,6 +4,7 @@ namespace App\Support;
 
 use App\Models\HadithPathDay;
 use App\Models\OdePathDay;
+use App\Models\PlanDayAttempt;
 use App\Models\StudentPlanDay;
 use App\Models\Surah;
 use Illuminate\Support\Carbon;
@@ -34,15 +35,38 @@ class TasmeehPayload
                 'range' => $day->formatRange('hifz', false),
                 'recited_range' => $day->formatRecitedRange('hifz'),
                 'achievement' => $day->hifz_achievement,
+                'sessions' => self::sessions($day, 'hifz'),
                 'links' => self::quranLinks($day->fromAyah, $day->toAyah),
             ],
             'review' => [
                 'range' => $day->formatRange('review', false),
                 'recited_range' => $day->formatRecitedRange('review'),
                 'achievement' => $day->review_achievement,
+                'sessions' => self::sessions($day, 'review'),
                 'links' => self::quranLinks($day->reviewFromAyah, $day->reviewToAyah),
             ],
         ])->values()->all();
+    }
+
+    /**
+     * Every session a part was recited in, oldest first. `achievement` beside
+     * it is the latest of them; the card grades the session of the date picked
+     * above the list, and shows the others as the part's record.
+     *
+     * @return array<int, array{date: string, grade: ?int, recited_range: ?string}>
+     */
+    private static function sessions(StudentPlanDay $day, string $part): array
+    {
+        return $day->attempts
+            ->where('part', $part)
+            ->sortBy(fn (PlanDayAttempt $attempt) => [$attempt->recited_on, $attempt->id])
+            ->map(fn (PlanDayAttempt $attempt) => [
+                'date' => substr((string) $attempt->recited_on, 0, 10),
+                'grade' => $attempt->grade,
+                'recited_range' => StudentPlanDay::formatAyahRange($attempt->recitedFromAyah, $attempt->recitedToAyah),
+            ])
+            ->values()
+            ->all();
     }
 
     /**

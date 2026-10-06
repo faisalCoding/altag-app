@@ -8,6 +8,7 @@ use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class StudentPlanDay extends Model
 {
@@ -95,6 +96,17 @@ class StudentPlanDay extends Model
     public function reviewRecitedToAyah(): BelongsTo
     {
         return $this->belongsTo(Ayah::class, 'review_recited_to_ayah_id');
+    }
+
+    /**
+     * Every session a part of the day was recited in. The day's own grade
+     * columns hold the latest of them.
+     *
+     * @return HasMany<PlanDayAttempt, $this>
+     */
+    public function attempts(): HasMany
+    {
+        return $this->hasMany(PlanDayAttempt::class);
     }
 
     /** @return BelongsTo<User, $this> */

@@ -89,6 +89,8 @@ new class extends Component {
             $plan->update(['student_id' => $this->selectedNewStudentId]);
 
             if ($this->hasAchievements && $this->keepAchievements === 'no') {
+                \App\Models\PlanDayAttempt::whereIn('student_plan_day_id', $plan->days->modelKeys())->delete();
+
                 foreach ($plan->days as $day) {
                     $day->update([
                         'hifz_achievement' => null,

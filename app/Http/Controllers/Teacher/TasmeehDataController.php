@@ -80,7 +80,7 @@ class TasmeehDataController extends Controller
     {
         return StudentPlan::where('student_id', $student->id)
             ->with(['days' => fn ($q) => $q->orderBy('date')])
-            ->with('days.fromAyah.surah', 'days.toAyah.surah', 'days.reviewFromAyah.surah', 'days.reviewToAyah.surah', 'days.hifzRecitedFromAyah.surah', 'days.hifzRecitedToAyah.surah', 'days.reviewRecitedFromAyah.surah', 'days.reviewRecitedToAyah.surah')
+            ->with('days.fromAyah.surah', 'days.toAyah.surah', 'days.reviewFromAyah.surah', 'days.reviewToAyah.surah', 'days.hifzRecitedFromAyah.surah', 'days.hifzRecitedToAyah.surah', 'days.reviewRecitedFromAyah.surah', 'days.reviewRecitedToAyah.surah', 'days.attempts.recitedFromAyah.surah', 'days.attempts.recitedToAyah.surah')
             ->latest()
             ->get()
             ->map(fn (StudentPlan $plan) => [
