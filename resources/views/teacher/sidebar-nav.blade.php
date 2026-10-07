@@ -1,6 +1,8 @@
 <flux:sidebar.group heading="التعليم" class="grid">
-    <flux:sidebar.item class="[&_svg]:bg-[#3b82f6] hover:[&_svg]:bg-[#2563eb]" icon="home" wire:navigate :current="request()->routeIs('teacher.dashboard')"
-        href="{{ route('teacher.dashboard') }}">
+    <flux:sidebar.item class="[&_svg]:bg-[#3b82f6] hover:[&_svg]:bg-[#2563eb]" icon="home" :current="request()->routeIs('teacher.dashboard')"
+        href="{{ route('teacher.dashboard') }}"
+        x-on:click.prevent="if(document.getElementById('teacher-app-shell')) { $dispatch('switch-tab', { tab: 'dashboard', url: '{{ route('teacher.dashboard') }}' }); } else { Livewire.navigate('{{ route('teacher.dashboard') }}'); }"
+        x-on:switch-tab.window="if($event.detail.tab === 'dashboard') $el.setAttribute('data-current', 'true'); else $el.removeAttribute('data-current');">
         {{ __('الرئيسية') }}
     </flux:sidebar.item>
     @php

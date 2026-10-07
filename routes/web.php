@@ -206,7 +206,9 @@ Route::middleware(['auth:teacher', 'approved', 'page.enabled', 'surveys.required
         };
     };
 
-    Route::get('/dashboard', fn () => view('teacher.dashboard'))->name('dashboard');
+    // The dashboard is the shell's first tab: from it, the five in the bottom
+    // bar are already loading behind it.
+    Route::get('/dashboard', $appShellRoute('dashboard'))->name('dashboard');
 
     // SPA Routes (5 Tabs)
     Route::get('/attendance', $appShellRoute('attendance'))->name('attendance');

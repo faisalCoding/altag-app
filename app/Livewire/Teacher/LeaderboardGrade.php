@@ -13,6 +13,7 @@ use App\Services\LeaderboardService;
 use Flux\Flux;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
@@ -43,9 +44,29 @@ class LeaderboardGrade extends Component
         // runs in one of this teacher's circles.
         abort_unless($this->teachesInCompetition(), 404);
 
-        // Reconcile badge awards once on load so any student who already meets a
-        // requirement (e.g. a badge added or edited after they qualified) gets a
-        // pending-approval row and surfaces in the teacher's approval list.
+        $this->reconcileBadges();
+    }
+
+    /**
+     * Reconcile badge awards so any student who already meets a requirement
+     * (e.g. a badge added or edited after they qualified) gets a
+     * pending-approval row and surfaces in the teacher's approval list.
+     *
+     * Ten-odd queries a student, so not on every opening of the page — which
+     * now loads behind the others whenever the teacher's pages open: once an
+     * hour for the teacher, and at once whenever the competition's badges
+     * change.
+     */
+    private function reconcileBadges(): void
+    {
+        $badges = GamificationBadge::where('leaderboard_id', $this->leaderboardId);
+        $version = $badges->count().'|'.$badges->max('updated_at');
+        $key = 'leaderboard-grade:badges:'.$this->leaderboardId.':'.auth()->guard('teacher')->id().':'.md5($version);
+
+        if (! Cache::add($key, true, now()->addHour())) {
+            return;
+        }
+
         foreach ($this->participatingStudents() as $student) {
             GamificationService::syncStudentBadges($student->id, $this->leaderboardId);
         }
@@ -100,6 +121,7 @@ class LeaderboardGrade extends Component
 
         return Student::whereIn('circle_id', $circleIds)
             ->where('status', 'active')
+            ->with('circle:id,name')
             ->orderBy('name')
             ->get();
     }
@@ -228,7 +250,8 @@ class LeaderboardGrade extends Component
             ->groupBy('student_id');
 
         $service = new LeaderboardService;
-        $dailyScores = $service->getDailyScores($leaderboard, \Carbon\Carbon::parse($this->date)->format('Y-m-d'));
+        // Only the students on the page: the competition may span circles the teacher does not teach.
+        $dailyScores = $service->getDailyScores($leaderboard, \Carbon\Carbon::parse($this->date)->format('Y-m-d'), $students->modelKeys());
 
         $pendingBadges = DB::table('gamification_badge_student')
             ->join('gamification_badges', 'gamification_badges.id', '=', 'gamification_badge_student.badge_id')

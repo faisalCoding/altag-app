@@ -477,7 +477,18 @@ class LeaderboardService
             ->values();
     }
 
-    public function getDailyScores(Leaderboard $leaderboard, $date)
+    /**
+     * Each student's points on a day in a points-based competition: the
+     * criteria granted by hand, and what attendance and recitation earned.
+     *
+     * Read for every student at once — one query per kind of record, not one
+     * per student — and only for the students asked for when given: the
+     * grading page shows a teacher's own, not the whole competition's.
+     *
+     * @param  array<int, int>|null  $studentIds
+     * @return array<int, array{total: int|float, manual: int|float, automated: int|float, hifz: int|float, review: int|float, attendance: int|float}>
+     */
+    public function getDailyScores(Leaderboard $leaderboard, $date, ?array $studentIds = null)
     {
         // For supervisor competitions, include all participating circles
         if ($leaderboard->isSupervisorCompetition()) {
@@ -485,37 +496,100 @@ class LeaderboardService
             if (empty($circleIds)) {
                 $circleIds = [$leaderboard->circle_id];
             }
-            $students = Student::whereIn('circle_id', $circleIds)->get();
+            $students = Student::whereIn('circle_id', $circleIds);
         } else {
-            $students = Student::where('circle_id', $leaderboard->circle_id)->get();
+            $students = Student::where('circle_id', $leaderboard->circle_id);
         }
+
+        $students = $students->when($studentIds !== null, fn ($query) => $query->whereKey($studentIds))->get();
+        $ids = $students->modelKeys();
         $settings = $leaderboard->settings ?? [];
+
+        if ($ids === []) {
+            return [];
+        }
+
+        $manualScores = DB::table('leaderboard_scores')
+            ->join('leaderboard_criteria', 'leaderboard_scores.leaderboard_criterion_id', '=', 'leaderboard_criteria.id')
+            ->where('leaderboard_scores.leaderboard_id', $leaderboard->id)
+            ->whereIn('leaderboard_scores.student_id', $ids)
+            ->whereDate('leaderboard_scores.date', $date)
+            ->groupBy('leaderboard_scores.student_id')
+            ->selectRaw('leaderboard_scores.student_id, sum(leaderboard_criteria.points) as points')
+            ->pluck('points', 'student_id');
+
+        $attendances = ($settings['attendance_enabled'] ?? false)
+            ? Attendance::whereIn('student_id', $ids)->whereDate('date', $date)->orderBy('id')->get()->groupBy('student_id')->map->first()
+            : collect();
+
+        $planDays = collect();
+        $freeRecitations = collect();
+
+        if (($settings['hifz_enabled'] ?? false) || ($settings['review_enabled'] ?? false)) {
+            $planDays = StudentPlanDay::with('plan:id,student_id')
+                ->whereHas('plan', fn ($q) => $q->whereIn('student_id', $ids)->where('is_approved', 1))
+                ->where(function ($q) use ($date) {
+                    $q->whereDate('hifz_graded_at', $date)
+                        ->orWhereDate('review_graded_at', $date)
+                        ->orWhere(function ($sub) use ($date) {
+                            $sub->whereNull('hifz_graded_at')
+                                ->whereNull('review_graded_at')
+                                ->whereDate('date', $date)
+                                ->where(function ($s) {
+                                    $s->whereNotNull('hifz_achievement')
+                                        ->orWhereNotNull('review_achievement');
+                                });
+                        });
+                })
+                ->orderBy('id')
+                ->get()
+                ->groupBy(fn (StudentPlanDay $day) => $day->plan->student_id);
+
+            $freeRecitations = FreeRecitation::whereIn('student_id', $ids)->recited()->whereDate('graded_at', $date)
+                ->orderBy('id')
+                ->get()
+                ->groupBy('student_id');
+        }
+
+        $pathAchievements = function (string $model) use ($ids, $date) {
+            return $model::with('plan:id,student_id')
+                ->whereHas('plan', fn ($q) => $q->whereIn('student_id', $ids))
+                ->where(function ($q) use ($date) {
+                    $q->whereDate('hifz_graded_at', $date)
+                        ->orWhereDate('review_graded_at', $date)
+                        ->orWhere(function ($sub) use ($date) {
+                            $sub->whereNull('hifz_graded_at')
+                                ->whereNull('review_graded_at')
+                                ->whereHas('pathDay', fn ($pd) => $pd->whereDate('date', $date))
+                                ->where(fn ($s) => $s->whereNotNull('hifz_achievement')->orWhereNotNull('review_achievement'));
+                        });
+                })
+                ->orderBy('id')
+                ->get()
+                ->groupBy(fn ($achievement) => $achievement->plan->student_id);
+        };
+
+        $odeAchievements = ($settings['ode_hifz_enabled'] ?? false) || ($settings['ode_review_enabled'] ?? false)
+            ? $pathAchievements(StudentOdeAchievement::class)
+            : collect();
+
+        $hadithAchievements = ($settings['hadith_hifz_enabled'] ?? false) || ($settings['hadith_review_enabled'] ?? false)
+            ? $pathAchievements(StudentHadithAchievement::class)
+            : collect();
 
         $dailyScores = [];
 
         foreach ($students as $student) {
-            $totalScore = 0;
-            $manualScore = 0;
-            $automatedScore = 0;
             $hifzScoreDaily = 0;
             $reviewScoreDaily = 0;
             $attendanceScoreDaily = 0;
 
             // 1. Manual Criteria Scores for TODAY
-            $manualScore = DB::table('leaderboard_scores')
-                ->join('leaderboard_criteria', 'leaderboard_scores.leaderboard_criterion_id', '=', 'leaderboard_criteria.id')
-                ->where('leaderboard_scores.leaderboard_id', $leaderboard->id)
-                ->where('leaderboard_scores.student_id', $student->id)
-                ->whereDate('leaderboard_scores.date', $date)
-                ->sum('leaderboard_criteria.points');
-
-            $totalScore += $manualScore;
+            $manualScore = $manualScores[$student->id] ?? 0;
 
             // 2. Attendance Points for TODAY
             if ($settings['attendance_enabled'] ?? false) {
-                $attendance = Attendance::where('student_id', $student->id)
-                    ->whereDate('date', $date)
-                    ->first();
+                $attendance = $attendances[$student->id] ?? null;
 
                 if ($attendance) {
                     if ($attendance->status === 'present') {
@@ -523,31 +597,12 @@ class LeaderboardService
                     } elseif ($attendance->status === 'late') {
                         $attendanceScoreDaily = ($settings['attendance_late'] ?? 2);
                     }
-                    $automatedScore += $attendanceScoreDaily;
                 }
             }
 
             // 3. Hifz & Review Points for TODAY
             if (($settings['hifz_enabled'] ?? false) || ($settings['review_enabled'] ?? false)) {
-                $days = StudentPlanDay::whereHas('plan', function ($q) use ($student) {
-                    $q->where('student_id', $student->id)
-                        ->where('is_approved', 1);
-                })
-                    ->where(function ($q) use ($date) {
-                        $q->whereDate('hifz_graded_at', $date)
-                            ->orWhereDate('review_graded_at', $date)
-                            ->orWhere(function ($sub) use ($date) {
-                                $sub->whereNull('hifz_graded_at')
-                                    ->whereNull('review_graded_at')
-                                    ->whereDate('date', $date)
-                                    ->where(function ($s) {
-                                        $s->whereNotNull('hifz_achievement')
-                                            ->orWhereNotNull('review_achievement');
-                                    });
-                            });
-                    })->get();
-
-                foreach ($days as $day) {
+                foreach ($planDays[$student->id] ?? [] as $day) {
                     if ($settings['hifz_enabled'] ?? false) {
                         $gradedAt = $day->hifz_graded_at ? $day->hifz_graded_at->format('Y-m-d') : $day->date->format('Y-m-d');
                         if ($gradedAt === $date && $day->hifz_achievement !== null) {
@@ -575,100 +630,69 @@ class LeaderboardService
                     }
                 }
 
-                foreach (FreeRecitation::where('student_id', $student->id)->recited()->whereDate('graded_at', $date)->get() as $recitation) {
+                foreach ($freeRecitations[$student->id] ?? [] as $recitation) {
                     [$hifzPoints, $reviewPoints] = self::freeRecitationPoints($settings, $recitation);
                     $hifzScoreDaily += $hifzPoints;
                     $reviewScoreDaily += $reviewPoints;
                 }
-
-                $automatedScore += $hifzScoreDaily + $reviewScoreDaily;
             }
 
             // Ode Hifz & Review for THIS day
-            if (($settings['ode_hifz_enabled'] ?? false) || ($settings['ode_review_enabled'] ?? false)) {
-                $odeAchievementsDaily = StudentOdeAchievement::whereHas('plan', fn ($q) => $q->where('student_id', $student->id))
-                    ->where(function ($q) use ($date) {
-                        $q->whereDate('hifz_graded_at', $date)
-                            ->orWhereDate('review_graded_at', $date)
-                            ->orWhere(function ($sub) use ($date) {
-                                $sub->whereNull('hifz_graded_at')
-                                    ->whereNull('review_graded_at')
-                                    ->whereHas('pathDay', fn ($pd) => $pd->whereDate('date', $date))
-                                    ->where(fn ($s) => $s->whereNotNull('hifz_achievement')->orWhereNotNull('review_achievement'));
-                            });
-                    })->get();
-
-                foreach ($odeAchievementsDaily as $ach) {
-                    if (($settings['ode_hifz_enabled'] ?? false) && $ach->hifz_achievement !== null) {
-                        $gradedAt = $ach->hifz_graded_at ? $ach->hifz_graded_at->format('Y-m-d') : $date;
-                        if ($gradedAt === $date) {
-                            if ($ach->hifz_achievement == 3) {
-                                $hifzScoreDaily += ($settings['ode_hifz_excellent'] ?? 10);
-                            } elseif ($ach->hifz_achievement == 2) {
-                                $hifzScoreDaily += ($settings['ode_hifz_good'] ?? 7);
-                            } elseif ($ach->hifz_achievement == 1) {
-                                $hifzScoreDaily += ($settings['ode_hifz_acceptable'] ?? 4);
-                            }
+            foreach ($odeAchievements[$student->id] ?? [] as $ach) {
+                if (($settings['ode_hifz_enabled'] ?? false) && $ach->hifz_achievement !== null) {
+                    $gradedAt = $ach->hifz_graded_at ? $ach->hifz_graded_at->format('Y-m-d') : $date;
+                    if ($gradedAt === $date) {
+                        if ($ach->hifz_achievement == 3) {
+                            $hifzScoreDaily += ($settings['ode_hifz_excellent'] ?? 10);
+                        } elseif ($ach->hifz_achievement == 2) {
+                            $hifzScoreDaily += ($settings['ode_hifz_good'] ?? 7);
+                        } elseif ($ach->hifz_achievement == 1) {
+                            $hifzScoreDaily += ($settings['ode_hifz_acceptable'] ?? 4);
                         }
                     }
-                    if (($settings['ode_review_enabled'] ?? false) && $ach->review_achievement !== null) {
-                        $gradedAt = $ach->review_graded_at ? $ach->review_graded_at->format('Y-m-d') : $date;
-                        if ($gradedAt === $date) {
-                            if ($ach->review_achievement == 3) {
-                                $reviewScoreDaily += ($settings['ode_review_excellent'] ?? 5);
-                            } elseif ($ach->review_achievement <= 2) {
-                                $reviewScoreDaily += ($settings['ode_review_good'] ?? 3);
-                            }
+                }
+                if (($settings['ode_review_enabled'] ?? false) && $ach->review_achievement !== null) {
+                    $gradedAt = $ach->review_graded_at ? $ach->review_graded_at->format('Y-m-d') : $date;
+                    if ($gradedAt === $date) {
+                        if ($ach->review_achievement == 3) {
+                            $reviewScoreDaily += ($settings['ode_review_excellent'] ?? 5);
+                        } elseif ($ach->review_achievement <= 2) {
+                            $reviewScoreDaily += ($settings['ode_review_good'] ?? 3);
                         }
                     }
                 }
             }
 
             // Hadith Hifz & Review for THIS day
-            if (($settings['hadith_hifz_enabled'] ?? false) || ($settings['hadith_review_enabled'] ?? false)) {
-                $hadithAchievementsDaily = StudentHadithAchievement::whereHas('plan', fn ($q) => $q->where('student_id', $student->id))
-                    ->where(function ($q) use ($date) {
-                        $q->whereDate('hifz_graded_at', $date)
-                            ->orWhereDate('review_graded_at', $date)
-                            ->orWhere(function ($sub) use ($date) {
-                                $sub->whereNull('hifz_graded_at')
-                                    ->whereNull('review_graded_at')
-                                    ->whereHas('pathDay', fn ($pd) => $pd->whereDate('date', $date))
-                                    ->where(fn ($s) => $s->whereNotNull('hifz_achievement')->orWhereNotNull('review_achievement'));
-                            });
-                    })->get();
-
-                foreach ($hadithAchievementsDaily as $ach) {
-                    if (($settings['hadith_hifz_enabled'] ?? false) && $ach->hifz_achievement !== null) {
-                        $gradedAt = $ach->hifz_graded_at ? $ach->hifz_graded_at->format('Y-m-d') : $date;
-                        if ($gradedAt === $date) {
-                            if ($ach->hifz_achievement == 3) {
-                                $hifzScoreDaily += ($settings['hadith_hifz_excellent'] ?? 10);
-                            } elseif ($ach->hifz_achievement == 2) {
-                                $hifzScoreDaily += ($settings['hadith_hifz_good'] ?? 7);
-                            } elseif ($ach->hifz_achievement == 1) {
-                                $hifzScoreDaily += ($settings['hadith_hifz_acceptable'] ?? 4);
-                            }
+            foreach ($hadithAchievements[$student->id] ?? [] as $ach) {
+                if (($settings['hadith_hifz_enabled'] ?? false) && $ach->hifz_achievement !== null) {
+                    $gradedAt = $ach->hifz_graded_at ? $ach->hifz_graded_at->format('Y-m-d') : $date;
+                    if ($gradedAt === $date) {
+                        if ($ach->hifz_achievement == 3) {
+                            $hifzScoreDaily += ($settings['hadith_hifz_excellent'] ?? 10);
+                        } elseif ($ach->hifz_achievement == 2) {
+                            $hifzScoreDaily += ($settings['hadith_hifz_good'] ?? 7);
+                        } elseif ($ach->hifz_achievement == 1) {
+                            $hifzScoreDaily += ($settings['hadith_hifz_acceptable'] ?? 4);
                         }
                     }
-                    if (($settings['hadith_review_enabled'] ?? false) && $ach->review_achievement !== null) {
-                        $gradedAt = $ach->review_graded_at ? $ach->review_graded_at->format('Y-m-d') : $date;
-                        if ($gradedAt === $date) {
-                            if ($ach->review_achievement == 3) {
-                                $reviewScoreDaily += ($settings['hadith_review_excellent'] ?? 5);
-                            } elseif ($ach->review_achievement <= 2) {
-                                $reviewScoreDaily += ($settings['hadith_review_good'] ?? 3);
-                            }
+                }
+                if (($settings['hadith_review_enabled'] ?? false) && $ach->review_achievement !== null) {
+                    $gradedAt = $ach->review_graded_at ? $ach->review_graded_at->format('Y-m-d') : $date;
+                    if ($gradedAt === $date) {
+                        if ($ach->review_achievement == 3) {
+                            $reviewScoreDaily += ($settings['hadith_review_excellent'] ?? 5);
+                        } elseif ($ach->review_achievement <= 2) {
+                            $reviewScoreDaily += ($settings['hadith_review_good'] ?? 3);
                         }
                     }
                 }
             }
 
             $automatedScore = $hifzScoreDaily + $reviewScoreDaily + $attendanceScoreDaily;
-            $totalScore += $automatedScore;
 
             $dailyScores[$student->id] = [
-                'total' => $totalScore,
+                'total' => $manualScore + $automatedScore,
                 'manual' => $manualScore,
                 'automated' => $automatedScore,
                 'hifz' => $hifzScoreDaily,

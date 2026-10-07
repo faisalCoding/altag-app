@@ -16,6 +16,7 @@ use App\Models\Stage;
 use App\Models\Student;
 use App\Models\Teacher;
 use App\Services\GamificationService;
+use App\Services\LeaderboardService;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -241,6 +242,60 @@ it('surfaces a newly-qualifying badge for approval when the teacher opens the gr
         ->where('student_id', $this->student->id)
         ->where('status', 'pending_approval')
         ->exists())->toBeTrue();
+});
+
+it('reconciles badge awards once an hour on opening the grade page, and at once when the badges change', function () {
+    $this->actingAs($this->teacher, 'teacher');
+
+    AcademicCalendarEvent::create([
+        'event_name' => 'دوام كامل التجريبي',
+        'start_date' => now()->subDays(30)->format('Y-m-d'),
+        'end_date' => now()->addDays(30)->format('Y-m-d'),
+        'is_attendance_period' => true,
+        'weekdays' => [1, 2, 3, 4, 5, 6, 7],
+        'is_visible' => true,
+    ]);
+
+    foreach ([now()->subDays(2), now()->subDay(), now()] as $d) {
+        AttendanceModel::create([
+            'student_id' => $this->student->id, 'circle_id' => $this->circle->id, 'teacher_id' => $this->teacher->id,
+            'date' => $d->format('Y-m-d'), 'status' => 'present',
+        ]);
+    }
+
+    $badge = GamificationBadge::create([
+        'leaderboard_id' => $this->leaderboard->id, 'name' => 'وسام الانضباط', 'icon' => 'bolt',
+        'badge_type' => 'streak_attendance', 'requirement_value' => 3,
+    ]);
+    $pending = fn () => DB::table('gamification_badge_student')->where('badge_id', $badge->id)->where('student_id', $this->student->id);
+    $open = fn () => Livewire::test(LeaderboardGrade::class, ['leaderboardId' => $this->leaderboard->id]);
+
+    $open();
+    expect($pending()->exists())->toBeTrue();
+
+    // Opened again within the hour, the page does not reconcile again.
+    $pending()->delete();
+    $open();
+    expect($pending()->exists())->toBeFalse();
+
+    // A badge changed: the next opening reconciles at once.
+    $this->travel(1)->seconds();
+    $badge->update(['name' => 'وسام الانضباط المحدّث']);
+    $open();
+    expect($pending()->exists())->toBeTrue();
+});
+
+it('reckons the day\'s points only for the students asked for', function () {
+    $other = Student::create([
+        'name' => 'طالب آخر', 'email' => 'other-daily@example.com', 'password' => bcrypt('password'),
+        'circle_id' => $this->circle->id, 'is_approved' => true, 'status' => 'active',
+    ]);
+
+    $service = new LeaderboardService;
+    $today = now()->format('Y-m-d');
+
+    expect(array_keys($service->getDailyScores($this->leaderboard, $today)))->toEqualCanonicalizing([$this->student->id, $other->id])
+        ->and(array_keys($service->getDailyScores($this->leaderboard, $today, [$other->id])))->toBe([$other->id]);
 });
 
 it('keeps a teacher to the competitions of their own circles', function () {

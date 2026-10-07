@@ -56,7 +56,7 @@ return [
     |
     */
 
-    'component_placeholder' => null, // Example: 'placeholders::skeleton'
+    'component_placeholder' => 'livewire.placeholders.tab',
 
     /*
     |---------------------------------------------------------------------------

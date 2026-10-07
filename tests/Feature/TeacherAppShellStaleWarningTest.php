@@ -17,9 +17,32 @@ it('renders the idle-based stale data warning on the teacher app shell', functio
 
     $response->assertSuccessful();
 
-    // The warning is armed by inactivity (not page age) and can be dismissed.
-    $response->assertSee('armStaleTimer', false);
+    // The warning is armed by inactivity (not page age), counted by the clock
+    // and checked again when the page comes back from the background — a
+    // locked phone pauses its timers — and can be dismissed.
+    $response->assertSee('checkStale', false);
+    $response->assertSee('visibilitychange', false);
     $response->assertSee('registerActivity', false);
     $response->assertSee('dismissStaleWarning', false);
-    $response->assertSee('مر وقت دون استخدام الصفحة وقد تكون البيانات غير محدثة');
+    $response->assertSee('قد تكون البيانات غير محدّثة');
+    $response->assertSee('env(safe-area-inset-top)', false);
+    $response->assertDontSee('🔄');
+});
+
+it('opens a teacher page with the asked tab built and the others loading behind it', function () {
+    $teacher = Teacher::factory()->create();
+    $teacher->circles()->attach(Circle::factory()->create()->id);
+
+    // The dashboard is a tab of the same page: the five in the bottom bar load behind it.
+    $dashboard = $this->actingAs($teacher, 'teacher')->get(route('teacher.dashboard'))->assertSuccessful()->getContent();
+
+    expect($dashboard)->toContain('teacher-app-shell')
+        ->toContain("activeTab: 'dashboard'")
+        // Deferred tabs arrive as placeholders, each loading on its own after the page.
+        ->toContain('aria-busy="true"');
+
+    $tasmeeh = $this->get(route('teacher.tasmeeh'))->assertSuccessful()->getContent();
+
+    expect($tasmeeh)->toContain("activeTab: 'tasmeeh'")
+        ->toContain('التسميع والمتابعة');
 });
