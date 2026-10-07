@@ -58,7 +58,9 @@ new class extends Component {
             ->where('status', 'active')
             ->get();
 
-        $todayStr = \Carbon\Carbon::today()->format('Y-m-d');
+        // The academy's day: on UTC it would still be yesterday for the first
+        // three hours of every Riyadh day.
+        $todayStr = \App\Services\TeacherSyncSnapshot::today();
 
         // Fetch active plans (or selected plans) for these students
         $activePlans = [];
@@ -85,6 +87,18 @@ new class extends Component {
             ->groupBy(function ($day) use ($planIdToStudentId) {
                 return $planIdToStudentId[$day->student_plan_id] ?? null;
             });
+
+        // The parts each student was graded in today, on whichever day of their
+        // plan: a student behind or ahead of the calendar is graded on a day
+        // dated otherwise, and counts as graded all the same — as in the app.
+        $gradedToday = \App\Models\PlanDayAttempt::query()
+            ->join('student_plan_days', 'student_plan_days.id', '=', 'plan_day_attempts.student_plan_day_id')
+            ->whereIn('student_plan_days.student_plan_id', collect($activePlans)->pluck('id'))
+            ->whereDate('plan_day_attempts.recited_on', $todayStr)
+            ->whereNotNull('plan_day_attempts.grade')
+            ->get(['student_plan_days.student_plan_id', 'plan_day_attempts.part'])
+            ->groupBy(fn ($attempt) => $planIdToStudentId[$attempt->student_plan_id] ?? null)
+            ->map(fn ($attempts) => $attempts->pluck('part')->unique()->values()->all());
 
         $todayAttendances = \App\Models\Attendance::whereIn('student_id', $students->pluck('id'))
             ->whereDate('date', $todayStr)
@@ -142,6 +156,14 @@ new class extends Component {
                     }
                 } else {
                     $color = 'zinc'; // No plan day for today
+                }
+
+                // Graded today on any day of the plan: every part of it, or some.
+                $partsGraded = $gradedToday[$student->id] ?? [];
+
+                if ($partsGraded !== []) {
+                    $required = \App\Services\TasmeehSnapshot::PARTS[$activePlans[$student->id]->plan_type] ?? ['hifz', 'review'];
+                    $color = array_diff($required, $partsGraded) === [] || $color === 'emerald' ? 'emerald' : 'blue';
                 }
 
                 $student->tasmeeh_color = $color;

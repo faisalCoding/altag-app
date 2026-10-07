@@ -8,6 +8,7 @@ use App\Models\StudentPlan;
 use App\Models\StudentPlanDay;
 use App\Models\Surah;
 use App\Models\Teacher;
+use App\Services\PlanDayAttempts;
 use App\Support\TasmeehPayload;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -133,4 +134,52 @@ it('picks the academy\'s day for grading, not the server\'s', function () {
     Carbon::setTestNow('2026-07-07 22:00:00'); // 01:00 on the 8th in Riyadh.
 
     expect(Livewire::test('teacher.⚡tasmeeh-manager')->get('gradedAtDate'))->toBe('2026-07-08');
+});
+
+/**
+ * Three days of the plan, the first two graded excellent: the first on the
+ * 6th, the second today — a student behind the calendar.
+ *
+ * @return array{0: StudentPlanDay, 1: StudentPlanDay, 2: StudentPlanDay}
+ */
+function gradedBehind(): array
+{
+    $make = fn (string $date, int $from) => StudentPlanDay::create([
+        'student_plan_id' => test()->plan->id, 'date' => $date, 'day_name' => 'يوم',
+        'from_ayah_id' => $from, 'to_ayah_id' => $from + 1,
+    ]);
+
+    $first = test()->day;
+    $second = $make('2026-07-08', 3);
+    $third = $make('2026-07-09', 5);
+
+    PlanDayAttempts::record($first, 'hifz', '2026-07-06', '2026-07-08', 3, null, test()->teacher->id);
+    PlanDayAttempts::record($second, 'hifz', '2026-07-08', '2026-07-08', 3, null, test()->teacher->id);
+
+    return [$first, $second, $third];
+}
+
+it('opens on the day graded on the date picked, wherever it was graded', function () {
+    [$first, $second, $third] = gradedBehind();
+
+    // The oldest day still owed is the third; the one graded today is the second.
+    sessionCard('2026-07-08')->assertViewHas('defaultDayId', $second->id);
+    sessionCard('2026-07-06')->assertViewHas('defaultDayId', $first->id);
+    sessionCard('2026-07-07')->assertViewHas('defaultDayId', $third->id);
+});
+
+it('colours a student graded today on an earlier day of the plan as graded', function () {
+    // The plan's day for today is left; its first day is graded today instead.
+    StudentPlanDay::create([
+        'student_plan_id' => $this->plan->id, 'date' => '2026-07-08', 'day_name' => 'الأربعاء',
+        'from_ayah_id' => 5, 'to_ayah_id' => 6,
+    ]);
+    $colour = fn () => Livewire::test('teacher.⚡tasmeeh-manager')->viewData('studentsWithPlansPresent')
+        ->firstWhere('id', $this->student->id)->tasmeeh_color;
+
+    expect($colour())->toBe('rose');
+
+    PlanDayAttempts::record($this->day, 'hifz', '2026-07-08', '2026-07-08', 3, null, $this->teacher->id);
+
+    expect($colour())->toBe('emerald');
 });

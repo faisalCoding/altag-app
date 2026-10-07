@@ -620,6 +620,13 @@ new class extends Component {
             if ($days->isNotEmpty()) {
                 $dayIds = $days->pluck('id')->toArray();
 
+                // A day graded on the date picked — from here, the teacher app or
+                // the pairs page — is the one to open, as the app keeps it on
+                // screen: the furthest of them when several were.
+                $gradedOnDate = $days->last(fn ($day) => $day->attempts->contains(
+                    fn ($attempt) => $attempt->grade !== null && substr((string) $attempt->recited_on, 0, 10) === $this->gradingDate()
+                ));
+
                 // A day marked «لم يسمع» is still owed, so it stays the one to open.
                 $oldestIncomplete = $days->first(function ($day) use ($activePlan) {
                     if ($activePlan->plan_type === 'hifz') {
@@ -631,7 +638,9 @@ new class extends Component {
                     }
                 });
 
-                if ($oldestIncomplete) {
+                if ($gradedOnDate) {
+                    $defaultDayId = $gradedOnDate->id;
+                } elseif ($oldestIncomplete) {
                     $defaultDayId = $oldestIncomplete->id;
                 } else {
                     $defaultDayId = $days->last()->id;
@@ -804,6 +813,16 @@ new class extends Component {
         ];
     }
 
+    /** The date picked above the list, as the academy's day; today when none or a stray value. */
+    private function gradingDate(): string
+    {
+        $today = \App\Services\TeacherSyncSnapshot::today();
+
+        return is_string($this->gradedAtDate) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $this->gradedAtDate)
+            ? min($this->gradedAtDate, $today)
+            : $today;
+    }
+
     /**
      * The mistakes counted in the student's mutual recitation on the day
      * picked, a hint beside the grading — its grade is the review's own.
@@ -813,10 +832,7 @@ new class extends Component {
      */
     private function peerResult(): ?array
     {
-        $today = \App\Services\TeacherSyncSnapshot::today();
-        $date = is_string($this->gradedAtDate) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $this->gradedAtDate) ? $this->gradedAtDate : $today;
-
-        $pair = \App\Models\PeerPair::where('date', $date)
+        $pair = \App\Models\PeerPair::where('date', $this->gradingDate())
             ->where(fn ($query) => $query->where('first_id', $this->student->id)->orWhere('second_id', $this->student->id))
             ->first();
         $place = $pair?->placeOf($this->student->id);
@@ -936,7 +952,14 @@ new class extends Component {
 
             init() {
                 this.$watch('$wire.gradedAtDate', (newVal) => {
-                    if (this.quranDateToDayIdMap[newVal]) {
+                    {{-- A day graded on the date picked first, as on opening; else the day the plan set for it. --}}
+                    const graded = this.quranDays.filter(day => ['hifz', 'review'].some(
+                        part => day[part].sessions.some(session => session.date === newVal && session.grade !== null)
+                    )).at(-1);
+
+                    if (graded) {
+                        this.activeDayId = graded.id;
+                    } else if (this.quranDateToDayIdMap[newVal]) {
                         this.activeDayId = this.quranDateToDayIdMap[newVal];
                     }
                 });
