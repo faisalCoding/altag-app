@@ -137,6 +137,26 @@
         </form>
     </div>
 
+    <div
+        class="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-100 dark:border-zinc-800 shadow-xs p-6 max-w-2xl space-y-4">
+        <div class="flex items-center gap-2">
+            <flux:icon icon="clipboard-document-check" class="size-5 text-cyan-600" />
+            <flux:heading size="lg">تحضير المعلمين</flux:heading>
+        </div>
+
+        <form wire:submit="saveTeacherAttendance" class="space-y-5">
+            <flux:input type="number" label="الأيام التي يعدّلها المشرف" wire:model="teacherLockDays" min="0" max="365"
+                description="يعدّل المشرف تحضير هذا العدد من الأيام الماضية فقط، وما قبلها لا يعدّله إلا المدير. اكتب ٠ لترك كل الأيام مفتوحة." />
+
+            <flux:switch wire:model="teacherWhatsapp" label="تنبيه المعلم عبر واتساب عند غيابه أو تأخره"
+                description="تُرسل الرسالة من حساب واتساب المرتبط لمن سجّل التحضير، مشرفاً كان أو المدير، إلى جوال المعلم." />
+
+            <div class="pt-4 border-t border-zinc-100 dark:border-zinc-800 flex justify-end">
+                <flux:button type="submit" variant="primary" class="w-full sm:w-auto">حفظ</flux:button>
+            </div>
+        </form>
+    </div>
+
     <div class="flex items-center gap-3 mt-8">
         <div class="p-2 rounded-lg bg-zinc-50 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
             <flux:icon icon="circle-stack" />

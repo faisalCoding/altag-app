@@ -7,6 +7,7 @@ use App\Models\Stage;
 use App\Models\Student;
 use App\Models\StudentExam;
 use App\Models\Teacher;
+use App\Support\TeacherRollScope;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Component;
 
@@ -46,6 +47,7 @@ new class extends Component
             'activeCompetitionsCount' => Leaderboard::whereHas('circles', fn ($q) => $q->whereIn('circles.id', $circleIds))
                 ->where('is_active', true)
                 ->count(),
+            'teacherRoll' => TeacherRollScope::for('supervisor')->today(),
             'recentCircles' => Circle::whereIn('id', $circleIds)->withCount('students')->with('stage')->latest()->take(5)->get(),
         ];
     }
@@ -105,6 +107,11 @@ new class extends Component
             </div>
         </a>
     </div>
+
+    @if (\App\Support\RolePages::isEnabled('supervisor', 'supervisor.teacher-attendance'))
+        <x-teacher-roll-today :rows="$teacherRoll" roll-route="supervisor.teacher-attendance"
+            report-route="supervisor.teacher-attendance-report" />
+    @endif
 
     <div class="rounded-2xl border border-zinc-100 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">
         <div class="p-5 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">

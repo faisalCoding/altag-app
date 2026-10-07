@@ -52,6 +52,12 @@
             المستخدمون
         </flux:sidebar.item>
     @endif
+    @if(\App\Support\RolePages::isEnabled('manager', 'manager.teacher-attendance'))
+        <flux:sidebar.item class="[&_svg]:bg-[#0891b2] hover:[&_svg]:bg-[#0e7490]" icon="clipboard-document-check" :href="route('manager.teacher-attendance')"
+            :current="request()->routeIs('manager.teacher-attendance')" wire:navigate>
+            تحضير المعلمين
+        </flux:sidebar.item>
+    @endif
     @php
         $pendingRequestsCount = \App\Models\Student::where('is_approved', false)->where('is_rejected', false)->count()
             + \App\Models\Teacher::where('is_approved', false)->where('is_rejected', false)->count()
@@ -85,6 +91,12 @@
         <flux:sidebar.item class="[&_svg]:bg-[#10b981] hover:[&_svg]:bg-[#059669]" icon="chart-bar-square" :href="route('manager.attendance-reports')"
             :current="request()->routeIs('manager.attendance-reports')" wire:navigate>
             تقارير الحضور والغياب
+        </flux:sidebar.item>
+    @endif
+    @if(\App\Support\RolePages::isEnabled('manager', 'manager.teacher-attendance-report'))
+        <flux:sidebar.item class="[&_svg]:bg-[#0891b2] hover:[&_svg]:bg-[#0e7490]" icon="chart-bar-square" :href="route('manager.teacher-attendance-report')"
+            :current="request()->routeIs('manager.teacher-attendance-report')" wire:navigate>
+            تقرير حضور المعلمين
         </flux:sidebar.item>
     @endif
     @if(\App\Support\RolePages::isEnabled('manager', 'manager.yearly-attendance'))

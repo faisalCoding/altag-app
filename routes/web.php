@@ -120,6 +120,8 @@ Route::middleware(['auth:manager', 'approved', 'page.enabled'])->prefix('manager
     Route::view('/bus-bookings', 'manager.bus-bookings')->name('bus-bookings');
     Route::view('/supervisors', 'manager.supervisors')->name('supervisors');
     Route::view('/teachers', 'manager.teachers')->name('teachers');
+    Route::view('/teacher-attendance', 'manager.teacher-attendance')->name('teacher-attendance');
+    Route::view('/teacher-attendance-report', 'manager.teacher-attendance-report')->name('teacher-attendance-report');
     Route::view('/students', 'manager.students')->name('students');
     Route::view('/guardians', 'manager.guardians')->name('guardians');
     Route::view('/attendance-reports', 'manager.attendance-reports')->name('attendance-reports');
@@ -166,6 +168,7 @@ Route::middleware(['auth:supervisor', 'approved', 'page.enabled', 'surveys.requi
     Route::get('/dashboard', fn () => view('supervisor.dashboard'))->name('dashboard');
     Route::view('/teachers', 'supervisor.teachers')->name('teachers');
     Route::view('/teacher-attendance', 'supervisor.teacher-attendance')->name('teacher-attendance');
+    Route::view('/teacher-attendance-report', 'supervisor.teacher-attendance-report')->name('teacher-attendance-report');
     Route::view('/odes', 'supervisor.odes')->name('odes');
     Route::view('/odes/paths', 'supervisor.ode-paths')->name('odes.paths');
     Route::view('/hadiths', 'supervisor.hadiths')->name('hadiths');
@@ -230,6 +233,7 @@ Route::middleware(['auth:teacher', 'approved', 'page.enabled', 'surveys.required
     })->name('ode-plans');
     Route::view('/exceeded-limits', 'teacher.exceeded-limits')->name('exceeded-limits');
     Route::view('/pairs', 'teacher.pairs')->name('pairs');
+    Route::view('/my-attendance', 'teacher.my-attendance')->name('my-attendance');
     Route::view('/student-exams', 'teacher.student-exams')->name('student-exams');
     Route::view('/messages', 'teacher.messages')->name('messages');
     Route::view('/forms', 'teacher.forms')->name('forms');

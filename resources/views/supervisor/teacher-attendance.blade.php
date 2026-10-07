@@ -7,5 +7,5 @@
         @include('supervisor.sidebar-nav')
     </x-slot:sidebar>
 
-    <livewire:supervisor.teacher-attendance />
+    <livewire:shared.teacher-attendance role="supervisor" />
 </x-layouts.role-shell>

@@ -8,6 +8,7 @@ use App\Models\Circle;
 use App\Models\Stage;
 use App\Models\Student;
 use App\Models\StudentPlanDay;
+use App\Support\TeacherRollScope;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -283,6 +284,7 @@ class Dashboard extends Component
             'quranData' => $this->quranData,
             'attDates' => $this->resolveAttendanceDates(),
             'quranDates' => $this->resolveQuranDates(),
+            'teacherRoll' => TeacherRollScope::for('manager')->today(),
         ])->layout('layouts.role-shell');
     }
 }

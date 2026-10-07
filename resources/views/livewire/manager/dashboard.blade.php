@@ -1,5 +1,10 @@
 <div class="space-y-8 p-6" dir="rtl">
 
+    @if (\App\Support\RolePages::isEnabled('manager', 'manager.teacher-attendance'))
+        <x-teacher-roll-today :rows="$teacherRoll" roll-route="manager.teacher-attendance"
+            report-route="manager.teacher-attendance-report" show-supervisors />
+    @endif
+
     {{-- ══════════════════════════════════════════ --}}
     {{--  SECTION 1 – ATTENDANCE                   --}}
     {{-- ══════════════════════════════════════════ --}}

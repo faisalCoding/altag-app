@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\V1\Teacher\AttendanceChangeController;
 use App\Http\Controllers\Api\V1\Teacher\AuthController as V1AuthController;
 use App\Http\Controllers\Api\V1\Teacher\ExamChangeController;
 use App\Http\Controllers\Api\V1\Teacher\ExtraPointChangeController;
+use App\Http\Controllers\Api\V1\Teacher\MyAttendanceController;
 use App\Http\Controllers\Api\V1\Teacher\PeerPairController;
 use App\Http\Controllers\Api\V1\Teacher\ScoreChangeController;
 use App\Http\Controllers\Api\V1\Teacher\StudentContactController;
@@ -58,6 +59,10 @@ Route::prefix('v1/teacher')->name('api.v1.teacher.')->group(function () {
         });
 
         // The student's number and their guardian, from the student card.
+        // The teacher's own roll-call record, as the supervisor marked it.
+        Route::middleware(['teacher.api:teacher.my-attendance', 'throttle:60,1'])
+            ->get('/my-attendance', [MyAttendanceController::class, 'show'])->name('my-attendance');
+
         Route::middleware(['teacher.api:teacher.students', 'throttle:60,1'])->prefix('/students/{student}')->name('students.')->whereNumber('student')->group(function () {
             Route::post('/phone', [StudentContactController::class, 'phone'])->name('phone');
             Route::post('/guardian/lookup', [StudentContactController::class, 'lookupGuardian'])->name('guardian.lookup');

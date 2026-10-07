@@ -4,6 +4,7 @@ namespace App\Livewire\Manager;
 
 use App\Models\Setting;
 use App\Support\Branding;
+use App\Support\TeacherAttendanceSettings;
 use Flux\Flux;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
@@ -22,6 +23,12 @@ class Settings extends Component
 
     public $calculationPeriodDays;
 
+    /** How many days back a supervisor may still change the teachers' roll call; 0 leaves every day open. */
+    public int $teacherLockDays = 7;
+
+    /** Whether a teacher marked absent or late is told over WhatsApp. */
+    public bool $teacherWhatsapp = false;
+
     public $uploadedBackup;
 
     // ── هوية المجمع ─────────────────────────────────────────────────────────
@@ -36,6 +43,8 @@ class Settings extends Component
         $this->absenceLimit = Setting::getVal('absence_limit', 3);
         $this->latenessLimit = Setting::getVal('lateness_limit', 5);
         $this->calculationPeriodDays = Setting::getVal('calculation_period_days', 30);
+        $this->teacherLockDays = TeacherAttendanceSettings::lockDays();
+        $this->teacherWhatsapp = TeacherAttendanceSettings::notifiesTeachers();
         $this->primaryColor = Branding::color();
         $this->siteName = Branding::siteName();
     }
@@ -123,6 +132,23 @@ class Settings extends Component
         Setting::setVal('calculation_period_days', $this->calculationPeriodDays);
 
         Flux::toast('تم حفظ الإعدادات بنجاح', variant: 'success');
+    }
+
+    /**
+     * The teachers' roll call: how far back a supervisor may change it, and
+     * whether a teacher marked absent or late hears about it.
+     */
+    public function saveTeacherAttendance(): void
+    {
+        $this->validate([
+            'teacherLockDays' => 'required|integer|min:0|max:365',
+            'teacherWhatsapp' => 'boolean',
+        ]);
+
+        Setting::setVal('teacher_attendance_lock_days', $this->teacherLockDays);
+        Setting::setVal('teacher_attendance_whatsapp', $this->teacherWhatsapp ? 1 : 0);
+
+        Flux::toast('حُفظت إعدادات تحضير المعلمين', variant: 'success');
     }
 
     public function saveBackupToServer()

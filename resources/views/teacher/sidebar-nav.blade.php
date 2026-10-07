@@ -115,6 +115,12 @@
                 لائحة التجاوزات
             </flux:sidebar.item>
         @endif
+        @if(\App\Support\RolePages::isEnabled('teacher', 'teacher.my-attendance'))
+            <flux:sidebar.item class="[&_svg]:bg-[#0891b2] hover:[&_svg]:bg-[#0e7490]" icon="clipboard-document-check" wire:navigate
+                :current="request()->routeIs('teacher.my-attendance')" href="{{ route('teacher.my-attendance') }}">
+                سجل حضوري
+            </flux:sidebar.item>
+        @endif
     </flux:sidebar.group>
     @if(\App\Support\RolePages::isEnabled('teacher', 'teacher.forms'))
         <flux:sidebar.item class="[&_svg]:bg-[#14b8a6] hover:[&_svg]:bg-[#0d9488]" icon="document-text" :href="route('teacher.forms')"

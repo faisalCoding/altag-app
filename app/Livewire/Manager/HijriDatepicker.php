@@ -17,6 +17,9 @@ class HijriDatepicker extends Component
 
     public $label;
 
+    /** The last day that may be picked (Y-m-d); later ones show but cannot be chosen. */
+    public ?string $maxDate = null;
+
     // State for the currently viewed calendar month
     public $currentViewTimestamp;
 
@@ -62,6 +65,10 @@ class HijriDatepicker extends Component
 
     public function selectDate($gregorianDate)
     {
+        if ($this->maxDate && $gregorianDate > $this->maxDate) {
+            return;
+        }
+
         $this->date = $gregorianDate;
         $this->open = false;
 
@@ -142,6 +149,7 @@ class HijriDatepicker extends Component
                 'colorClass' => $colorClass,
                 'isToday' => $gregDate === date('Y-m-d'),
                 'isSelected' => $gregDate === $this->date,
+                'isAfterMax' => $this->maxDate && $gregDate > $this->maxDate,
             ];
         }
 

@@ -46,7 +46,7 @@
                 @if($day === null)
                     <div class="h-16 w-full"></div>
                 @else
-                    <button wire:click="selectDate('{{ $day['gregorianDate'] }}')" type="button" class="relative flex flex-col justify-between p-1.5 rounded-md border h-16 w-full   duration-200 
+                    <button wire:click="selectDate('{{ $day['gregorianDate'] }}')" type="button" @disabled($day['isAfterMax']) class="disabled:opacity-40 disabled:cursor-not-allowed relative flex flex-col justify-between p-1.5 rounded-md border h-16 w-full   duration-200 
                                             {{ $day['colorClass'] }}
                                             {{ $day['isSelected'] ? 'ring-2 ring-indigo-500 ring-offset-1 dark:ring-offset-zinc-900 border-transparent shadow-sm' : 'border-zinc-100 dark:border-zinc-700/50' }}
                                             {{ $day['isToday'] && !$day['isSelected'] ? 'border-indigo-300 dark:border-indigo-600' : '' }}
