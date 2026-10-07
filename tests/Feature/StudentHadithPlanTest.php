@@ -231,8 +231,9 @@ it('renders both Quranic plan and Hadith plan simultaneously in student-tasmeeh-
         'gradedAtDate' => '2026-06-18',
     ]);
 
-    // Quranic plan should be selected in the selector
-    expect($component->get('selectedPlanId'))->toBe($quranicPlan->id);
+    // The Quranic plan shows without being picked: every active plan does.
+    expect(collect($component->viewData('quranSections'))->map(fn ($section) => $section['plan']->id)->all())
+        ->toBe([$quranicPlan->id]);
 
     // Both plans should be returned to the view with Alpine mapping variables
     $viewData = $component->instance()->with();

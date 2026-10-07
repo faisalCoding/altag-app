@@ -43,6 +43,21 @@ new class extends Component {
      * the rows' keys alone, so the box that opened the editor stays, and
      * focus returns to it when the editor closes.
      */
+    /**
+     * The date grades are given for, changed from the row atop any student's
+     * card — the previous or next working day, or one picked on the calendar
+     * — for every card on the page alike, never past today.
+     */
+    #[On('grading-date-changed')]
+    public function changeGradingDate(string $date): void
+    {
+        if (! preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            return;
+        }
+
+        $this->gradedAtDate = min($date, \App\Services\TeacherSyncSnapshot::today());
+    }
+
     #[On('exam-saved')]
     public function examSaved(): void
     {
@@ -389,19 +404,6 @@ hifz/review — local state per day card for instant visual feedback
                 <p class="text-zinc-400 dark:text-zinc-500 text-sm max-w-sm">
                     {{ __('قم باختيار أحد الطلاب من القائمة الجانبية لعرض خطته القرآنية والبدء بتقييم التسميع والمراجعة.') }}
                 </p>
-            </div>
-
-            <!-- Global Grading Date Setting -->
-            <div x-show="activeStudentId" x-cloak class="bg-white dark:bg-zinc-900 p-4 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm mb-4">
-                <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div>
-                        <flux:label>{{ __('تاريخ التقييم (الإنجاز الفعلي)') }}</flux:label>
-                        <flux:description class="text-[11px] mt-0.5">{{ __('سيُستخدم هذا التاريخ لتسجيل إنجاز الطالب في المسابقات والتقارير.') }}</flux:description>
-                    </div>
-                    <div class="w-full md:w-64">
-                        <livewire:teacher.hijri-datepicker wire:model.live="gradedAtDate" />
-                    </div>
-                </div>
             </div>
 
             @foreach($studentsWithPlansPresent->merge($studentsWithPlansAbsent)->merge($studentsWithoutPlans) as $student)

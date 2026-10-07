@@ -441,7 +441,9 @@ it('renders both Quranic plan and Ode plan simultaneously in student-tasmeeh-car
         'gradedAtDate' => '2026-06-18',
     ]);
 
-    expect($component->get('selectedPlanId'))->toBe($quranicPlan->id);
+    // The Quranic plan shows without being picked: every active plan does.
+    expect(collect($component->viewData('quranSections'))->map(fn ($section) => $section['plan']->id)->all())
+        ->toBe([$quranicPlan->id]);
 
     $viewData = $component->instance()->with();
     $expectedQuranMap = [];

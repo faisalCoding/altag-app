@@ -31,24 +31,20 @@ new class extends Component {
     #[Reactive]
     public $gradedAtDate;
 
-    #[Locked]
-    public $selectedPlanId;
+    /** The calendar under the grading date, mirroring it; picking a day changes it for the page. */
+    public $pickedDate;
+
 
     public function mount($student, $sPlans, $activePlanId)
     {
         $this->student = $student;
         $this->sPlans = $sPlans;
         $this->activePlanId = $activePlanId;
-        $this->selectedPlanId = $this->activePlanId;
     }
 
-    public function selectPlan($planId)
+    public function updatedPickedDate($value): void
     {
-        if ($planId !== null && ! StudentPlan::where('student_id', $this->student->id)->whereKey($planId)->exists()) {
-            return;
-        }
-
-        $this->selectedPlanId = $planId;
+        $this->dispatch('grading-date-changed', date: (string) $value);
     }
 
     /**
@@ -523,18 +519,20 @@ new class extends Component {
             $studentHadithPlans = collect();
         }
 
-        // Selected Quranic plan (inactive plans never show on the tasmeeh page)
-        $activePlan = null;
-        if ($this->selectedPlanId) {
-            $activePlan = $this->sPlans->where('status', 'active')->firstWhere('id', $this->selectedPlanId);
-        }
-        if (!$activePlan) {
-            $activePlan = $this->sPlans->firstWhere('status', 'active');
-        }
+        // Every active Quran plan shows at once, one section each, with no plan
+        // to pick (inactive plans never show on the tasmeeh page).
+        $quranSections = $this->sPlans->where('status', 'active')->values()
+            ->map(fn ($plan) => $this->quranSection($plan))
+            ->filter(fn (array $section) => $section['days']->isNotEmpty())
+            ->values()
+            ->all();
 
-        $days = collect();
-        $defaultDayId = null;
-        $dayIds = [];
+        // The first plan's, as before every plan showed.
+        $activePlan = $quranSections[0]['plan'] ?? null;
+        $days = $quranSections[0]['days'] ?? collect();
+        $defaultDayIds = $quranSections[0]['defaultDayIds'] ?? ['hifz' => null, 'review' => null];
+        $quranDateToDayIdMap = $quranSections[0]['dateMap'] ?? [];
+        $dayIds = $days->pluck('id')->toArray();
 
         // Fetch Poetic Ode days for the active Ode plan
         $odeDays = collect();
@@ -604,48 +602,6 @@ new class extends Component {
             $hadithDayForSelectedDate = $hadithDays->first(function ($day) use ($targetDateStr) {
                 return $day->date->toDateString() === $targetDateStr;
             });
-        }
-
-        // Load Quranic plan days
-        if ($activePlan) {
-            if (app()->bound('tasmeeh_days_cache')) {
-                $days = app('tasmeeh_days_cache')->get($activePlan->id) ?? collect();
-            } else {
-                $days = StudentPlanDay::with(['fromAyah.surah', 'toAyah.surah', 'reviewFromAyah.surah', 'reviewToAyah.surah', 'hifzRecitedFromAyah.surah', 'hifzRecitedToAyah.surah', 'reviewRecitedFromAyah.surah', 'reviewRecitedToAyah.surah', 'attempts.recitedFromAyah.surah', 'attempts.recitedToAyah.surah', 'plan'])
-                    ->where('student_plan_id', $activePlan->id)
-                    ->orderBy('date', 'asc')
-                    ->get();
-            }
-
-            if ($days->isNotEmpty()) {
-                $dayIds = $days->pluck('id')->toArray();
-
-                // A day graded on the date picked — from here, the teacher app or
-                // the pairs page — is the one to open, as the app keeps it on
-                // screen: the furthest of them when several were.
-                $gradedOnDate = $days->last(fn ($day) => $day->attempts->contains(
-                    fn ($attempt) => $attempt->grade !== null && substr((string) $attempt->recited_on, 0, 10) === $this->gradingDate()
-                ));
-
-                // A day marked «لم يسمع» is still owed, so it stays the one to open.
-                $oldestIncomplete = $days->first(function ($day) use ($activePlan) {
-                    if ($activePlan->plan_type === 'hifz') {
-                        return ! $day->isRecited('hifz');
-                    } elseif ($activePlan->plan_type === 'review') {
-                        return ! $day->isRecited('review');
-                    } else {
-                        return ! $day->isRecited('hifz') || ! $day->isRecited('review');
-                    }
-                });
-
-                if ($gradedOnDate) {
-                    $defaultDayId = $gradedOnDate->id;
-                } elseif ($oldestIncomplete) {
-                    $defaultDayId = $oldestIncomplete->id;
-                } else {
-                    $defaultDayId = $days->last()->id;
-                }
-            }
         }
 
         // Request-static cache to completely avoid N+1 queries for Surah loading inside loops
@@ -722,13 +678,6 @@ new class extends Component {
             }
         }
 
-        $quranDateToDayIdMap = [];
-        if ($activePlan && $days->isNotEmpty()) {
-            $quranDateToDayIdMap = $days->mapWithKeys(function ($day) {
-                return [$day->date->toDateString() => $day->id];
-            })->toArray();
-        }
-
         // Fetch all verses of the active Ode plan's ode
         $odeVerses = collect();
         if ($activeOdePlan) {
@@ -782,6 +731,9 @@ new class extends Component {
                 ->get(['id', 'name', 'leaderboard_id']);
         }
 
+        // The calendar under the grading date shows the page's date.
+        $this->pickedDate = $this->gradingDate();
+
         return [
             'student' => $this->student,
             'sPlans' => $this->sPlans,
@@ -792,7 +744,10 @@ new class extends Component {
             'hadithDayForSelectedDate' => $hadithDayForSelectedDate,
             'days' => $days,
             'allSurahs' => $cachedSurahs,
-            'defaultDayId' => $defaultDayId,
+            'defaultDayIds' => $defaultDayIds,
+            'quranSections' => $quranSections,
+            'gradingDate' => $this->gradingDate(),
+            'gradingDays' => $this->gradingDays(),
             'dayIds' => $dayIds,
             'odeDays' => $odeDays,
             'defaultOdeDayId' => $defaultOdeDayId,
@@ -811,6 +766,62 @@ new class extends Component {
             'examBox' => $this->examBox(),
             'peerResult' => $this->peerResult(),
         ];
+    }
+
+    /**
+     * One active Quran plan as its section shows it: its days, the day each
+     * part opens on, and its days by date.
+     *
+     * Each part on its own, as in the teacher app: a day graded on the date
+     * picked — from here, the app or the pairs page — opens, the furthest when
+     * several were; else the oldest still owed («لم يسمع» is owed); else the
+     * plan's last.
+     *
+     * @return array{plan: StudentPlan, days: \Illuminate\Support\Collection<int, StudentPlanDay>, defaultDayIds: array{hifz: ?int, review: ?int}, dateMap: array<string, int>}
+     */
+    private function quranSection(StudentPlan $plan): array
+    {
+        $days = StudentPlanDay::with(['fromAyah.surah', 'toAyah.surah', 'reviewFromAyah.surah', 'reviewToAyah.surah', 'hifzRecitedFromAyah.surah', 'hifzRecitedToAyah.surah', 'reviewRecitedFromAyah.surah', 'reviewRecitedToAyah.surah', 'attempts.recitedFromAyah.surah', 'attempts.recitedToAyah.surah', 'plan'])
+            ->where('student_plan_id', $plan->id)
+            ->orderBy('date', 'asc')
+            ->get();
+
+        $defaultDayIds = ['hifz' => null, 'review' => null];
+
+        foreach (\App\Services\TasmeehSnapshot::PARTS[$plan->plan_type] ?? ['hifz', 'review'] as $part) {
+            $withPart = $days->filter(fn ($day) => $part === 'hifz' ? $day->from_ayah_id : $day->review_from_ayah_id);
+
+            $gradedOnDate = $withPart->last(fn ($day) => $day->attempts->contains(
+                fn ($attempt) => $attempt->part === $part && $attempt->grade !== null
+                    && substr((string) $attempt->recited_on, 0, 10) === $this->gradingDate()
+            ));
+
+            $defaultDayIds[$part] = ($gradedOnDate ?? $withPart->first(fn ($day) => ! $day->isRecited($part)) ?? $withPart->last())?->id;
+        }
+
+        return [
+            'plan' => $plan,
+            'days' => $days,
+            'defaultDayIds' => $defaultDayIds,
+            'dateMap' => $days->mapWithKeys(fn ($day) => [$day->date->toDateString() => $day->id])->all(),
+        ];
+    }
+
+    /**
+     * The working days of the student's stage up to today, which the grading
+     * date steps through.
+     *
+     * @return array<int, string>
+     */
+    private function gradingDays(): array
+    {
+        $today = \App\Services\TeacherSyncSnapshot::today();
+
+        return \App\Models\AcademicCalendarEvent::workingDaysBetween(
+            \Carbon\CarbonImmutable::parse($today)->subDays(180)->toDateString(),
+            $today,
+            $this->student->effective_stage_id,
+        );
     }
 
     /** The date picked above the list, as the academy's day; today when none or a stray value. */
@@ -863,7 +874,7 @@ new class extends Component {
     changed is replaced outright and its scope built again from the new days.
 --}}
 <div class="space-y-4"
-    wire:key="student-tasmeeh-container-{{ $student->id }}-{{ $selectedPlanId ?? 'ode-only' }}"
+    wire:key="student-tasmeeh-container-{{ $student->id }}-{{ collect($quranSections)->map(fn ($section) => $section['plan']->id)->implode('-') ?: 'ode-only' }}"
 >
     {{--
         The student's name, with their next exam at its end as the teacher app
@@ -886,21 +897,24 @@ new class extends Component {
         <x-tasmeeh-exam-box :exam="$examBox['exam']" :student-id="$student->id" :student-name="$student->name" :can-schedule="$examBox['canSchedule']" size="lg" />
     </div>
 
-    @if($sPlans->isNotEmpty())
-        <div class="bg-white dark:bg-zinc-900 p-4 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm mb-4">
-            <flux:select wire:change="selectPlan($event.target.value)" label="{{ __('الخطة القرآنية') }}" placeholder="{{ __('اختر الخطة') }}">
-                @foreach($sPlans as $plan)
-                    <flux:select.option value="{{ $plan->id }}" :selected="$selectedPlanId == $plan->id">
-                        @if($plan->plan_type === 'hifz')
-                            {{ __('حفظ (تبدأ من ' . $plan->start_date->format('Y/m/d') . ')') }}
-                        @elseif($plan->plan_type === 'review')
-                            {{ __('مراجعة (تبدأ من ' . $plan->start_date->format('Y/m/d') . ')') }}
-                        @else
-                            {{ __('حفظ ومراجعة (تبدأ من ' . $plan->start_date->format('Y/m/d') . ')') }}
-                        @endif
-                    </flux:select.option>
-                @endforeach
-            </flux:select>
+    {{--
+        The date the grades on this card are given for, once for every plan on
+        it: the working day before and after, the calendar under the date.
+    --}}
+    @if ($quranSections !== [] || $activeOdePlan || $activeHadithPlan)
+        <div class="p-3 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-sm space-y-3">
+            <x-tasmeeh-grading-date :days="$gradingDays" :student-id="$student->id" :date="$gradingDate" />
+
+            {{-- The mistakes counted in the student's mutual recitation that day: a hint. --}}
+            @if ($peerResult)
+                <div class="flex flex-wrap items-center gap-2 text-xs">
+                    <span class="inline-flex items-center gap-1 rounded-full bg-zinc-100 px-2.5 py-1 font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                        <flux:icon icon="arrows-right-left" class="size-3.5" />
+                        {{ __('التسميع المتبادل:') }}
+                        {{ $peerResult['mistakes'] === null ? __('لم تُسجَّل أخطاؤه') : $peerResult['mistakes'].' '.__('أخطاء') }}
+                    </span>
+                </div>
+            @endif
         </div>
     @endif
 
@@ -926,10 +940,14 @@ new class extends Component {
         $quranGradeChoices[3]['js'] = '0';
     @endphp
 
-    @if($sPlans->isNotEmpty())
+    @foreach ($quranSections as $quranSection)
         @php
-            // All days of one plan share its type, so the sections are decided once.
-            $planType = $days->first()?->plan?->plan_type;
+            // Each active plan is a section of its own, with its own days.
+            $activePlan = $quranSection['plan'];
+            $days = $quranSection['days'];
+            $defaultDayIds = $quranSection['defaultDayIds'];
+            $quranDateToDayIdMap = $quranSection['dateMap'];
+            $planType = $activePlan->plan_type;
         @endphp
 
         {{--
@@ -937,14 +955,14 @@ new class extends Component {
             all twenty-five days server-side and hiding them with x-show cost
             half a megabyte; the same days as JSON are a few kilobytes.
 
-            The key is the chosen plan, so picking another plan from the select
-            above replaces this element and rebuilds the scope from that plan's
-            days rather than leaving the previous plan's on screen.
+            One per active plan, each keyed by its plan: a section whose plan
+            changed is replaced outright, and its scope built again from that
+            plan's days rather than left holding another's.
         --}}
         <div class="mt-2" wire:key="quran-plan-{{ $activePlan?->id }}" x-data="{
             syncing: null,
-            activeDayId: @js($defaultDayId),
-            studentPlanDayIds: @js($dayIds),
+            {{-- The plan day each part shows: hifz and review step through the plan apart. --}}
+            activeDay: @js($defaultDayIds),
             {{-- The days themselves, as data: the card builds its own markup from these. --}}
             quranDays: @js(\App\Support\TasmeehPayload::quranDays($days)),
             quranDateToDayIdMap: @js($quranDateToDayIdMap),
@@ -952,20 +970,51 @@ new class extends Component {
 
             init() {
                 this.$watch('$wire.gradedAtDate', (newVal) => {
-                    {{-- A day graded on the date picked first, as on opening; else the day the plan set for it. --}}
-                    const graded = this.quranDays.filter(day => ['hifz', 'review'].some(
-                        part => day[part].sessions.some(session => session.date === newVal && session.grade !== null)
-                    )).at(-1);
+                    {{-- Each part opens on a day graded on the date picked, as on opening; else the day the plan set for it. --}}
+                    for (const part of ['hifz', 'review']) {
+                        const graded = this.partDays(part).filter(
+                            day => day[part].sessions.some(session => session.date === newVal && session.grade !== null)
+                        ).at(-1);
+                        const planned = this.partDays(part).find(day => day.date === newVal);
 
-                    if (graded) {
-                        this.activeDayId = graded.id;
-                    } else if (this.quranDateToDayIdMap[newVal]) {
-                        this.activeDayId = this.quranDateToDayIdMap[newVal];
+                        if (graded || planned) {
+                            this.activeDay[part] = (graded ?? planned).id;
+                        }
                     }
                 });
             },
-            currentQuranDay() {
-                return this.quranDays.find(day => day.id == this.activeDayId) ?? null;
+            {{-- The plan's days holding a portion for the part, in order. --}}
+            partDays(part) {
+                return this.quranDays.filter(day => day[part].range);
+            },
+            dayOf(part) {
+                return this.quranDays.find(day => day.id == this.activeDay[part]) ?? null;
+            },
+            canStep(part, step) {
+                const days = this.partDays(part);
+                const index = days.findIndex(day => day.id == this.activeDay[part]);
+                return index !== -1 && days[index + step] !== undefined;
+            },
+            step(part, step) {
+                const days = this.partDays(part);
+                const index = days.findIndex(day => day.id == this.activeDay[part]);
+
+                if (index !== -1 && days[index + step]) {
+                    this.activeDay[part] = days[index + step].id;
+                }
+            },
+            {{-- A plan day as the teacher reads it: the weekday and the Hijri date. --}}
+            wirdDay(day) {
+                if (! day) {
+                    return '';
+                }
+
+                try {
+                    return new Intl.DateTimeFormat('ar-SA-u-ca-islamic-umalqura', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' })
+                        .format(new Date(day.date + 'T12:00:00Z'));
+                } catch (e) {
+                    return day.day_name + ' ' + day.date;
+                }
             },
             {{-- The session graded is the one of the date picked above the list. --}}
             gradingDate() {
@@ -973,16 +1022,16 @@ new class extends Component {
                 return picked > this.today ? this.today : picked;
             },
             session(part) {
-                return this.currentQuranDay()?.[part].sessions.find(s => s.date === this.gradingDate()) ?? null;
+                return this.dayOf(part)?.[part].sessions.find(s => s.date === this.gradingDate()) ?? null;
             },
             grade(part) {
                 return this.session(part)?.grade ?? null;
             },
             otherSessions(part) {
-                return (this.currentQuranDay()?.[part].sessions ?? []).filter(s => s.date !== this.gradingDate());
+                return (this.dayOf(part)?.[part].sessions ?? []).filter(s => s.date !== this.gradingDate());
             },
             setGrade(part, value) {
-                const day = this.currentQuranDay();
+                const day = this.dayOf(part);
                 const session = this.session(part);
                 const v = this.grade(part) === value ? null : value;
 
@@ -1017,57 +1066,19 @@ new class extends Component {
                 } catch (e) {
                     return date;
                 }
-            },
-            hasPrevDay() {
-                const index = this.studentPlanDayIds.findIndex(id => id == this.activeDayId);
-                return index > 0;
-            },
-            hasNextDay() {
-                const index = this.studentPlanDayIds.findIndex(id => id == this.activeDayId);
-                return index !== -1 && index < this.studentPlanDayIds.length - 1;
-            },
-            prevDay() {
-                const index = this.studentPlanDayIds.findIndex(id => id == this.activeDayId);
-                if (index > 0) {
-                    this.activeDayId = this.studentPlanDayIds[index - 1];
-                }
-            },
-            nextDay() {
-                const index = this.studentPlanDayIds.findIndex(id => id == this.activeDayId);
-                if (index !== -1 && index < this.studentPlanDayIds.length - 1) {
-                    this.activeDayId = this.studentPlanDayIds[index + 1];
-                }
             }
-        }" x-show="currentQuranDay()" x-cloak>
+        }" x-show="dayOf('hifz') || dayOf('review')" x-cloak>
             <flux:card x-bind:class="syncing && 'opacity-70'"
                 class="border-zinc-200 dark:border-zinc-700 transition-opacity">
 
-                {{-- The mistakes counted in the student's mutual recitation that day: a hint. --}}
-                @if ($peerResult)
-                    <div class="mb-3 flex flex-wrap items-center gap-2 text-xs">
-                        <span class="inline-flex items-center gap-1 rounded-full bg-zinc-100 px-2.5 py-1 font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
-                            <flux:icon icon="arrows-right-left" class="size-3.5" />
-                            {{ __('التسميع المتبادل:') }}
-                            {{ $peerResult['mistakes'] === null ? __('لم تُسجَّل أخطاؤه') : $peerResult['mistakes'].' '.__('أخطاء') }}
-                        </span>
+                {{-- With several plans, each says which it is. --}}
+                @if (count($quranSections) > 1)
+                    <div class="mb-3 md:mb-4 flex items-center gap-2 text-sm font-semibold text-zinc-700 dark:text-zinc-200">
+                        <flux:icon icon="book-open" class="size-4 text-zinc-400" />
+                        {{ match ($planType) { 'hifz' => __('خطة حفظ'), 'review' => __('خطة مراجعة'), default => __('خطة حفظ ومراجعة') } }}
+                        <span class="text-xs font-normal text-zinc-500">{{ __('تبدأ من :date', ['date' => \App\Support\HijriDate::full($activePlan->start_date)]) }}</span>
                     </div>
                 @endif
-
-                {{-- Day navigation --}}
-                <div class="flex items-center justify-between mb-4 md:mb-8 border-b border-zinc-100 dark:border-zinc-800 pb-3 md:pb-4">
-                    <flux:button type="button" @click="prevDay()" x-bind:disabled="!hasPrevDay()" icon="chevron-right" variant="subtle" size="sm">
-                        {{ __('اليوم السابق') }}
-                    </flux:button>
-
-                    <div class="text-center">
-                        <div class="font-bold text-base md:text-lg" x-text="currentQuranDay()?.day_name"></div>
-                        <div class="text-zinc-500 text-xs md:text-sm dir-ltr" x-text="currentQuranDay()?.date"></div>
-                    </div>
-
-                    <flux:button type="button" @click="nextDay()" x-bind:disabled="!hasNextDay()" icon-trailing="chevron-left" variant="subtle" size="sm">
-                        {{ __('اليوم التالي') }}
-                    </flux:button>
-                </div>
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-8">
                     @foreach ([
@@ -1080,32 +1091,44 @@ new class extends Component {
                         <div x-data="{ linksOpen: false }" class="{{ $section['box'] }} rounded-xl border p-3.5 md:p-5 space-y-3 md:space-y-5">
                             <div>
                                 <flux:heading size="lg" class="{{ $section['heading'] }} mb-1 md:mb-2">{{ $section['label'] }}</flux:heading>
+
+                                {{-- The plan's day for the part, stepped through on its own: the wird's day and date. --}}
+                                <div class="flex items-center justify-between gap-2 mb-3 rounded-lg bg-white/70 dark:bg-zinc-900/40 px-1.5 py-1">
+                                    <flux:button type="button" @click="step('{{ $part }}', -1)" x-bind:disabled="! canStep('{{ $part }}', -1)"
+                                        icon="chevron-right" variant="subtle" size="xs" aria-label="{{ __('الورد السابق') }}" />
+                                    <div class="min-w-0 text-center">
+                                        <div class="text-[11px] text-zinc-500 dark:text-zinc-400">{{ __('ورد يوم') }}</div>
+                                        <div class="text-sm font-semibold text-zinc-800 dark:text-zinc-100 truncate" x-text="wirdDay(dayOf('{{ $part }}'))"></div>
+                                    </div>
+                                    <flux:button type="button" @click="step('{{ $part }}', 1)" x-bind:disabled="! canStep('{{ $part }}', 1)"
+                                        icon="chevron-left" variant="subtle" size="xs" aria-label="{{ __('الورد التالي') }}" />
+                                </div>
                                 <p class="text-zinc-700 dark:text-zinc-300 font-medium text-base md:text-lg leading-snug md:leading-relaxed"
-                                    x-text="currentQuranDay()?.{{ $part }}.range || '{{ __('لا يوجد نص محدد') }}'"></p>
+                                    x-text="dayOf('{{ $part }}')?.{{ $part }}.range || '{{ __('لا يوجد نص محدد') }}'"></p>
                                 {{-- Recorded from the teacher app when the student recited something other than the wird. --}}
                                 <p x-show="session('{{ $part }}')?.recited_range" x-cloak
                                     class="text-xs md:text-sm font-medium text-amber-700 dark:text-amber-400 mt-1"
                                     x-text="'{{ __('المُسمَّع فعلياً:') }} ' + session('{{ $part }}')?.recited_range"></p>
 
                                 {{-- One surah opens directly; several fold into a list. --}}
-                                <template x-if="currentQuranDay()?.{{ $part }}.links.length === 1">
-                                    <a :href="currentQuranDay().{{ $part }}.links[0].url" target="_blank"
+                                <template x-if="dayOf('{{ $part }}')?.{{ $part }}.links.length === 1">
+                                    <a :href="dayOf('{{ $part }}').{{ $part }}.links[0].url" target="_blank"
                                         class="inline-flex items-center gap-1.5 mt-3 px-2.5 py-1 rounded-lg {{ $section['chip'] }} text-xs font-medium transition-colors">
                                         <flux:icon icon="book-open" class="size-3.5" />
-                                        <span x-text="'{{ __('افتح') }} ' + currentQuranDay().{{ $part }}.links[0].name"></span>
+                                        <span x-text="'{{ __('افتح') }} ' + dayOf('{{ $part }}').{{ $part }}.links[0].name"></span>
                                     </a>
                                 </template>
 
-                                <template x-if="currentQuranDay()?.{{ $part }}.links.length > 1">
+                                <template x-if="dayOf('{{ $part }}')?.{{ $part }}.links.length > 1">
                                     <div class="mt-3">
                                         <button type="button" @click="linksOpen = ! linksOpen"
                                             class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg {{ $section['chip'] }} text-xs font-medium transition-colors">
                                             <flux:icon icon="book-open" class="size-3.5" />
-                                            <span x-text="'{{ __('افتح الآيات في القرآن') }} (' + currentQuranDay().{{ $part }}.links.length + ')'"></span>
+                                            <span x-text="'{{ __('افتح الآيات في القرآن') }} (' + dayOf('{{ $part }}').{{ $part }}.links.length + ')'"></span>
                                             <flux:icon icon="chevron-down" class="size-3.5 transition-transform" x-bind:class="linksOpen ? 'rotate-180' : ''" />
                                         </button>
                                         <div x-show="linksOpen" x-collapse class="flex flex-wrap gap-2 mt-2">
-                                            <template x-for="link in currentQuranDay().{{ $part }}.links" :key="link.url">
+                                            <template x-for="link in dayOf('{{ $part }}').{{ $part }}.links" :key="link.url">
                                                 <a :href="link.url" target="_blank"
                                                     class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg {{ $section['chip'] }} text-xs font-medium transition-colors">
                                                     <flux:icon icon="book-open" class="size-3.5" />
@@ -1153,7 +1176,7 @@ new class extends Component {
                 </div>
             </flux:card>
         </div>
-    @endif
+    @endforeach
 
     {{-- Ode path enrollment bar (visible when teacher may manage ode paths, or a plan exists) --}}
     @if(($perms['can_manage_ode_paths'] ?? false) || $activeOdePlan)

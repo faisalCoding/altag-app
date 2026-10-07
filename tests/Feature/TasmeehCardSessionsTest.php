@@ -163,9 +163,11 @@ it('opens on the day graded on the date picked, wherever it was graded', functio
     [$first, $second, $third] = gradedBehind();
 
     // The oldest day still owed is the third; the one graded today is the second.
-    sessionCard('2026-07-08')->assertViewHas('defaultDayId', $second->id);
-    sessionCard('2026-07-06')->assertViewHas('defaultDayId', $first->id);
-    sessionCard('2026-07-07')->assertViewHas('defaultDayId', $third->id);
+    $opens = fn (string $date) => sessionCard($date)->viewData('defaultDayIds')['hifz'];
+
+    expect($opens('2026-07-08'))->toBe($second->id)
+        ->and($opens('2026-07-06'))->toBe($first->id)
+        ->and($opens('2026-07-07'))->toBe($third->id);
 });
 
 it('colours a student graded today on an earlier day of the plan as graded', function () {
@@ -182,4 +184,74 @@ it('colours a student graded today on an earlier day of the plan as graded', fun
     PlanDayAttempts::record($this->day, 'hifz', '2026-07-08', '2026-07-08', 3, null, $this->teacher->id);
 
     expect($colour())->toBe('emerald');
+});
+
+it('opens hifz and review each on its own day', function () {
+    $this->plan->update(['plan_type' => 'hifz_review']);
+    $this->day->update(['review_from_ayah_id' => 1, 'review_to_ayah_id' => 2]);
+    $later = StudentPlanDay::create([
+        'student_plan_id' => $this->plan->id, 'date' => '2026-07-08', 'day_name' => 'الأربعاء',
+        'from_ayah_id' => 3, 'to_ayah_id' => 4, 'review_from_ayah_id' => 3, 'review_to_ayah_id' => 4,
+    ]);
+
+    // Hifz is a day ahead — the first day's hifz recited yesterday — while review is still owed from the first.
+    PlanDayAttempts::record($this->day, 'hifz', '2026-07-07', '2026-07-08', 3, null, $this->teacher->id);
+
+    expect(sessionCard('2026-07-08')->viewData('defaultDayIds'))->toBe(['hifz' => $later->id, 'review' => $this->day->id]);
+});
+
+it('steps the grading date through the stage\'s working days, and moves it for the whole page', function () {
+    $card = sessionCard('2026-07-08');
+
+    // 8 July 2026 is a Wednesday; with no calendar set, Sunday to Thursday are working days.
+    expect($card->viewData('gradingDays'))->toContain('2026-07-07', '2026-07-08')
+        ->not->toContain('2026-07-10', '2026-07-11');
+
+    $card->set('pickedDate', '2026-07-06')
+        ->assertDispatched('grading-date-changed', date: '2026-07-06');
+
+    Livewire::test('teacher.⚡tasmeeh-manager')
+        ->assertDontSee('تاريخ التقييم (الإنجاز الفعلي)')
+        ->dispatch('grading-date-changed', date: '2026-07-06')
+        ->assertSet('gradedAtDate', '2026-07-06')
+        ->dispatch('grading-date-changed', date: '2026-07-20')
+        ->assertSet('gradedAtDate', '2026-07-08')
+        ->dispatch('grading-date-changed', date: 'yesterday')
+        ->assertSet('gradedAtDate', '2026-07-08');
+});
+
+it('shows every active plan at once, with no plan to pick', function () {
+    $second = StudentPlan::create([
+        'student_id' => $this->student->id, 'teacher_id' => $this->teacher->id, 'start_date' => '2026-07-07',
+        'days_count' => 1, 'active_days' => [0, 1, 2, 3, 4, 5, 6], 'status' => 'active', 'plan_type' => 'review',
+        'direction' => 'forward', 'is_approved' => true, 'created_by_role' => 'teacher',
+    ]);
+    StudentPlanDay::create([
+        'student_plan_id' => $second->id, 'date' => '2026-07-08', 'day_name' => 'الأربعاء',
+        'review_from_ayah_id' => 1, 'review_to_ayah_id' => 4,
+    ]);
+    $stopped = StudentPlan::create([
+        'student_id' => $this->student->id, 'teacher_id' => $this->teacher->id, 'start_date' => '2026-07-01',
+        'days_count' => 1, 'active_days' => [0, 1, 2, 3, 4, 5, 6], 'status' => 'inactive', 'plan_type' => 'hifz',
+        'direction' => 'forward', 'is_approved' => true, 'created_by_role' => 'teacher',
+    ]);
+    StudentPlanDay::create(['student_plan_id' => $stopped->id, 'date' => '2026-07-08', 'day_name' => 'الأربعاء', 'from_ayah_id' => 5, 'to_ayah_id' => 6]);
+
+    $card = Livewire::test('teacher.⚡student-tasmeeh-card', [
+        'student' => $this->student,
+        'sPlans' => StudentPlan::where('student_id', $this->student->id)->get(),
+        'activePlanId' => $this->plan->id,
+        'gradedAtDate' => '2026-07-08',
+    ]);
+
+    expect(collect($card->viewData('quranSections'))->map(fn ($section) => $section['plan']->id)->sort()->values()->all())
+        ->toBe(collect([$this->plan->id, $second->id])->sort()->values()->all());
+
+    $html = $card->html();
+
+    expect($html)->toContain('quran-plan-'.$this->plan->id)
+        ->toContain('quran-plan-'.$second->id)
+        ->not->toContain('quran-plan-'.$stopped->id)
+        ->not->toContain('اختر الخطة')
+        ->and(substr_count($html, 'اليوم السابق'))->toBe(1);
 });
