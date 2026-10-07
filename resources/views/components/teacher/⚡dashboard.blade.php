@@ -332,7 +332,7 @@ new class extends Component {
 
     @unless($activeTeacherCompetition)
     <!-- Quick CTA: Attendance -->
-    <a href="{{ route('teacher.attendance') }}" class="block w-full transition-transform hover:-translate-y-1">
+    <x-teacher.tab-link tab="attendance" :href="route('teacher.attendance')" class="block w-full transition-transform hover:-translate-y-1">
         <div
             class="bg-maroon hover:bg-burgundy dark:bg-red-secondary dark:hover:bg-maroon rounded-2xl p-6 shadow-md shadow-maroon/20 text-white flex flex-col sm:flex-row items-center sm:justify-between gap-4">
             <div class="flex items-center gap-4">
@@ -351,7 +351,7 @@ new class extends Component {
                 <flux:icon icon="arrow-left" class="size-4" />
             </span>
         </div>
-    </a>
+    </x-teacher.tab-link>
 
     <!-- Assigned Group Tasks -->
     <div class="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-100 dark:border-zinc-800 p-6 space-y-4 shadow-xs">
@@ -441,7 +441,7 @@ new class extends Component {
                         <flux:icon icon="check-badge" class="w-5 h-5 flex-shrink-0" />
                         <h3 class="font-bold text-sm">{{ __('التميز الحضوري') }}</h3>
                     </div>
-                    <a href="{{ route('teacher.discipline') }}"
+                    <a href="{{ route('teacher.discipline') }}" wire:navigate
                         class="text-xs text-accent dark:text-zinc-200 hover:underline">{{ __('التفاصيل') }}</a>
                 </div>
                 <div class="text-xs text-zinc-500">{{ __('فرسان الحضور خلال آخر 30 يوماً') }}</div>
@@ -472,7 +472,7 @@ new class extends Component {
                         <flux:icon icon="star" class="w-5 h-5 flex-shrink-0" />
                         <h3 class="font-bold text-sm">{{ __('التميز القرآني') }}</h3>
                     </div>
-                    <a href="{{ route('teacher.quranic-discipline') }}"
+                    <a href="{{ route('teacher.quranic-discipline') }}" wire:navigate
                         class="text-xs text-accent dark:text-zinc-200 hover:underline">{{ __('التفاصيل') }}</a>
                 </div>
                 <div class="text-xs text-zinc-500">{{ __('فرسان التسميع بتقدير ممتاز خلال آخر 30 يوماً') }}</div>
@@ -500,30 +500,30 @@ new class extends Component {
         {{-- Three abreast on a phone too: they repeat the bottom bar there, so they earn a row, not a screen. --}}
         <div class="grid grid-cols-3 gap-3 md:gap-6">
 
-            <a href="{{ route('teacher.tasmeeh') }}"
+            <x-teacher.tab-link tab="tasmeeh" :href="route('teacher.tasmeeh')"
                 class="group bg-white dark:bg-zinc-900 p-3 md:p-6 rounded-2xl border border-zinc-100 dark:border-zinc-800 shadow-xs hover:border-accent/50 hover:shadow-md transition-[transform,shadow,border-color] min-h-24 md:h-36 flex flex-col justify-center items-center text-center">
                 <flux:icon icon="book-open"
                     class="size-8 text-accent mb-2 group-hover:scale-110 transition-transform" />
                 <flux:heading size="md" class="text-sm md:text-base group-hover:text-accent">{{ __('التسميع اليومي') }}
                 </flux:heading>
                 <flux:subheading class="hidden md:block text-xs mt-1">{{ __('متابعة تسميع المهام اليومية للطلاب') }}</flux:subheading>
-            </a>
+            </x-teacher.tab-link>
 
-            <a href="{{ route('teacher.plan-creator') }}"
+            <x-teacher.tab-link tab="plan-creator" :href="route('teacher.plan-creator')"
                 class="group bg-white dark:bg-zinc-900 p-3 md:p-6 rounded-2xl border border-zinc-100 dark:border-zinc-800 shadow-xs hover:border-accent/50 hover:shadow-md transition-[transform,shadow,border-color] min-h-24 md:h-36 flex flex-col justify-center items-center text-center">
                 <flux:icon icon="calendar-days"
                     class="size-8 text-emerald-500 mb-2 group-hover:scale-110 transition-transform" />
                 <flux:heading size="md" class="text-sm md:text-base group-hover:text-accent">{{ __('منشئ الخطط') }}</flux:heading>
                 <flux:subheading class="hidden md:block text-xs mt-1">{{ __('إنشاء وتوزيع مسارات الحفظ والمراجعة') }}</flux:subheading>
-            </a>
+            </x-teacher.tab-link>
 
-            <a href="{{ route('teacher.students') }}"
+            <x-teacher.tab-link tab="students" :href="route('teacher.students')"
                 class="group bg-white dark:bg-zinc-900 p-3 md:p-6 rounded-2xl border border-zinc-100 dark:border-zinc-800 shadow-xs hover:border-accent/50 hover:shadow-md transition-[transform,shadow,border-color] min-h-24 md:h-36 flex flex-col justify-center items-center text-center">
                 <flux:icon icon="users" class="size-8 text-amber-500 mb-2 group-hover:scale-110 transition-transform" />
                 <flux:heading size="md" class="text-sm md:text-base group-hover:text-accent">{{ __('طلابي') }}</flux:heading>
                 <flux:subheading class="hidden md:block text-xs mt-1">{{ __('إدارة قائمة الطلاب ( ' . $studentsCount . ' طالب )') }}
                 </flux:subheading>
-            </a>
+            </x-teacher.tab-link>
 
         </div>
     </div>

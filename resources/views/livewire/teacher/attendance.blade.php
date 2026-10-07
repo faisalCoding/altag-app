@@ -106,7 +106,7 @@ Livewire fires only on: markStatus | updateStatus | markAllPresent | loadStudent
             <div>
                 <flux:heading size="xl" class="font-bold text-zinc-900 dark:text-white">سجل الحضور والغياب</flux:heading>
                 <flux:subheading class="text-zinc-400">
-                    <a href="{{ route('teacher.dashboard') }}" wire:navigate class="hover:text-maroon">الرئيسية</a>
+                    <x-teacher.tab-link tab="dashboard" :href="route('teacher.dashboard')" class="hover:text-maroon">الرئيسية</x-teacher.tab-link>
                     <span class="mx-1">/</span>
                     <span>سجل الحضور والغياب</span>
                 </flux:subheading>
