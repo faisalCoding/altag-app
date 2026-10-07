@@ -1,7 +1,9 @@
 <?php
 
+use App\Models\Ayah;
 use App\Models\Circle;
 use App\Models\Stage;
+use App\Models\Surah;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -75,4 +77,29 @@ function openTurnBooking(Circle $circle, bool $openNow = true): Stage
     ]);
 
     return $stage;
+}
+
+/**
+ * A plan day's portion, for both parts: al-Fatihah's first verse, created
+ * the first time it is asked for. A day with no portion for a part owes
+ * nothing for it, so a test that wants a day owed gives it one.
+ *
+ * @return array{from_ayah_id: int, to_ayah_id: int, review_from_ayah_id: int, review_to_ayah_id: int}
+ */
+function planDayPortion(): array
+{
+    Surah::firstOrCreate(['id' => 1], [
+        'number' => 1, 'name_arabic' => 'الفاتحة', 'name_simple' => 'Al-Fatihah',
+        'revelation_place' => 'makkah', 'revelation_order' => 1, 'verses_count' => 7,
+        'start_page' => 1, 'end_page' => 1,
+    ]);
+
+    $ayah = Ayah::firstOrCreate(['id' => 1], [
+        'surah_id' => 1, 'verse_number' => 1, 'page_number' => 1,
+        'line_number_start' => 1, 'line_number_end' => 1, 'verse_key' => '1:1',
+        'juz_number' => 1, 'hizb_number' => 1, 'rub_number' => 1, 'ruku_number' => 1,
+        'manzil_number' => 1, 'text_uthmani' => 'آية',
+    ])->id;
+
+    return ['from_ayah_id' => $ayah, 'to_ayah_id' => $ayah, 'review_from_ayah_id' => $ayah, 'review_to_ayah_id' => $ayah];
 }

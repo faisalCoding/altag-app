@@ -752,11 +752,15 @@ new class extends Component {
         // Lightweight summary of the tracks this student currently belongs to,
         // only when the teacher may manage tracks (keeps the default render lean).
         $currentTracks = collect();
+        // Whether a competition running for the student's circle has tracks to
+        // place them in: without one, the bar offered a choice with nothing in it.
+        $tracksOffered = false;
         if (! empty($perms['can_manage_gamification_tracks'])) {
             $currentTracks = GamificationTrack::query()
                 ->whereHas('students', fn ($q) => $q->where('users.id', $this->student->id))
                 ->with('leaderboard:id,title')
                 ->get(['id', 'name', 'leaderboard_id']);
+            $tracksOffered = GamificationTrack::whereIn('leaderboard_id', GamificationService::getActiveLeaderboards($this->student)->pluck('id'))->exists();
         }
 
         // The calendar under the grading date shows the page's date.
@@ -792,6 +796,7 @@ new class extends Component {
             'allHadiths' => $allHadiths,
             'perms' => $perms,
             'currentTracks' => $currentTracks,
+            'tracksOffered' => $tracksOffered,
             'examBox' => $this->examBox(),
             'peerResult' => $this->peerResult(),
         ];
@@ -1687,8 +1692,8 @@ new class extends Component {
         </flux:card>
     @endif
 
-    {{-- Gamification track enrollment bar (visible when teacher may manage tracks) --}}
-    @if($perms['can_manage_gamification_tracks'] ?? false)
+    {{-- Gamification track enrollment bar: when the teacher may manage tracks, and there is a track to be in or one the student is in. --}}
+    @if(($perms['can_manage_gamification_tracks'] ?? false) && ($tracksOffered || $currentTracks->isNotEmpty()))
         <div class="mt-4 flex items-center justify-between gap-3 p-3 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-sm">
             <div class="flex items-center gap-2 min-w-0">
                 <div class="p-2 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-500 shrink-0">

@@ -141,6 +141,21 @@ class StudentPlanDay extends Model
     }
 
     /**
+     * Days whose part is still owed: it has a portion for the part, and no
+     * recitation of it was graded — «لم يسمع» (0) still owes it. A day with no
+     * portion for the part owes nothing for it: a review plan's hifz, or the
+     * review left on after the hifz ran out, was showing as an overdue task
+     * with «لا يوجد نص محدد».
+     *
+     * @param  Builder<StudentPlanDay>  $query
+     */
+    public function scopePending(Builder $query, string $part): void
+    {
+        $query->whereNotNull($part === 'review' ? 'review_from_ayah_id' : 'from_ayah_id')
+            ->where(fn ($q) => $q->whereNull("{$part}_achievement")->orWhere("{$part}_achievement", 0));
+    }
+
+    /**
      * The day points are dated by: when a recited part was graded, else when
      * anything was. A «لم يسمع» earns nothing, so it never dates the points.
      */

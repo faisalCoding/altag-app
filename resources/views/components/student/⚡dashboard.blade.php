@@ -63,8 +63,8 @@ new class extends Component {
             foreach (['hifz', 'review'] as $part) {
                 $day = StudentPlanDay::with(['fromAyah.surah', 'toAyah.surah', 'reviewFromAyah.surah', 'reviewToAyah.surah'])
                     ->where('student_plan_id', $plan->id)
-                    // A «لم يسمع» (0) was not recited, so the part is still pending.
-                    ->where(fn ($q) => $q->whereNull($part.'_achievement')->orWhere($part.'_achievement', 0))
+                    // Owed: a portion for the part, not yet recited («لم يسمع» still owes it).
+                    ->pending($part)
                     ->orderBy('date', 'asc')
                     ->first();
 

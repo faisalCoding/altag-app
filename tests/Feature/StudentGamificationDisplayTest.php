@@ -343,6 +343,7 @@ function makeDisplayPendingPlan(Student $student): void
         'student_plan_id' => $plan->id,
         'date' => '2026-06-08',
         'day_name' => 'الاثنين',
+        ...planDayPortion(),
     ]);
 }
 

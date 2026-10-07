@@ -578,6 +578,7 @@ it('names the mission card by its real day instead of always «غداً»', func
         'student_plan_id' => $plan->id,
         'date' => now()->addDays($offsetDays)->format('Y-m-d'),
         'day_name' => 'الأحد',
+        ...planDayPortion(),
     ]);
 
     $component = Livewire::test('student.gamification-dashboard')->assertSee($heading);
@@ -591,6 +592,37 @@ it('names the mission card by its real day instead of always «غداً»', func
     'tomorrow' => [1, 'المهمة المطلوبة غداً'],
     'a later day' => [5, 'المهمة القادمة'],
 ]);
+
+/**
+ * A review plan has no hifz: its days owe none, and showed an overdue hifz
+ * task with «لا يوجد نص محدد».
+ */
+it('gives a review plan no hifz task', function () {
+    $plan = StudentPlan::create([
+        'student_id' => $this->student->id,
+        'start_date' => now()->subDays(11)->format('Y-m-d'),
+        'days_count' => 1,
+        'active_days' => [0, 1, 2, 3, 4, 5, 6],
+        'status' => 'active',
+        'plan_type' => 'review',
+        'is_approved' => 1,
+        'created_by_role' => 'teacher',
+    ]);
+    StudentPlanDay::create([
+        'student_plan_id' => $plan->id,
+        'date' => now()->format('Y-m-d'),
+        'day_name' => 'الاثنين',
+        'review_from_ayah_id' => planDayPortion()['review_from_ayah_id'],
+        'review_to_ayah_id' => planDayPortion()['review_to_ayah_id'],
+    ]);
+
+    $component = Livewire::test('student.gamification-dashboard')
+        ->assertSee('مهمة اليوم')
+        ->assertDontSee('لا يوجد نص محدد')
+        ->assertDontSee('مهمة متأخرة لم تُسمَّع بعد');
+
+    expect(collect($component->viewData('pendingMissions'))->pluck('pendingPart')->all())->toBe(['review']);
+});
 
 it('reads the mission day in Riyadh, where it is already the next day after 21:00 UTC', function () {
     // 22:00 UTC on 06-08 is 01:00 on 06-09 in Riyadh.
@@ -606,7 +638,7 @@ it('reads the mission day in Riyadh, where it is already the next day after 21:0
         'is_approved' => 1,
         'created_by_role' => 'teacher',
     ]);
-    StudentPlanDay::create(['student_plan_id' => $plan->id, 'date' => '2026-06-09', 'day_name' => 'الثلاثاء']);
+    StudentPlanDay::create(['student_plan_id' => $plan->id, 'date' => '2026-06-09', 'day_name' => 'الثلاثاء', ...planDayPortion()]);
 
     Livewire::test('student.gamification-dashboard')
         ->assertSee('مهمة اليوم')

@@ -2271,6 +2271,7 @@ it('shows the next hifz and the next review independently on the gamification da
             'day_name' => 'الأحد',
             'hifz_achievement' => $hifz,
             'review_achievement' => $review,
+            ...planDayPortion(),
         ]);
     }
 

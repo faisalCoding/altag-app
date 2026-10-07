@@ -104,3 +104,18 @@ it('falls back to the review for the hero card once hifz is finished', function 
     expect($component->viewData('pendingHifzMission'))->toBeNull()
         ->and($component->viewData('pendingReviewMission')->pendingPart)->toBe('review');
 });
+
+/**
+ * A review plan has no hifz at all, and a plan's review may run on after its
+ * hifz ran out: such a day owes no hifz. It was showing as an overdue task
+ * with «لا يوجد نص محدد».
+ */
+it('owes no part on a day with no portion for it', function () {
+    StudentPlanDay::where('student_plan_id', $this->plan->id)->update(['review_achievement' => 3]);
+    StudentPlanDay::where('student_plan_id', $this->plan->id)->whereDate('date', '2026-07-03')
+        ->update(['from_ayah_id' => null, 'to_ayah_id' => null]);
+
+    $missions = Livewire::test('student.⚡dashboard')->viewData('pendingMissions');
+
+    expect($missions)->toBeEmpty();
+});

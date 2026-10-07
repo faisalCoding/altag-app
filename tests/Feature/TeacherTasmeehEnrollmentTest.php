@@ -68,15 +68,38 @@ function tasmeehCard($student)
     ]);
 }
 
-it('shows the ode, hadith and track enrollment bars for a permitted teacher even without any plan', function () {
+it('shows the ode and hadith enrollment bars for a permitted teacher even without any plan', function () {
     $this->actingAs($this->teacher, 'teacher');
 
     tasmeehCard($this->student)
         ->assertSee('مسار المنظومة')
         ->assertSee('مسار الحديث')
-        ->assertSee('مسارات التلعيب')
         ->assertSee('غير مُسكَّن في مسار منظومة')
         ->assertSee('غير مُسكَّن في مسار حديث');
+});
+
+/**
+ * The bar showed to every teacher who may place students in tracks, though
+ * the competition running for the circle had none to place them in.
+ */
+it('offers the track bar only when a competition running for the circle has tracks', function () {
+    $this->actingAs($this->teacher, 'teacher');
+
+    $leaderboard = Leaderboard::create([
+        'title' => 'مسابقة بلا مسارات',
+        'circle_id' => $this->circle->id,
+        'supervisor_id' => null,
+        'competition_type' => 'gamification',
+        'is_active' => true,
+        'start_date' => now()->subDay()->toDateString(),
+        'end_date' => null,
+    ]);
+
+    tasmeehCard($this->student)->assertDontSee('غير مُسكَّن في أي مسار تلعيب');
+
+    GamificationTrack::create(['leaderboard_id' => $leaderboard->id, 'name' => 'مسار متقدم', 'sort_order' => 1]);
+
+    tasmeehCard($this->student)->assertSee('غير مُسكَّن في أي مسار تلعيب');
 });
 
 it('hides the enrollment bars for a teacher lacking every management permission', function () {
