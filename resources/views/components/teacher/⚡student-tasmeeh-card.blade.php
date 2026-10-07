@@ -998,6 +998,15 @@ new class extends Component {
                 this.syncing = part;
                 this.$wire.saveAchievement(day.id, part, v).finally(() => this.syncing = null);
             },
+            {{-- The grade's colours, as on its button above: ممتاز green, جيد blue, مقبول amber, لم يسمع red. --}}
+            gradeTone(grade) {
+                return {
+                    3: { row: 'border-green-200 bg-green-50/70 dark:border-green-500/30 dark:bg-green-500/10', badge: 'bg-green-600 text-white' },
+                    2: { row: 'border-blue-200 bg-blue-50/70 dark:border-blue-500/30 dark:bg-blue-500/10', badge: 'bg-blue-600 text-white' },
+                    1: { row: 'border-amber-200 bg-amber-50/70 dark:border-amber-500/30 dark:bg-amber-500/10', badge: 'bg-amber-500 text-white' },
+                    0: { row: 'border-red-200 bg-red-50/70 dark:border-red-500/30 dark:bg-red-500/10', badge: 'bg-red-600 text-white' },
+                }[grade] ?? { row: 'border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800/50', badge: 'bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200' };
+            },
             gradeLabel(grade) {
                 return { 0: '{{ __('لم يسمع') }}', 1: '{{ __('مقبول') }}', 2: '{{ __('جيد') }}', 3: '{{ __('ممتاز') }}' }[grade] ?? '{{ __('لم يقيَّم') }}';
             },
@@ -1123,13 +1132,17 @@ new class extends Component {
 
                                 {{-- The part's other sessions: a «لم يسمع» given on an earlier day stays there. --}}
                                 <template x-if="otherSessions('{{ $part }}').length">
-                                    <div class="mt-3 space-y-1">
-                                        <div class="text-xs font-semibold text-zinc-500 dark:text-zinc-400">{{ __('جلسات أخرى') }}</div>
+                                    <div class="mt-4 space-y-2">
+                                        <div class="text-sm font-semibold text-zinc-600 dark:text-zinc-300">{{ __('تقييمات هذا الورد في أيام أخرى') }}</div>
                                         <template x-for="other in otherSessions('{{ $part }}')" :key="other.date">
-                                            <div class="flex flex-wrap items-baseline gap-x-2 text-xs text-zinc-600 dark:text-zinc-300">
-                                                <span x-text="sessionDay(other.date)"></span>
-                                                <span class="font-bold" x-text="gradeLabel(other.grade)"></span>
-                                                <span x-show="other.recited_range" class="text-amber-700 dark:text-amber-400" x-text="other.recited_range"></span>
+                                            <div class="flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5" :class="gradeTone(other.grade).row">
+                                                <div class="min-w-0">
+                                                    <div class="text-sm md:text-base font-medium text-zinc-800 dark:text-zinc-100" x-text="sessionDay(other.date)"></div>
+                                                    <div x-show="other.recited_range" class="mt-0.5 text-xs md:text-sm text-zinc-600 dark:text-zinc-300"
+                                                        x-text="'{{ __('المُسمَّع فعلياً:') }} ' + other.recited_range"></div>
+                                                </div>
+                                                <span class="shrink-0 rounded-lg px-3 py-1 text-sm md:text-base font-bold" :class="gradeTone(other.grade).badge"
+                                                    x-text="gradeLabel(other.grade)"></span>
                                             </div>
                                         </template>
                                     </div>
