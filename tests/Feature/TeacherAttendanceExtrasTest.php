@@ -103,16 +103,21 @@ it('records who covered for an absent teacher', function () {
     expect($line->new_substitute_id)->toBe($this->cover->id);
 });
 
-it('refuses a substitute outside the roll call, or the teacher themselves', function () {
-    $stranger = Teacher::factory()->create();
-    $stranger->circles()->attach(Circle::factory()->create(['stage_id' => Stage::factory()->create()->id])->id);
+it('takes a substitute from any stage, but never the teacher themselves or one awaiting approval', function () {
+    $otherStage = Teacher::factory()->create();
+    $otherStage->circles()->attach(Circle::factory()->create(['stage_id' => Stage::factory()->create()->id])->id);
+    $pending = Teacher::factory()->create(['is_approved' => false]);
 
-    Livewire::test(Screen::class)
+    $page = Livewire::test(Screen::class)
         ->call('mark', $this->teacher->id, 'absent')
-        ->call('saveNote', $this->teacher->id, '', null, $stranger->id)
-        ->call('saveNote', $this->teacher->id, '', null, $this->teacher->id);
+        ->call('saveNote', $this->teacher->id, '', null, $this->teacher->id)
+        ->call('saveNote', $this->teacher->id, '', null, $pending->id);
 
     expect(TeacherAttendance::first()->substitute_teacher_id)->toBeNull();
+
+    $page->call('saveNote', $this->teacher->id, '', null, $otherStage->id);
+
+    expect(TeacherAttendance::first()->substitute_teacher_id)->toBe($otherStage->id);
 });
 
 it('drops the substitute once the teacher is no longer away', function () {

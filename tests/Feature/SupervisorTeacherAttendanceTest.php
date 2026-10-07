@@ -31,9 +31,11 @@ it('lists only the teachers of the supervisor own stages', function () {
     $outsider = Teacher::factory()->create(['name' => 'أستاذ بعيد']);
     $outsider->circles()->attach(Circle::factory()->create(['stage_id' => Stage::factory()->create()->id])->id);
 
+    // By the roll itself: every teacher of the academy is offered as a
+    // substitute, so the other stage's name is on the page all the same.
     Livewire::test(Screen::class)
         ->assertSee('أستاذ أحمد')
-        ->assertDontSee('أستاذ بعيد');
+        ->assertSet('teacherOrder', [$this->teacher->id]);
 });
 
 it('records a status for the chosen day', function () {
@@ -252,10 +254,10 @@ it('keeps a teacher who moved stages on the days taken under this one', function
 
     $this->teacher->circles()->sync([Circle::factory()->create(['stage_id' => Stage::factory()->create()->id])->id]);
 
-    $page = Livewire::test(Screen::class)->assertDontSee('أستاذ أحمد');
+    $page = Livewire::test(Screen::class)->assertSet('teacherOrder', []);
 
     $page->set('date', '2026-09-10')
-        ->assertSee('أستاذ أحمد')
+        ->assertSet('teacherOrder', [$this->teacher->id])
         ->call('mark', $this->teacher->id, 'present');
 
     $record = TeacherAttendance::first();
