@@ -7,7 +7,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
  * Two students of a circle reciting to each other on a day — or, when not
- * mutual, the first reciting to the second. See the peer_pairs migration.
+ * mutual, the first reciting to the second. See the peer_pairs migrations.
+ *
+ * A reciting place keeps the plan day its portion comes from: grading the
+ * recitation grades that day's review session, the student's own grade.
  */
 class PeerPair extends Model
 {
@@ -21,13 +24,13 @@ class PeerPair extends Model
         'first_id',
         'first_from_ayah_id',
         'first_to_ayah_id',
+        'first_day_id',
         'first_mistakes',
-        'first_ready',
         'second_id',
         'second_from_ayah_id',
         'second_to_ayah_id',
+        'second_day_id',
         'second_mistakes',
-        'second_ready',
         'created_by',
     ];
 
@@ -36,8 +39,6 @@ class PeerPair extends Model
         'position' => 'integer',
         'first_mistakes' => 'integer',
         'second_mistakes' => 'integer',
-        'first_ready' => 'boolean',
-        'second_ready' => 'boolean',
     ];
 
     /** @return BelongsTo<Circle, $this> */
@@ -56,6 +57,18 @@ class PeerPair extends Model
     public function second(): BelongsTo
     {
         return $this->belongsTo(Student::class, 'second_id');
+    }
+
+    /** @return BelongsTo<StudentPlanDay, $this> */
+    public function firstDay(): BelongsTo
+    {
+        return $this->belongsTo(StudentPlanDay::class, 'first_day_id');
+    }
+
+    /** @return BelongsTo<StudentPlanDay, $this> */
+    public function secondDay(): BelongsTo
+    {
+        return $this->belongsTo(StudentPlanDay::class, 'second_day_id');
     }
 
     /** @return BelongsTo<Ayah, $this> */

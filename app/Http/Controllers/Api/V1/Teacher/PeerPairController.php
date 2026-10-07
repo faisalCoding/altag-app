@@ -51,7 +51,10 @@ class PeerPairController extends Controller
         return $this->present(PeerPairing::swap($circle, $date, $validated['student_id'], $validated['with_id']));
     }
 
-    /** How one student's recitation went. */
+    /**
+     * The mistakes counted in one student's recitation. Its grade goes with
+     * the app's other grades, as a change to the review's session.
+     */
     public function record(Request $request, PeerPair $pair): JsonResponse
     {
         if (! $request->user()->circles()->whereKey($pair->circle_id)->exists()) {
@@ -61,10 +64,9 @@ class PeerPairController extends Controller
         $validated = $request->validate([
             'place' => ['required', Rule::in(PeerPair::PLACES)],
             'mistakes' => ['present', 'nullable', 'integer', 'between:0,99'],
-            'ready' => ['present', 'nullable', 'boolean'],
         ]);
 
-        $pair = PeerPairing::record($pair, $validated['place'], $validated['mistakes'], $validated['ready']);
+        $pair = PeerPairing::recordMistakes($pair, $validated['place'], $validated['mistakes']);
 
         return response()->json(['data' => ['pair' => new SyncPeerPairResource($pair)]]);
     }

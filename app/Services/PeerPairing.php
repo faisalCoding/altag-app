@@ -4,9 +4,12 @@ namespace App\Services;
 
 use App\Models\Circle;
 use App\Models\PeerPair;
+use App\Models\PlanDayAttempt;
 use App\Models\Student;
 use App\Models\StudentPlanDay;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -16,7 +19,9 @@ use Illuminate\Support\Facades\DB;
  * A pair is mutual when both have a review the other holds; when only one
  * does, they recite and the other listens. The pairs are kept, so every
  * teacher of the circle — on the site or the app — sees the same ones, swaps
- * students between them, and records how each recitation went.
+ * students between them, counts each recitation's mistakes, and grades it:
+ * the grade is the student's own for that review, written to the plan day's
+ * session of the pair's date as the tasmeeh page writes it.
  */
 class PeerPairing
 {
@@ -45,9 +50,11 @@ class PeerPairing
                     'position' => $position + 1,
                     'mutual' => $mutual,
                     'first_id' => $first['student']->id,
+                    'first_day_id' => $first['day_id'],
                     'first_from_ayah_id' => $first['portion'][0] ?? null,
                     'first_to_ayah_id' => $first['portion'][1] ?? null,
                     'second_id' => $second['student']->id,
+                    'second_day_id' => $mutual ? $second['day_id'] : null,
                     'second_from_ayah_id' => $mutual ? ($second['portion'][0] ?? null) : null,
                     'second_to_ayah_id' => $mutual ? ($second['portion'][1] ?? null) : null,
                     'created_by' => $createdBy,
@@ -104,19 +111,87 @@ class PeerPairing
         return self::forDay($circle->id, $date);
     }
 
-    /**
-     * Record how a student's recitation went: the mistakes counted, and
-     * whether they are ready for the teacher. A listener recites nothing.
-     */
-    public static function record(PeerPair $pair, string $place, ?int $mistakes, ?bool $ready): PeerPair
+    /** The mistakes counted in a student's recitation. A listener recites nothing. */
+    public static function recordMistakes(PeerPair $pair, string $place, ?int $mistakes): PeerPair
     {
-        if (! $pair->recites($place)) {
-            return $pair;
+        if ($pair->recites($place)) {
+            $pair->update(["{$place}_mistakes" => $mistakes]);
         }
 
-        $pair->update(["{$place}_mistakes" => $mistakes, "{$place}_ready" => $ready]);
-
         return $pair;
+    }
+
+    /**
+     * Grade a student's recitation: their own grade for the review, written to
+     * the plan day's session of the pair's date — as the tasmeeh page writes
+     * it, points and all. A range recorded for that session stays. False when
+     * the place recites no plan day, or the day is being written elsewhere.
+     */
+    public static function grade(PeerPair $pair, string $place, ?int $grade, int $teacherId): bool
+    {
+        $dayId = $pair->{"{$place}_day_id"};
+
+        if (! $pair->recites($place) || ! $dayId) {
+            return false;
+        }
+
+        $today = TeacherSyncSnapshot::today();
+        $date = min($pair->date, $today);
+
+        try {
+            return Cache::lock(TasmeehChangeService::dayLockKey($dayId), 10)->block(5, function () use ($dayId, $date, $today, $grade, $teacherId) {
+                $day = StudentPlanDay::with('plan.student')->find($dayId);
+
+                if (! $day) {
+                    return false;
+                }
+
+                PlanDayAttempts::adopt($day, 'review');
+                $attempt = PlanDayAttempts::on($day, 'review', $date);
+                $recited = $attempt ? TasmeehSnapshot::withoutScheduled($day, 'review', $attempt->recitedAyahIds()) : null;
+
+                PlanDayAttempts::record($day, 'review', $date, $today, $grade, $recited, $teacherId, $attempt);
+
+                return true;
+            });
+        } catch (LockTimeoutException) {
+            return false;
+        }
+    }
+
+    /**
+     * The grade each reciting place holds for its review on the pair's date,
+     * keyed "pair id:place".
+     *
+     * @param  Collection<int, PeerPair>  $pairs
+     * @return array<string, ?int>
+     */
+    public static function grades(Collection $pairs): array
+    {
+        $dayIds = $pairs->flatMap(fn (PeerPair $pair) => [$pair->first_day_id, $pair->second_day_id])->filter()->unique();
+
+        if ($dayIds->isEmpty()) {
+            return [];
+        }
+
+        $sessions = PlanDayAttempt::whereIn('student_plan_day_id', $dayIds)
+            ->where('part', 'review')
+            ->get()
+            ->groupBy(fn (PlanDayAttempt $attempt) => $attempt->student_plan_day_id.'|'.substr((string) $attempt->recited_on, 0, 10));
+
+        $grades = [];
+
+        foreach ($pairs as $pair) {
+            foreach (PeerPair::PLACES as $place) {
+                $dayId = $pair->{"{$place}_day_id"};
+
+                if ($dayId && $pair->recites($place)) {
+                    $grades["{$pair->id}:{$place}"] = $sessions->get("{$dayId}|{$pair->date}")?->first()?->grade;
+                }
+            }
+        }
+
+        return $grades;
     }
 
     /**
@@ -173,7 +248,7 @@ class PeerPairing
      * the review they have pending — the oldest of their active plans not
      * recited yet. Null with nothing memorised on record to pair by.
      *
-     * @return array{student: Student, portion: array{0: int, 1: int}|null, min: int, max: int}|null
+     * @return array{student: Student, day_id: ?int, portion: array{0: int, 1: int}|null, min: int, max: int}|null
      */
     public static function profile(Student $student): ?array
     {
@@ -198,6 +273,7 @@ class PeerPairing
 
         return [
             'student' => $student,
+            'day_id' => $day?->id,
             'portion' => $portion,
             // What a listener can follow: their memorisation, and the review
             // they are going over themselves.
@@ -282,40 +358,45 @@ class PeerPairing
     /**
      * A student newly placed in a pair, with the review they have pending.
      *
-     * @return array{id: int, from: ?int, to: ?int, mistakes: null, ready: null}
+     * @return array{id: int, day: ?int, from: ?int, to: ?int, mistakes: null}
      */
     private static function freshPlace(Student $student): array
     {
-        $portion = self::profile($student)['portion'] ?? null;
+        $profile = self::profile($student);
+        $portion = $profile['portion'] ?? null;
 
-        return ['id' => $student->id, 'from' => $portion[0] ?? null, 'to' => $portion[1] ?? null, 'mistakes' => null, 'ready' => null];
+        return ['id' => $student->id, 'day' => $profile['day_id'] ?? null, 'from' => $portion[0] ?? null, 'to' => $portion[1] ?? null, 'mistakes' => null];
     }
 
     /**
-     * @return array{id: int, from: ?int, to: ?int, mistakes: ?int, ready: ?bool}
+     * A student leaving a place takes their portion along; the mistakes
+     * counted stay behind with the place. A grade given is the student's own
+     * and stays on their plan day.
+     *
+     * @return array{id: int, day: ?int, from: ?int, to: ?int, mistakes: null}
      */
     private static function takePlace(PeerPair $pair, string $place): array
     {
         return [
             'id' => $pair->{"{$place}_id"},
+            'day' => $pair->{"{$place}_day_id"},
             'from' => $pair->{"{$place}_from_ayah_id"},
             'to' => $pair->{"{$place}_to_ayah_id"},
             'mistakes' => null,
-            'ready' => null,
         ];
     }
 
     /**
-     * @param  array{id: int, from: ?int, to: ?int, mistakes: ?int, ready: ?bool}  $student
+     * @param  array{id: int, day: ?int, from: ?int, to: ?int, mistakes: ?int}  $student
      */
     private static function putPlace(PeerPair $pair, string $place, array $student): void
     {
         $pair->fill([
             "{$place}_id" => $student['id'],
+            "{$place}_day_id" => $student['day'],
             "{$place}_from_ayah_id" => $student['from'],
             "{$place}_to_ayah_id" => $student['to'],
             "{$place}_mistakes" => $student['mistakes'],
-            "{$place}_ready" => $student['ready'],
         ]);
     }
 

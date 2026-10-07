@@ -4,6 +4,7 @@ use App\Models\Attendance;
 use App\Models\Ayah;
 use App\Models\Circle;
 use App\Models\PeerPair;
+use App\Models\PlanDayAttempt;
 use App\Models\Student;
 use App\Models\StudentPlan;
 use App\Models\StudentPlanDay;
@@ -127,7 +128,7 @@ it('never calls a pair mutual when one of them has nothing to recite', function 
 
 it('replaces the day\'s pairs and what was recorded on them when made again', function () {
     $first = PeerPairing::generate($this->circle, '2026-07-08', $this->teacher->id)->first();
-    PeerPairing::record($first, 'first', 2, true);
+    PeerPairing::recordMistakes($first, 'first', 2);
 
     PeerPairing::generate($this->circle, '2026-07-08', $this->teacher->id);
 
@@ -174,16 +175,42 @@ it('pairs two students left out, the one with a review reciting', function () {
     expect(pairNames())->toBe([['سعد', 'عمر', false]]);
 });
 
-it('records a recitation\'s outcome, but none for a listener', function () {
+it('counts a recitation\'s mistakes, but none for a listener', function () {
     PeerPairing::generate($this->circle, '2026-07-08', $this->teacher->id);
     $oneWay = PeerPair::where('mutual', false)->sole();
 
-    PeerPairing::record($oneWay, 'first', 3, false);
-    PeerPairing::record($oneWay, 'second', 1, true);
+    PeerPairing::recordMistakes($oneWay, 'first', 3);
+    PeerPairing::recordMistakes($oneWay, 'second', 1);
 
     $oneWay->refresh();
-    expect([$oneWay->first_mistakes, $oneWay->first_ready])->toBe([3, false])
-        ->and([$oneWay->second_mistakes, $oneWay->second_ready])->toBe([null, null]);
+    expect($oneWay->first_mistakes)->toBe(3)
+        ->and($oneWay->second_mistakes)->toBeNull();
+});
+
+it('grades a recitation as the student\'s own grade for that review, on the pair\'s day', function () {
+    PeerPairing::generate($this->circle, '2026-07-08', $this->teacher->id);
+    $mutual = PeerPair::where('mutual', true)->sole();
+    $reviewDay = StudentPlanDay::find($mutual->first_day_id);
+
+    expect($reviewDay->review_from_ayah_id)->toBe(1);
+
+    expect(PeerPairing::grade($mutual, 'first', 3, $this->teacher->id))->toBeTrue();
+
+    $reviewDay->refresh();
+    expect($reviewDay->review_achievement)->toBe(3)
+        ->and($reviewDay->review_graded_at->toDateTimeString())->toBe('2026-07-08 10:00:00')
+        ->and(PlanDayAttempt::where('student_plan_day_id', $reviewDay->id)->where('part', 'review')->pluck('grade', 'recited_on')->all())
+        ->toBe(['2026-07-08' => 3])
+        ->and(PeerPairing::grades(PeerPairing::forDay($this->circle->id, '2026-07-08')))
+        ->toMatchArray(["{$mutual->id}:first" => 3, "{$mutual->id}:second" => null]);
+});
+
+it('has no grade for a listener, or a place with no review day', function () {
+    PeerPairing::generate($this->circle, '2026-07-08', $this->teacher->id);
+    $oneWay = PeerPair::where('mutual', false)->sole();
+
+    expect(PeerPairing::grade($oneWay, 'second', 3, $this->teacher->id))->toBeFalse()
+        ->and(PeerPairing::grades(collect([$oneWay])))->not->toHaveKey("{$oneWay->id}:second");
 });
 
 // ── The site's page ─────────────────────────────────────────────────────────
@@ -200,11 +227,19 @@ it('lets the teacher make the pairs, record and swap from the site', function ()
     $mutual = PeerPair::where('mutual', true)->sole();
 
     $page->call('adjustMistakes', $mutual->id, 'first', 1)
-        ->call('adjustMistakes', $mutual->id, 'first', 1)
-        ->call('toggleReady', $mutual->id, 'second');
+        ->call('adjustMistakes', $mutual->id, 'first', 1);
 
-    expect($mutual->fresh()->first_mistakes)->toBe(2)
-        ->and($mutual->fresh()->second_ready)->toBeTrue();
+    expect($mutual->fresh()->first_mistakes)->toBe(2);
+
+    // The grade square cycles as the app's: ممتاز, جيد, مقبول, لم يسمع, then empty.
+    $reviewDay = StudentPlanDay::find($mutual->second_day_id);
+
+    foreach ([3, 2, 1, 0, null] as $expected) {
+        $page->call('cycleGrade', $mutual->id, 'second');
+        expect($reviewDay->fresh()->review_achievement)->toBe($expected);
+    }
+
+    $page->call('cycleGrade', $mutual->id, 'first')->assertSee('ممتاز');
 
     $page->call('pick', $this->badr->id)->assertSet('swapping', $this->badr->id)
         ->call('pick', $this->saad->id)->assertSet('swapping', null);
@@ -212,9 +247,9 @@ it('lets the teacher make the pairs, record and swap from the site', function ()
     expect(PeerPair::where('first_id', $this->badr->id)->exists())->toBeTrue();
 });
 
-it('shows the outcome as a hint on the tasmeeh card', function () {
+it('shows the mistakes counted as a hint on the tasmeeh card', function () {
     $pair = PeerPairing::generate($this->circle, '2026-07-08', $this->teacher->id)->first();
-    PeerPairing::record($pair, 'first', 2, true);
+    PeerPairing::recordMistakes($pair, 'first', 2);
 
     $this->actingAs($this->teacher, 'teacher');
 
@@ -223,7 +258,7 @@ it('shows the outcome as a hint on the tasmeeh card', function () {
         'sPlans' => StudentPlan::where('student_id', $this->ahmad->id)->get(),
         'activePlanId' => StudentPlan::where('student_id', $this->ahmad->id)->value('id'),
         'gradedAtDate' => '2026-07-08',
-    ])->assertSee('التسميع المتبادل:')->assertSee('2 أخطاء')->assertSee('جاهز للمعلم');
+    ])->assertSee('التسميع المتبادل:')->assertSee('2 أخطاء')->assertDontSee('جاهز للمعلم');
 });
 
 // ── The app ─────────────────────────────────────────────────────────────────
@@ -240,10 +275,11 @@ it('makes, swaps and records pairs from the app, and sends them with the sync', 
 
     $pair = PeerPair::where('mutual', true)->sole();
 
-    $this->postJson("/api/v1/teacher/pairs/{$pair->id}/result", ['place' => 'second', 'mistakes' => 1, 'ready' => true])
+    $this->postJson("/api/v1/teacher/pairs/{$pair->id}/result", ['place' => 'second', 'mistakes' => 1])
         ->assertSuccessful()
         ->assertJsonPath('data.pair.second.mistakes', 1)
-        ->assertJsonPath('data.pair.second.ready', true);
+        ->assertJsonPath('data.pair.second.day_id', $pair->second_day_id)
+        ->assertJsonMissingPath('data.pair.second.ready');
 
     $this->postJson('/api/v1/teacher/pairs/swap', [
         'circle_id' => $this->circle->id, 'date' => '2026-07-08', 'student_id' => $this->badr->id, 'with_id' => $this->omar->id,
@@ -263,6 +299,6 @@ it('refuses another teacher\'s circle and pair', function () {
 
     $pair = PeerPairing::generate($this->circle, '2026-07-08', null)->first();
 
-    $this->postJson("/api/v1/teacher/pairs/{$pair->id}/result", ['place' => 'first', 'mistakes' => 0, 'ready' => true])
+    $this->postJson("/api/v1/teacher/pairs/{$pair->id}/result", ['place' => 'first', 'mistakes' => 0])
         ->assertForbidden();
 });

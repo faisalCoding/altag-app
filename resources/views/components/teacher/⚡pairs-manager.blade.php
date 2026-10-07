@@ -2,7 +2,6 @@
 
 use App\Models\PeerPair;
 use App\Models\Student;
-use App\Models\StudentPlanDay;
 use App\Services\PeerPairing;
 use App\Services\TeacherSyncSnapshot;
 use Flux\Flux;
@@ -12,7 +11,8 @@ use Livewire\Component;
 /**
  * Mutual recitation: the day's pairs of a circle, made from the students
  * present, kept for every teacher of the circle and the teacher app, with
- * students swapped by hand and each recitation's outcome recorded.
+ * students swapped by hand, each recitation's mistakes counted, and each
+ * graded — the student's own grade for the review, as the tasmeeh page gives.
  */
 new class extends Component
 {
@@ -80,14 +80,31 @@ new class extends Component
         $pair = $this->pair($pairId, $place);
         $mistakes = max(0, min(99, ($pair->{"{$place}_mistakes"} ?? 0) + ($step < 0 ? -1 : 1)));
 
-        PeerPairing::record($pair, $place, $mistakes, $pair->{"{$place}_ready"});
+        PeerPairing::recordMistakes($pair, $place, $mistakes);
     }
 
-    public function toggleReady(int $pairId, string $place): void
+    /**
+     * The grade square, as in the teacher app: each tap moves to the next —
+     * ممتاز, جيد, مقبول, لم يسمع — and the one after clears it.
+     */
+    public function cycleGrade(int $pairId, string $place): void
     {
         $pair = $this->pair($pairId, $place);
+        $current = PeerPairing::grades(collect([$pair]))["{$pair->id}:{$place}"] ?? null;
+        $next = match ($current) {
+            null => 3,
+            3 => 2,
+            2 => 1,
+            1 => 0,
+            default => null,
+        };
 
-        PeerPairing::record($pair, $place, $pair->{"{$place}_mistakes"}, ! $pair->{"{$place}_ready"});
+        if (! PeerPairing::grade($pair, $place, $next, Auth::guard('teacher')->id())) {
+            Flux::toast(
+                $pair->{"{$place}_day_id"} ? 'لم يُحفظ التقييم: يجري تعديل هذا اليوم من جهاز آخر، أعد المحاولة.' : 'لا ورد مراجعة لهذا الطالب ليُقيَّم.',
+                variant: 'danger',
+            );
+        }
     }
 
     public function with(): array
@@ -98,6 +115,7 @@ new class extends Component
         return [
             'circles' => $this->circles(),
             'pairs' => $pairs,
+            'grades' => PeerPairing::grades($pairs),
             'unpaired' => $circle ? PeerPairing::unpaired($circle->id, $this->day(), $pairs) : collect(),
         ];
     }
@@ -129,9 +147,24 @@ new class extends Component
             ->firstOrFail();
     }
 
-    public function portion(PeerPair $pair, string $place): ?string
+    /**
+     * Where a student's portion starts and ends, each as "سورة آية".
+     *
+     * @return array{from: string, to: string}|null
+     */
+    public function ends(PeerPair $pair, string $place): ?array
     {
-        return StudentPlanDay::formatAyahRange($pair->{"{$place}FromAyah"}, $pair->{"{$place}ToAyah"});
+        $from = $pair->{"{$place}FromAyah"};
+        $to = $pair->{"{$place}ToAyah"};
+
+        if (! $from || ! $to) {
+            return null;
+        }
+
+        return [
+            'from' => $from->surah->name_arabic.' '.$from->verse_number,
+            'to' => $to->surah->name_arabic.' '.$to->verse_number,
+        ];
     }
 };
 ?>
@@ -140,7 +173,7 @@ new class extends Component
     <div class="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
         <div>
             <flux:heading size="xl">{{ __('التسميع المتبادل') }}</flux:heading>
-            <flux:subheading>{{ __('يُسمّع كل طالب مراجعته لزميل يحفظها، ويسجّل المعلم أخطاءه ومتى يصبح جاهزاً له.') }}</flux:subheading>
+            <flux:subheading>{{ __('يُسمّع كل طالب مراجعته لزميل يحفظها، ويسجّل المعلم أخطاءه وتقييمه، فيُحسب تقييماً لمراجعته.') }}</flux:subheading>
         </div>
 
         <div class="flex flex-wrap items-end gap-2">
@@ -191,7 +224,8 @@ new class extends Component
                                 $student = $pair->{$place};
                                 $recites = $pair->recites($place);
                                 $mistakes = $pair->{"{$place}_mistakes"};
-                                $ready = $pair->{"{$place}_ready"};
+                                $grade = $grades["{$pair->id}:{$place}"] ?? null;
+                                $ends = $recites ? $this->ends($pair, $place) : null;
                             @endphp
 
                             @if ($place === 'second')
@@ -214,10 +248,21 @@ new class extends Component
                                 </div>
 
                                 @if ($recites)
-                                    <div class="text-xs text-zinc-500">
-                                        {{ __('يُسمّع:') }}
-                                        <span class="font-medium text-indigo-700 dark:text-indigo-300">{{ $this->portion($pair, $place) ?? __('لا ورد مراجعة له') }}</span>
-                                    </div>
+                                    @if ($ends)
+                                        {{-- The wird large enough to read across the room. --}}
+                                        <div class="grid grid-cols-2 gap-2">
+                                            <div class="rounded-lg border border-indigo-100 bg-white px-3 py-2 dark:border-indigo-500/20 dark:bg-zinc-900">
+                                                <div class="text-xs text-zinc-500">{{ __('من') }}</div>
+                                                <div class="text-base sm:text-lg font-bold leading-snug text-indigo-800 dark:text-indigo-200">{{ $ends['from'] }}</div>
+                                            </div>
+                                            <div class="rounded-lg border border-indigo-100 bg-white px-3 py-2 dark:border-indigo-500/20 dark:bg-zinc-900">
+                                                <div class="text-xs text-zinc-500">{{ __('إلى') }}</div>
+                                                <div class="text-base sm:text-lg font-bold leading-snug text-indigo-800 dark:text-indigo-200">{{ $ends['to'] }}</div>
+                                            </div>
+                                        </div>
+                                    @else
+                                        <div class="text-sm text-zinc-500">{{ __('لا ورد مراجعة له') }}</div>
+                                    @endif
 
                                     <div class="flex items-center justify-between gap-2">
                                         <div class="flex items-center gap-1" role="group" aria-label="{{ __('الأخطاء') }}">
@@ -229,10 +274,22 @@ new class extends Component
                                             <flux:button size="xs" variant="ghost" icon="plus" wire:click="adjustMistakes({{ $pair->id }}, '{{ $place }}', 1)"
                                                 aria-label="{{ __('خطأ زائد') }}" />
                                         </div>
-                                        <flux:button size="xs" wire:click="toggleReady({{ $pair->id }}, '{{ $place }}')"
-                                            :variant="$ready ? 'primary' : 'outline'" :icon="$ready ? 'check' : null">
-                                            {{ __('جاهز للمعلم') }}
-                                        </flux:button>
+                                        {{-- The grade square, as in the teacher app: ممتاز, جيد, مقبول, لم يسمع, then empty. --}}
+                                        @if ($pair->{"{$place}_day_id"})
+                                            <button type="button" wire:click="cycleGrade({{ $pair->id }}, '{{ $place }}')"
+                                                wire:loading.attr="disabled" wire:target="cycleGrade({{ $pair->id }}, '{{ $place }}')"
+                                                aria-label="{{ __('تقييم :name: :grade', ['name' => $student?->name, 'grade' => $grade === null ? __('لم يُقيَّم') : \App\Support\RecitationGrade::from($grade)->label()]) }}"
+                                                @class([
+                                                    'min-w-20 h-10 px-3 rounded-xl text-sm font-bold transition-colors',
+                                                    'border-2 border-dashed border-zinc-300 text-zinc-400 hover:border-zinc-400 dark:border-zinc-600' => $grade === null,
+                                                    'bg-green-600 text-white' => $grade === 3,
+                                                    'bg-blue-600 text-white' => $grade === 2,
+                                                    'bg-amber-500 text-white' => $grade === 1,
+                                                    'bg-red-600 text-white' => $grade === 0,
+                                                ])>
+                                                {{ $grade === null ? __('قيّم') : \App\Support\RecitationGrade::from($grade)->label() }}
+                                            </button>
+                                        @endif
                                     </div>
                                 @else
                                     <div class="text-xs text-zinc-500">{{ __('يستمع لزميله ويصحح له') }}</div>
