@@ -58,6 +58,12 @@
             تحضير المعلمين
         </flux:sidebar.item>
     @endif
+    @if(\App\Support\RolePages::isEnabled('manager', 'manager.substitutes'))
+        <flux:sidebar.item class="[&_svg]:bg-[#0891b2] hover:[&_svg]:bg-[#0e7490]" icon="arrows-right-left" :href="route('manager.substitutes')"
+            :current="request()->routeIs('manager.substitutes')" wire:navigate>
+            صلاحيات البدلاء
+        </flux:sidebar.item>
+    @endif
     @php
         $pendingRequestsCount = \App\Models\Student::where('is_approved', false)->where('is_rejected', false)->count()
             + \App\Models\Teacher::where('is_approved', false)->where('is_rejected', false)->count()

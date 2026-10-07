@@ -78,7 +78,11 @@ class TeacherSyncSnapshot
         $from = self::windowStart($today);
         $to = CarbonImmutable::parse($today)->addDays(self::OFFLINE_HORIZON_DAYS)->toDateString();
 
-        $circles = $teacher->circles()->with('stage')->orderBy('circles.id')->get();
+        // Their own circles, and any they stand in for today — a circle stood
+        // in for is worked today alone, so its days stop there, and it is gone
+        // from the next day's sync.
+        $circles = $teacher->workingCircles()->with('stage')->get();
+        $standingIn = $circles->filter(fn (Circle $circle) => (bool) $circle->standing_in)->modelKeys();
 
         $students = Student::whereIn('circle_id', $circles->modelKeys())
             ->whereRoleState(fn ($q) => $q->where('is_approved', true))
@@ -142,8 +146,9 @@ class TeacherSyncSnapshot
             'teacher' => new TeacherResource($teacher),
             'circles' => $circles->map(fn (Circle $circle) => new SyncCircleResource(
                 $circle,
-                $workingDays[$circle->stage_id],
+                in_array($circle->id, $standingIn, true) ? [$today] : $workingDays[$circle->stage_id],
                 $periods[$circle->stage_id],
+                in_array($circle->id, $standingIn, true),
             ))->values(),
             'students' => SyncStudentResource::collection($students),
             'attendances' => SyncAttendanceResource::collection($attendances),

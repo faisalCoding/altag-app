@@ -164,6 +164,13 @@ Livewire fires only on: markStatus | updateStatus | markAllPresent | loadStudent
                     @endif
                 </div>
 
+                @if ($this->standingIn)
+                    <div class="w-full flex items-center gap-2 rounded-lg bg-sky-50 dark:bg-sky-900/20 px-3 py-2 text-sm text-sky-800 dark:text-sky-200">
+                        <flux:icon icon="arrows-right-left" class="size-4 shrink-0" />
+                        تنوب اليوم في هذه الحلقة، فالتحضير متاح لتاريخ اليوم فقط.
+                    </div>
+                @endif
+
                 {{-- Working times as the calendar holds them for this stage. --}}
                 @if($this->todaysSessions)
                     <div x-show="mode !== 'sheet'" class="flex flex-wrap items-center gap-1.5 self-end pb-1.5">

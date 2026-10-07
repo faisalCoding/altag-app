@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Jobs\SendGuardianWhatsappJob;
+use App\Models\SubstituteAssignment;
 use App\Models\Teacher;
 use App\Models\TeacherAttendance;
 use App\Models\TeacherAttendanceRevision;
@@ -52,6 +53,11 @@ class TeacherAttendanceService
                     'substitute_teacher_id' => in_array($status, TeacherAttendance::AWAY, true) ? $record->substitute_teacher_id : null,
                     'recorded_by_id' => $editorId,
                 ]);
+
+                // Back at work: whoever stood in has no more call on the circles.
+                if (! in_array($status, TeacherAttendance::AWAY, true)) {
+                    SubstituteAssignment::where('teacher_attendance_id', $record->id)->delete();
+                }
             } else {
                 $record = TeacherAttendance::create([
                     'teacher_id' => $teacher->id,
@@ -98,6 +104,52 @@ class TeacherAttendanceService
             ]);
 
             self::log($record, $before, $editorId, $role);
+        });
+    }
+
+    /**
+     * Give the day's substitute the absent teacher's circles for that day —
+     * those the caller may grant — in place of whatever the day granted
+     * before. A circle the substitute already teaches needs nothing; a day
+     * with no substitute, or a teacher not away, grants nothing.
+     *
+     * Clearing the day takes its grants with it, through the foreign key.
+     *
+     * @param  array<int, int>  $circleIds
+     */
+    public static function grantSubstitute(TeacherAttendance $record, array $circleIds, ?int $editorId, string $role): void
+    {
+        DB::transaction(function () use ($record, $circleIds, $editorId, $role) {
+            SubstituteAssignment::where('teacher_attendance_id', $record->id)->delete();
+
+            $substituteId = $record->substitute_teacher_id;
+
+            if (! $substituteId || ! in_array($record->status, TeacherAttendance::AWAY, true)) {
+                return;
+            }
+
+            $date = $record->date->format('Y-m-d');
+            $own = DB::table('circle_teacher')->where('teacher_id', $substituteId)->pluck('circle_id')->all();
+
+            foreach (array_diff($circleIds, $own) as $circleId) {
+                // whereDate: the column carries a midnight time, and a bare
+                // "Y-m-d" would miss a grant already made directly for the day.
+                $grant = SubstituteAssignment::where('circle_id', $circleId)
+                    ->where('teacher_id', $substituteId)
+                    ->whereDate('date', $date)
+                    ->first() ?? new SubstituteAssignment([
+                        'circle_id' => $circleId,
+                        'teacher_id' => $substituteId,
+                        'date' => $date,
+                    ]);
+
+                $grant->fill([
+                    'absent_teacher_id' => $record->teacher_id,
+                    'teacher_attendance_id' => $record->id,
+                    'granted_by_id' => $editorId,
+                    'granted_by_role' => $role,
+                ])->save();
+            }
         });
     }
 

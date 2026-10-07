@@ -17,6 +17,10 @@ class Leaderboards extends Component
 
     public $supervisorCompetitions = [];
 
+    /** The circles the teacher stands in for today: their competitions are graded, not managed. */
+    #[Locked]
+    public $substituteCircleIds = [];
+
     // Modal state
     public $isEditing = false;
 
@@ -86,9 +90,13 @@ class Leaderboards extends Component
     {
         $teacher = Auth::guard('teacher')->user();
         $this->circleIds = $teacher->circles()->pluck('circles.id')->all();
+        $this->substituteCircleIds = $teacher->substituteCircleIds();
 
         if (! empty($this->circleIds)) {
             $this->circleId = $this->circleIds[0];
+        }
+
+        if (! empty($this->circleIds) || ! empty($this->substituteCircleIds)) {
             $this->loadLeaderboards();
         }
     }
@@ -113,11 +121,16 @@ class Leaderboards extends Component
             ->orderBy('id', 'desc')
             ->get();
 
-        // Supervisor competitions that include any of this teacher's circles
-        $this->supervisorCompetitions = Leaderboard::whereHas('circles', function ($q) {
-            $q->whereIn('circles.id', $this->circleIds);
-        })
-            ->whereNotNull('supervisor_id')
+        // Supervisor competitions that include any of this teacher's circles,
+        // and every competition of a circle they stand in for today — to grade
+        // and read, never to manage.
+        $workingIds = array_merge($this->circleIds, $this->substituteCircleIds);
+
+        $this->supervisorCompetitions = Leaderboard::where(fn ($q) => $q
+            ->where(fn ($q) => $q
+                ->whereHas('circles', fn ($q) => $q->whereIn('circles.id', $workingIds))
+                ->whereNotNull('supervisor_id'))
+            ->orWhereIn('circle_id', $this->substituteCircleIds))
             ->withCount('criteria')
             ->with('supervisor')
             ->orderByDesc('is_active')  // Active ones first

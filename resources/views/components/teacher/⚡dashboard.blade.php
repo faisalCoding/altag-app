@@ -265,6 +265,7 @@ new class extends Component {
 
 <div class="space-y-8" dir="rtl">
     <x-shared.pending-surveys />
+    <x-teacher.standing-in />
 
     <!-- Header Section -->
     <div>

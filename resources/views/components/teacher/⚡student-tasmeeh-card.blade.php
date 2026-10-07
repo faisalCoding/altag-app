@@ -47,6 +47,28 @@ new class extends Component {
         $this->dispatch('grading-date-changed', date: (string) $value);
     }
 
+    private ?bool $standingInCache = null;
+
+    /**
+     * Whether the teacher only stands in for this student's circle today:
+     * then today is the one day they grade, whatever date the page is on, and
+     * the student's plans and paths stay their own teacher's to shape.
+     */
+    private function standingIn(): bool
+    {
+        return $this->standingInCache ??= in_array(
+            (int) $this->student->circle_id,
+            auth('teacher')->user()?->substituteCircleIds() ?? [],
+            true,
+        );
+    }
+
+    /** The date graded on: the page's, or today for a circle stood in for. */
+    private function gradedOn(): ?string
+    {
+        return $this->standingIn() ? \App\Services\TeacherSyncSnapshot::today() : $this->gradedAtDate;
+    }
+
     /**
      * A grade is one of the buttons — excellent, good, acceptable, or not
      * graded — for one of the two parts. The Quran also has «لم يسمع» (0), kept
@@ -82,9 +104,7 @@ new class extends Component {
         // The academy's day, never one after it: a session cannot be graded
         // before it happens.
         $today = \App\Services\TeacherSyncSnapshot::today();
-        $date = is_string($this->gradedAtDate) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $this->gradedAtDate)
-            ? min($this->gradedAtDate, $today)
-            : $today;
+        $date = $this->gradingDate();
 
         // The teacher app writes plan days under the same per-day lock — both
         // parts share one points row — so a web grade and a phone grade of
@@ -142,11 +162,12 @@ new class extends Component {
 
         $updateData = [];
         $gradeTime = now();
-        if ($this->gradedAtDate) {
-            if ($this->gradedAtDate === now()->format('Y-m-d')) {
+        $gradedOn = $this->gradedOn();
+        if ($gradedOn) {
+            if ($gradedOn === now()->format('Y-m-d')) {
                 $gradeTime = now();
             } else {
-                $gradeTime = \Carbon\Carbon::parse($this->gradedAtDate)->setHour(12)->setMinute(0);
+                $gradeTime = \Carbon\Carbon::parse($gradedOn)->setHour(12)->setMinute(0);
             }
         }
 
@@ -209,11 +230,12 @@ new class extends Component {
 
         $updateData = [];
         $gradeTime = now();
-        if ($this->gradedAtDate) {
-            if ($this->gradedAtDate === now()->format('Y-m-d')) {
+        $gradedOn = $this->gradedOn();
+        if ($gradedOn) {
+            if ($gradedOn === now()->format('Y-m-d')) {
                 $gradeTime = now();
             } else {
-                $gradeTime = \Carbon\Carbon::parse($this->gradedAtDate)->setHour(12)->setMinute(0);
+                $gradeTime = \Carbon\Carbon::parse($gradedOn)->setHour(12)->setMinute(0);
             }
         }
 
@@ -281,6 +303,12 @@ new class extends Component {
     private function teacherPermissions(): array
     {
         $permissions = auth('teacher')->user()?->effectivePermissions() ?? [];
+
+        // Standing in for the day grades it, and leaves the student's plans,
+        // paths and tracks to their own teacher.
+        if ($this->standingIn()) {
+            return collect($permissions)->map(fn ($allowed, $key) => str_starts_with($key, 'can_manage') ? false : $allowed)->all();
+        }
 
         // A stage that does not memorise the mutun or the odes cannot be
         // enrolled in them either, whatever the teacher may do elsewhere —
@@ -459,7 +487,7 @@ new class extends Component {
     {
         return [
             'exam' => NextExamBadge::forStudents([$this->student->id])->get($this->student->id),
-            'canSchedule' => NextExamBadge::canSchedule(),
+            'canSchedule' => NextExamBadge::canSchedule() && ! $this->standingIn(),
         ];
     }
 
@@ -589,7 +617,7 @@ new class extends Component {
         // Find the specific Ode plan day matching the selected gradedAtDate
         $odeDayForSelectedDate = null;
         if ($activeOdePlan && $odeDays->isNotEmpty()) {
-            $targetDateStr = $this->gradedAtDate ?: now()->format('Y-m-d');
+            $targetDateStr = $this->gradedOn() ?: now()->format('Y-m-d');
             $odeDayForSelectedDate = $odeDays->first(function ($day) use ($targetDateStr) {
                 return $day->date->toDateString() === $targetDateStr;
             });
@@ -598,7 +626,7 @@ new class extends Component {
         // Find the specific Hadith plan day matching the selected gradedAtDate
         $hadithDayForSelectedDate = null;
         if ($activeHadithPlan && $hadithDays->isNotEmpty()) {
-            $targetDateStr = $this->gradedAtDate ?: now()->format('Y-m-d');
+            $targetDateStr = $this->gradedOn() ?: now()->format('Y-m-d');
             $hadithDayForSelectedDate = $hadithDays->first(function ($day) use ($targetDateStr) {
                 return $day->date->toDateString() === $targetDateStr;
             });
@@ -748,6 +776,7 @@ new class extends Component {
             'quranSections' => $quranSections,
             'gradingDate' => $this->gradingDate(),
             'gradingDays' => $this->gradingDays(),
+            'standingIn' => $this->standingIn(),
             'dayIds' => $dayIds,
             'odeDays' => $odeDays,
             'defaultOdeDayId' => $defaultOdeDayId,
@@ -817,6 +846,10 @@ new class extends Component {
     {
         $today = \App\Services\TeacherSyncSnapshot::today();
 
+        if ($this->standingIn()) {
+            return [$today];
+        }
+
         return \App\Models\AcademicCalendarEvent::workingDaysBetween(
             \Carbon\CarbonImmutable::parse($today)->subDays(180)->toDateString(),
             $today,
@@ -828,6 +861,10 @@ new class extends Component {
     private function gradingDate(): string
     {
         $today = \App\Services\TeacherSyncSnapshot::today();
+
+        if ($this->standingIn()) {
+            return $today;
+        }
 
         return is_string($this->gradedAtDate) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $this->gradedAtDate)
             ? min($this->gradedAtDate, $today)
@@ -967,6 +1004,7 @@ new class extends Component {
             quranDays: @js(\App\Support\TasmeehPayload::quranDays($days)),
             quranDateToDayIdMap: @js($quranDateToDayIdMap),
             today: @js(\App\Services\TeacherSyncSnapshot::today()),
+            standingIn: @js($standingIn),
 
             init() {
                 this.$watch('$wire.gradedAtDate', (newVal) => {
@@ -1018,6 +1056,10 @@ new class extends Component {
             },
             {{-- The session graded is the one of the date picked above the list. --}}
             gradingDate() {
+                {{-- A circle stood in for is graded today alone. --}}
+                if (this.standingIn) {
+                    return this.today;
+                }
                 const picked = this.$wire.gradedAtDate || this.today;
                 return picked > this.today ? this.today : picked;
             },

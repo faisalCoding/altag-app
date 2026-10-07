@@ -62,7 +62,8 @@ class TasmeehChangeService
             ->unique();
 
         $students = Student::whereIn('id', $studentIds)
-            ->whereIn('circle_id', $teacher->circles()->pluck('circles.id'))
+            // Their own circles, and any they stand in for today.
+            ->whereIn('circle_id', $teacher->workingCircleIds())
             ->whereRoleState(fn ($q) => $q->where('is_approved', true))
             ->get()
             ->keyBy('id');
@@ -109,6 +110,10 @@ class TasmeehChangeService
                     return self::rejected('student_unavailable', 'لم يعد هذا الطالب ضمن حلقاتك.');
                 }
 
+                if (! $teacher->mayWorkOn((int) $student->circle_id, $date)) {
+                    return self::substituteDayOnly();
+                }
+
                 if (! in_array($part, TasmeehSnapshot::PARTS[$day->plan->plan_type] ?? [], true)) {
                     return self::rejected('invalid_part', 'هذا الجزء ليس في خطة الطالب.');
                 }
@@ -127,6 +132,10 @@ class TasmeehChangeService
                 return self::rejected('student_unavailable', 'لم يعد هذا الطالب ضمن حلقاتك.');
             }
 
+            if (! $teacher->mayWorkOn((int) $student->circle_id, $date)) {
+                return self::substituteDayOnly();
+            }
+
             if ($grade !== null && $grade >= 1 && $recited === null) {
                 return self::rejected('range_required', 'حدّد ما سمّعه الطالب قبل التقييم.');
             }
@@ -137,6 +146,12 @@ class TasmeehChangeService
         } catch (LockTimeoutException) {
             return self::rejected('busy', 'يجري تعديل هذه الخانة الآن من جهاز آخر، ستُعاد المحاولة تلقائياً.');
         }
+    }
+
+    /** A circle stood in for is graded for today alone. */
+    private static function substituteDayOnly(): array
+    {
+        return self::rejected('substitute_day_only', 'تنوب في هذه الحلقة اليوم فقط، فلا تقيّم فيها إلا بتاريخ اليوم.');
     }
 
     /**

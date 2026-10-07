@@ -14,6 +14,7 @@ use App\Support\HijriDate;
 use Carbon\Carbon;
 use Flux\Flux;
 use Livewire\Attributes\Computed;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
 use Livewire\Attributes\Url;
 use Livewire\Component;
@@ -24,6 +25,15 @@ class Attendance extends Component
     public $circles = [];
 
     public ?int $selectedCircle = null;
+
+    /**
+     * The circles among them the teacher only stands in for today — read once
+     * with the circles, as a reload of them would lose it.
+     *
+     * @var array<int, int>
+     */
+    #[Locked]
+    public array $standingInIds = [];
 
     #[Url]
     public string $date = '';
@@ -47,10 +57,13 @@ class Attendance extends Component
         }
 
         $teacher = auth()->guard('teacher')->user();
-        $this->circles = $teacher->circles()->get();
+        // Their own circles, and any they stand in for today.
+        $this->circles = $teacher->workingCircles()->get();
+        $this->standingInIds = $this->circles->filter(fn (Circle $circle) => (bool) $circle->standing_in)->modelKeys();
 
         if ($this->circles->count() === 1) {
             $this->selectedCircle = $this->circles->first()->id;
+            $this->keepSubstituteToday();
             $this->loadStudents();
         }
 
@@ -58,12 +71,52 @@ class Attendance extends Component
 
     public function updatedSelectedCircle(): void
     {
+        $this->keepSubstituteToday();
         $this->loadStudents();
     }
 
     public function updatedDate(): void
     {
+        $this->keepSubstituteToday();
         $this->loadStudents();
+    }
+
+    /**
+     * Whether the chosen circle is one the teacher only stands in for today —
+     * theirs for today's register alone.
+     */
+    #[Computed]
+    public function standingIn(): bool
+    {
+        return $this->selectedCircle !== null && in_array($this->selectedCircle, $this->standingInIds, true);
+    }
+
+    /** A circle stood in for opens on today, the only day it may be marked. */
+    private function keepSubstituteToday(): void
+    {
+        unset($this->standingIn);
+
+        if ($this->standingIn) {
+            $this->date = now('Asia/Riyadh')->format('Y-m-d');
+        }
+    }
+
+    /**
+     * Whether the register of the chosen circle and day may be written: one of
+     * the teacher's own circles on any day, one they stand in for on today
+     * only, and nothing else whatever the browser sends.
+     */
+    private function mayWrite(): bool
+    {
+        $teacher = auth()->guard('teacher')->user();
+
+        if ($this->selectedCircle && $teacher->mayWorkOn($this->selectedCircle, $this->date)) {
+            return true;
+        }
+
+        Flux::toast(__('لا تملك صلاحية التحضير لهذه الحلقة في هذا اليوم.'), variant: 'danger');
+
+        return false;
     }
 
     #[On('student-list-updated')]
@@ -124,7 +177,7 @@ class Attendance extends Component
      */
     public function markStatus(int $studentId, string $status): void
     {
-        if (! in_array($status, ['present', 'absent', 'late', 'excused'])) {
+        if (! in_array($status, ['present', 'absent', 'late', 'excused']) || ! $this->mayWrite() || ! $this->students->contains('id', $studentId)) {
             return;
         }
 
@@ -138,7 +191,7 @@ class Attendance extends Component
      */
     public function updateStatus(int $studentId, string $status): void
     {
-        if (! in_array($status, ['present', 'absent', 'late', 'excused'])) {
+        if (! in_array($status, ['present', 'absent', 'late', 'excused']) || ! $this->mayWrite() || ! $this->students->contains('id', $studentId)) {
             return;
         }
 
@@ -149,6 +202,10 @@ class Attendance extends Component
 
     public function markAllPresent(): void
     {
+        if (! $this->mayWrite()) {
+            return;
+        }
+
         $teacher = auth()->guard('teacher')->user();
 
         foreach ($this->students as $student) {
@@ -208,7 +265,7 @@ class Attendance extends Component
 
     public function clearDayAttendance(): void
     {
-        if (! $this->selectedCircle || empty($this->date)) {
+        if (! $this->selectedCircle || empty($this->date) || ! $this->mayWrite()) {
             return;
         }
 

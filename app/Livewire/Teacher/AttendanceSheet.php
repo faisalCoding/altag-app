@@ -201,11 +201,24 @@ class AttendanceSheet extends Component
                     continue;
                 }
 
-                $map[$student->id][$date] = $this->statusOnDate($student, $date) === 'active';
+                $map[$student->id][$date] = $this->statusOnDate($student, $date) === 'active'
+                    && (! $this->standingIn || $date === $this->today());
             }
         }
 
         return $map;
+    }
+
+    /**
+     * Whether the teacher only stands in for this circle today: then today's
+     * column is the only one open to them.
+     */
+    #[Computed]
+    public function standingIn(): bool
+    {
+        $teacher = auth()->guard('teacher')->user();
+
+        return $teacher && $this->circleId && in_array($this->circleId, $teacher->substituteCircleIds(), true);
     }
 
     /**
@@ -400,7 +413,7 @@ class AttendanceSheet extends Component
                 continue;
             }
 
-            if (! ($editable[$studentId][$date] ?? false)) {
+            if (! ($editable[$studentId][$date] ?? false) || ! $teacher->mayWorkOn($this->circleId, $date)) {
                 continue;
             }
 
@@ -545,9 +558,10 @@ class AttendanceSheet extends Component
         }
     }
 
+    /** One of the teacher's circles, or one they stand in for today. */
     private function teacherOwnsCircle(Teacher $teacher): bool
     {
-        return $teacher->circles()->whereKey($this->circleId)->exists();
+        return in_array($this->circleId, $teacher->workingCircleIds(), true);
     }
 
     /**

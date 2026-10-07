@@ -174,6 +174,15 @@ class TeacherAttendance extends Component
 
         TeacherAttendanceService::annotate($record, $notes, $arrivedAt ?: null, $substituteId, $this->scope()->editorId(), $this->role);
 
+        // The substitute works the absent teacher's circles that day — those
+        // this roll call reaches.
+        $absent = $this->rollTeachers()->firstWhere('id', $teacherId);
+        $circleIds = $this->role === 'manager'
+            ? $absent->circles->modelKeys()
+            : $absent->circles->whereIn('stage_id', $this->scope()->stageIds())->modelKeys();
+
+        TeacherAttendanceService::grantSubstitute($record->fresh(), $circleIds, $this->scope()->editorId(), $this->role);
+
         $this->dayCache = null;
     }
 
@@ -371,14 +380,17 @@ class TeacherAttendance extends Component
     }
 
     /**
-     * Who may stand in for an absent teacher: any teacher this roll call
-     * reaches, whatever the circle filter shows.
+     * Who may stand in for an absent teacher: any approved teacher of the
+     * academy, of whatever stage — the one with a free hour may be anywhere.
      *
      * @return EloquentCollection<int, Teacher>
      */
     private function substitutes(): EloquentCollection
     {
-        return $this->substituteCache ??= $this->scope()->teachers($this->date, $this->date);
+        return $this->substituteCache ??= Teacher::whereRoleState(fn ($q) => $q->where('is_approved', true))
+            ->with('circles:id,stage_id', 'circles.stage:id,name')
+            ->orderBy('name')
+            ->get(['users.id', 'users.name']);
     }
 
     public function render()

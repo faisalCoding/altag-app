@@ -42,8 +42,9 @@ new class extends Component {
     public function mount()
     {
         $teacher = Auth::guard('teacher')->user();
-        $circleIds = $teacher->circles()->pluck('circles.id');
-        $this->students = Student::whereIn('circle_id', $circleIds)->orderBy('name')->get();
+        // A circle stood in for today is listed too, so its exams of the day
+        // open with their student; scheduling stays with the circle's teacher.
+        $this->students = Student::whereIn('circle_id', $teacher->workingCircleIds())->orderBy('name')->get();
         $this->examLevels = ExamLevel::orderBy('name')->get();
         $this->dateTime = now()->format('Y-m-d\TH:i');
     }
@@ -61,12 +62,7 @@ new class extends Component {
     {
         $this->resetValidation();
 
-        $teacher = Auth::guard('teacher')->user();
-        $circleIds = $teacher->circles()->pluck('circles.id');
-
-        $exam = StudentExam::whereHas('student', function ($q) use ($circleIds) {
-            $q->whereIn('circle_id', $circleIds);
-        })->findOrFail($id);
+        $exam = $this->visibleExams()->findOrFail($id);
 
         $this->editingId = $exam->id;
         $this->studentId = $exam->student_id;
@@ -84,10 +80,22 @@ new class extends Component {
     {
         $this->validate();
 
-        // Ensure student belongs to teacher
+        // Ensure student belongs to teacher — or, standing in today, that the
+        // exam is one of today's and stays on today.
         $teacher = Auth::guard('teacher')->user();
-        $circleIds = $teacher->circles()->pluck('circles.id');
-        $student = Student::whereIn('circle_id', $circleIds)->findOrFail($this->studentId);
+        $student = Student::whereIn('circle_id', $teacher->workingCircleIds())->findOrFail($this->studentId);
+        $ownStudent = $teacher->circles()->whereKey($student->circle_id)->exists();
+
+        if (! $ownStudent) {
+            $exam = $this->editingId ? $this->visibleExams()->find($this->editingId) : null;
+
+            abort_unless(
+                $exam
+                && $exam->student_id === $student->id
+                && $teacher->mayWorkOn((int) $student->circle_id, Carbon::parse($this->dateTime)->toDateString()),
+                403,
+            );
+        }
 
         $wasCreate = ! $this->editingId;
         $previousStatus = $this->editingId ? StudentExam::find($this->editingId)?->status : null;
@@ -132,6 +140,7 @@ new class extends Component {
     public function delete($id)
     {
         $teacher = Auth::guard('teacher')->user();
+        // Only the teacher's own circles: a substitute records a result, never removes an exam.
         $circleIds = $teacher->circles()->pluck('circles.id');
 
         $exam = StudentExam::whereHas('student', function ($q) use ($circleIds) {
@@ -142,15 +151,29 @@ new class extends Component {
         $this->dispatch('toast', variant: 'success', heading: 'تم الحذف بنجاح!');
     }
 
-    public function with()
+    /**
+     * The exams of the teacher's own circles, and today's exams of a circle
+     * they stand in for.
+     */
+    private function visibleExams()
     {
         $teacher = Auth::guard('teacher')->user();
-        $circleIds = $teacher->circles()->pluck('circles.id');
+        $own = $teacher->circles()->pluck('circles.id');
+        $standingIn = $teacher->substituteCircleIds();
 
-        $exams = StudentExam::with(['student', 'examLevel'])
-            ->whereHas('student', function ($query) use ($circleIds) {
-                $query->whereIn('circle_id', $circleIds)
-                    ->where('name', 'like', '%' . $this->search . '%');
+        return StudentExam::query()->where(fn ($q) => $q
+            ->whereHas('student', fn ($q) => $q->whereIn('circle_id', $own))
+            ->orWhere(fn ($q) => $q
+                ->whereHas('student', fn ($q) => $q->whereIn('circle_id', $standingIn))
+                ->whereDate('date_time', \App\Services\TeacherSyncSnapshot::today())));
+    }
+
+    public function with()
+    {
+        $exams = $this->visibleExams()
+            ->with(['student', 'examLevel'])
+            ->whereHas('student', function ($query) {
+                $query->where('name', 'like', '%' . $this->search . '%');
             })
             ->latest('date_time')
             ->paginate(15);

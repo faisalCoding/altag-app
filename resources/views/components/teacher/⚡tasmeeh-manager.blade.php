@@ -67,7 +67,8 @@ new class extends Component {
     public function with()
     {
         $teacher = Auth::guard('teacher')->user();
-        $circleIds = $teacher->circles()->pluck('id');
+        // Their own circles, and any they stand in for today.
+        $circleIds = collect($teacher->workingCircleIds());
 
         $students = Student::whereIn('circle_id', $circleIds)
             ->where('status', 'active')
@@ -122,7 +123,7 @@ new class extends Component {
 
         // The supervisor sets when students book their turn; each circle
         // numbers its own queue, which every teacher of the circle sees.
-        $turnWindow = \App\Services\TurnBooking::windowToday($teacher->circles()->with('stage')->get());
+        $turnWindow = \App\Services\TurnBooking::windowToday($teacher->workingCircles()->with('stage')->get());
         $bookingDay = \App\Services\TurnBooking::today();
         $reservations = \App\Services\TurnBooking::turnsBetween($circleIds->all(), $bookingDay, $bookingDay)->keyBy('student_id');
 
@@ -241,6 +242,8 @@ hifz/review — local state per day card for instant visual feedback
             }, 100);
         }
      }">
+    <x-teacher.standing-in />
+
 
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>

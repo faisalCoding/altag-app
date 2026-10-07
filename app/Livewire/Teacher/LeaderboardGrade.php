@@ -38,7 +38,9 @@ class LeaderboardGrade extends Component
     public function mount($leaderboardId)
     {
         $this->leaderboardId = $leaderboardId;
-        $this->date = now()->format('Y-m-d');
+        // The academy's day: on UTC it is still yesterday for the first three
+        // hours of every Riyadh morning.
+        $this->date = now('Asia/Riyadh')->format('Y-m-d');
 
         // The id comes from the address bar: grade only a competition that
         // runs in one of this teacher's circles.
@@ -83,7 +85,8 @@ class LeaderboardGrade extends Component
 
         $leaderboardCircleIds = $leaderboard->circles->pluck('id')->push($leaderboard->circle_id)->filter();
 
-        return $teacher->circles()->whereIn('circles.id', $leaderboardCircleIds)->exists();
+        // Their own circles, and any they stand in for today.
+        return collect($teacher->workingCircleIds())->intersect($leaderboardCircleIds)->isNotEmpty();
     }
 
     /**
@@ -93,6 +96,24 @@ class LeaderboardGrade extends Component
     private function ensureParticipant(int $studentId): void
     {
         abort_unless($this->participatingStudents()->contains('id', $studentId), 404);
+    }
+
+    /**
+     * A score is written for the date on screen: any date for a student of
+     * the teacher's own circles, today's alone for one of a circle they stand
+     * in for.
+     */
+    private function mayScore(int $studentId): bool
+    {
+        $student = $this->participatingStudents()->firstWhere('id', $studentId);
+
+        if ($student && auth()->guard('teacher')->user()->mayWorkOn((int) $student->circle_id, Carbon::parse($this->date)->toDateString())) {
+            return true;
+        }
+
+        Flux::toast('تنوب في هذه الحلقة اليوم، فلا ترصد إلا لتاريخ اليوم.', variant: 'warning');
+
+        return false;
     }
 
     /**
@@ -106,7 +127,7 @@ class LeaderboardGrade extends Component
         $leaderboard = Leaderboard::with('circles')->findOrFail($this->leaderboardId);
 
         $teacher = auth()->guard('teacher')->user();
-        $teacherCircleIds = $teacher ? $teacher->circles()->pluck('circles.id') : collect();
+        $teacherCircleIds = $teacher ? collect($teacher->workingCircleIds()) : collect();
         $leaderboardCircleIds = $leaderboard->circles->pluck('id');
         if ($leaderboard->circle_id) {
             $leaderboardCircleIds->push($leaderboard->circle_id);
@@ -129,6 +150,10 @@ class LeaderboardGrade extends Component
     public function toggleScore($studentId, $criterionId, $points)
     {
         $this->ensureParticipant((int) $studentId);
+
+        if (! $this->mayScore((int) $studentId)) {
+            return;
+        }
         abort_unless(LeaderboardCriterion::where('leaderboard_id', $this->leaderboardId)->whereKey($criterionId)->exists(), 404);
 
         $score = LeaderboardScore::where('leaderboard_id', $this->leaderboardId)
@@ -163,6 +188,10 @@ class LeaderboardGrade extends Component
     {
         $this->ensureParticipant($studentId);
 
+        if (! $this->mayScore($studentId)) {
+            return;
+        }
+
         $this->validate([
             'date' => 'required|date',
         ]);
@@ -188,11 +217,27 @@ class LeaderboardGrade extends Component
 
     public function deleteExtraPoints($id)
     {
-        DB::table('leaderboard_extra_points')
+        $row = DB::table('leaderboard_extra_points')
             ->where('leaderboard_id', $this->leaderboardId)
             ->whereIn('student_id', $this->participatingStudents()->pluck('id'))
             ->where('id', $id)
-            ->delete();
+            ->first();
+
+        if (! $row) {
+            return;
+        }
+
+        // Points of a day the teacher may not write — another day of a circle
+        // they only stand in for — stay where they are.
+        $student = $this->participatingStudents()->firstWhere('id', $row->student_id);
+
+        if (! auth()->guard('teacher')->user()->mayWorkOn((int) $student->circle_id, substr((string) $row->date, 0, 10))) {
+            Flux::toast('تنوب في هذه الحلقة اليوم، فلا تعدّل إلا رصد اليوم.', variant: 'warning');
+
+            return;
+        }
+
+        DB::table('leaderboard_extra_points')->where('id', $row->id)->delete();
         GamificationService::syncStudentExtraPointsXP($id);
     }
 
@@ -226,6 +271,10 @@ class LeaderboardGrade extends Component
     private function ensureCompetitionBadge(int $badgeId, int $studentId): void
     {
         $this->ensureParticipant($studentId);
+
+        // A badge is the student's own teacher's to grant, not a substitute's.
+        $student = $this->participatingStudents()->firstWhere('id', $studentId);
+        abort_unless(auth()->guard('teacher')->user()->circles()->whereKey($student->circle_id)->exists(), 403);
         abort_unless(GamificationBadge::where('leaderboard_id', $this->leaderboardId)->whereKey($badgeId)->exists(), 404);
     }
 

@@ -168,6 +168,8 @@ it('sends the shared API key header to the WhatsApp gateway', function () {
 });
 
 it('creates a guardian absence notification when a teacher marks a student absent', function () {
+    // The register writes only to the teacher's own circles.
+    $this->teacher->circles()->attach($this->circle->id);
     $this->actingAs($this->teacher, 'teacher');
 
     Livewire::test(Attendance::class)

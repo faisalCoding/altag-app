@@ -57,8 +57,12 @@ class PeerPairController extends Controller
      */
     public function record(Request $request, PeerPair $pair): JsonResponse
     {
-        if (! $request->user()->circles()->whereKey($pair->circle_id)->exists()) {
+        if (! in_array($pair->circle_id, $request->user()->workingCircleIds(), true)) {
             $this->refuse('pair_unavailable', 'هذه الثنائية ليست في حلقاتك.', 403);
+        }
+
+        if (! $request->user()->mayWorkOn($pair->circle_id, substr((string) $pair->date, 0, 10))) {
+            $this->refuse('substitute_day_only', 'تنوب في هذه الحلقة اليوم فقط، فلا تعدّل إلا ثنائيات اليوم.', 403);
         }
 
         $validated = $request->validate([
@@ -72,7 +76,8 @@ class PeerPairController extends Controller
     }
 
     /**
-     * The circle, one of the teacher's, and the day, never one after today.
+     * The circle, one of the teacher's or one they stand in for today, and
+     * the day, never one after today — and today alone for a circle stood in for.
      *
      * @return array{0: Circle, 1: string}
      */
@@ -83,10 +88,15 @@ class PeerPairController extends Controller
             'date' => ['required', 'date_format:Y-m-d'],
         ]);
 
-        $circle = $request->user()->circles()->whereKey($validated['circle_id'])->first()
+        $circle = $request->user()->workingCircles()->whereKey($validated['circle_id'])->first()
             ?? $this->refuse('circle_unavailable', 'هذه الحلقة ليست من حلقاتك.', 403);
+        $date = min($validated['date'], TeacherSyncSnapshot::today());
 
-        return [$circle, min($validated['date'], TeacherSyncSnapshot::today())];
+        if (! $request->user()->mayWorkOn($circle->id, $date)) {
+            $this->refuse('substitute_day_only', 'تنوب في هذه الحلقة اليوم فقط، فلا تعدّل إلا ثنائيات اليوم.', 403);
+        }
+
+        return [$circle, $date];
     }
 
     /**

@@ -96,7 +96,7 @@
             this.syncing = this.syncing.filter(x => x !== id);
         },
 
-        /* With a search typed, "the rest" is the rest still showing — never
+        /* With a search typed, 'the rest' is the rest still showing — never
            the teachers the search has hidden. */
         markRemaining() {
             $wire.markRemainingPresent(this.search ? this.order.filter(id => this.isVisible(id)) : null);
@@ -371,9 +371,15 @@
                     class="w-full h-10 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm text-zinc-800 dark:text-zinc-100 px-3">
                     <option value="">بلا بديل</option>
                     @foreach ($substitutes as $candidate)
-                        <option value="{{ $candidate->id }}" x-bind:disabled="editor.id === {{ $candidate->id }}">{{ $candidate->name }}</option>
+                        @php
+                            $candidateStages = $candidate->circles->pluck('stage.name')->filter()->unique()->implode('، ');
+                        @endphp
+                        <option value="{{ $candidate->id }}" x-bind:disabled="editor.id === {{ $candidate->id }}">{{ $candidate->name }}{{ $candidateStages !== '' ? ' — '.$candidateStages : '' }}</option>
                     @endforeach
                 </select>
+                <p class="mt-1.5 text-xs text-zinc-500 dark:text-zinc-400" x-show="editor.substitute">
+                    يعمل البديل في حلقات المعلم الغائب في هذا اليوم كمعلمها، لتاريخ اليوم فقط.
+                </p>
             </div>
 
             <flux:input x-model="editor.note" maxlength="500" label="السبب أو ملاحظة"

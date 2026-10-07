@@ -21,8 +21,12 @@ class SyncCircleResource extends JsonResource
      * @param  array<int, string>  $workingDays  Y-m-d strings, in order.
      * @param  array{start: string, end: string|null, working_days: array<int, string>}|null  $period
      */
-    public function __construct(Circle $circle, private readonly array $workingDays, private readonly ?array $period)
-    {
+    public function __construct(
+        Circle $circle,
+        private readonly array $workingDays,
+        private readonly ?array $period,
+        private readonly bool $standingIn = false,
+    ) {
         parent::__construct($circle);
     }
 
@@ -50,6 +54,9 @@ class SyncCircleResource extends JsonResource
             // The term covering today, else the last one before it; its
             // working days run from its start to today at the latest.
             'period' => $this->period,
+            // A circle the teacher stands in for today, not one of their own:
+            // its working days are today alone.
+            'standing_in' => $this->standingIn,
         ];
     }
 }

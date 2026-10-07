@@ -13,7 +13,7 @@
         <div class="space-y-3">
             <div class="flex items-center gap-2">
                 <flux:icon icon="shield-check" class="size-4 text-indigo-500" />
-                <flux:heading size="md" class="text-indigo-700 dark:text-indigo-400">{{ __('مسابقات المشرف') }}</flux:heading>
+                <flux:heading size="md" class="text-indigo-700 dark:text-indigo-400">{{ count($substituteCircleIds) > 0 ? __('مسابقات المشرف والحلقات التي تنوب فيها') : __('مسابقات المشرف') }}</flux:heading>
                 <flux:badge size="sm" color="indigo">{{ count($supervisorCompetitions) }}</flux:badge>
             </div>
 
@@ -27,8 +27,8 @@
                                     {{ $comp->is_active ? __('نشطة') : __('مغلقة') }}
                                 </span>
                                 <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold bg-indigo-50 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400">
-                                    <flux:icon icon="shield-check" class="size-3" />
-                                    {{ __('مشرف') }}
+                                    <flux:icon icon="{{ $comp->supervisor_id ? 'shield-check' : 'arrows-right-left' }}" class="size-3" />
+                                    {{ $comp->supervisor_id ? __('مشرف') : __('تنوب فيها اليوم') }}
                                 </span>
                             </div>
                             <flux:heading size="lg" class="truncate text-zinc-900 dark:text-zinc-100">{{ $comp->title }}</flux:heading>

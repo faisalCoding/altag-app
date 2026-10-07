@@ -52,7 +52,8 @@ class AttendanceChangeService
     public static function apply(Teacher $teacher, array $changes): array
     {
         $today = TeacherSyncSnapshot::today();
-        $circles = $teacher->circles()->with('stage')->get()->keyBy('id');
+        // Their own circles, and any they stand in for today.
+        $circles = $teacher->workingCircles()->with('stage')->get()->keyBy('id');
 
         $students = Student::whereIn('id', collect($changes)->pluck('student_id')->unique())
             ->whereIn('circle_id', $circles->keys())
@@ -88,6 +89,11 @@ class AttendanceChangeService
 
         if ($refusal = self::refusal($student, $circle, $date, $today)) {
             return self::rejected(...$refusal);
+        }
+
+        // A circle stood in for is marked for today alone.
+        if (! $teacher->mayWorkOn($circle->id, $date)) {
+            return self::rejected('substitute_day_only', 'تنوب في هذه الحلقة اليوم فقط، فلا تحضّر لها إلا تاريخ اليوم.');
         }
 
         $editedOn = self::editedOn($change['edited_on'], $date, $today);

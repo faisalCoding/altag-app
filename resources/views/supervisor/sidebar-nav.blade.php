@@ -39,6 +39,12 @@
             تحضير المعلمين
         </flux:sidebar.item>
     @endif
+    @if(\App\Support\RolePages::isEnabled('supervisor', 'supervisor.substitutes'))
+        <flux:sidebar.item class="[&_svg]:bg-[#0891b2] hover:[&_svg]:bg-[#0e7490]" icon="arrows-right-left" :href="route('supervisor.substitutes')"
+            :current="request()->routeIs('supervisor.substitutes')" wire:navigate>
+            صلاحيات البدلاء
+        </flux:sidebar.item>
+    @endif
 </flux:sidebar.group>
 
 <flux:sidebar.group heading="المحتوى العلمي" class="grid">

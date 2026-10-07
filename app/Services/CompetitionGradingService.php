@@ -41,10 +41,10 @@ class CompetitionGradingService
         $today = TeacherSyncSnapshot::today();
 
         return collect($changes)
-            ->map(function (array $change) use ($competitions, $students, $today) {
+            ->map(function (array $change) use ($teacher, $competitions, $students, $today) {
                 $student = $students->get($change['student_id']);
 
-                if ($refusal = self::refusal($student, $competitions, (int) $change['competition_id'], $change['date'], $today)) {
+                if ($refusal = self::refusal($teacher, $student, $competitions, (int) $change['competition_id'], $change['date'], $today)) {
                     return ['id' => $change['id']] + self::rejected(...$refusal);
                 }
 
@@ -90,10 +90,10 @@ class CompetitionGradingService
         $today = TeacherSyncSnapshot::today();
 
         return collect($changes)
-            ->map(function (array $change) use ($competitions, $students, $targets, $today) {
+            ->map(function (array $change) use ($teacher, $competitions, $students, $targets, $today) {
                 $outcome = $change['action'] === 'add'
-                    ? self::addExtraPoint($change, $competitions, $students, $today)
-                    : self::removeExtraPoint($change, $competitions, $students, $targets);
+                    ? self::addExtraPoint($teacher, $change, $competitions, $students, $today)
+                    : self::removeExtraPoint($teacher, $change, $competitions, $students, $targets);
 
                 return ['id' => $change['id']] + $outcome;
             })
@@ -128,7 +128,8 @@ class CompetitionGradingService
      */
     private static function context(Teacher $teacher, Collection $studentIds): array
     {
-        $circleIds = $teacher->circles()->pluck('circles.id');
+        // Their own circles, and any they stand in for today.
+        $circleIds = collect($teacher->workingCircleIds());
 
         $students = Student::whereIn('id', $studentIds->map(fn ($id) => (int) $id)->unique()->values())
             ->whereIn('circle_id', $circleIds)
@@ -147,7 +148,7 @@ class CompetitionGradingService
      * @param  Collection<int, Leaderboard>  $competitions
      * @return array{0: string, 1: string}|null
      */
-    private static function refusal(?Student $student, Collection $competitions, int $competitionId, string $date, string $today): ?array
+    private static function refusal(Teacher $teacher, ?Student $student, Collection $competitions, int $competitionId, string $date, string $today): ?array
     {
         if (! $student) {
             return ['student_unavailable', 'لم يعد هذا الطالب مشاركاً في حلقاتك.'];
@@ -161,6 +162,10 @@ class CompetitionGradingService
 
         if ($date > $today) {
             return ['future_date', 'هذا اليوم لم يأتِ بعد، فلا يمكن الرصد فيه.'];
+        }
+
+        if (! $teacher->mayWorkOn((int) $student->circle_id, $date)) {
+            return ['substitute_day_only', 'تنوب في هذه الحلقة اليوم فقط، فلا ترصد فيها إلا بتاريخ اليوم.'];
         }
 
         $starts = $competition->start_date?->toDateString();
@@ -220,11 +225,11 @@ class CompetitionGradingService
      * @param  Collection<int, Student>  $students
      * @return array<string, mixed>
      */
-    private static function addExtraPoint(array $change, Collection $competitions, Collection $students, string $today): array
+    private static function addExtraPoint(Teacher $teacher, array $change, Collection $competitions, Collection $students, string $today): array
     {
         $student = $students->get($change['student_id']);
 
-        if ($refusal = self::refusal($student, $competitions, (int) $change['competition_id'], $change['date'], $today)) {
+        if ($refusal = self::refusal($teacher, $student, $competitions, (int) $change['competition_id'], $change['date'], $today)) {
             return self::rejected(...$refusal);
         }
 
@@ -264,7 +269,7 @@ class CompetitionGradingService
      * @param  Collection<int, object>  $targets
      * @return array<string, mixed>
      */
-    private static function removeExtraPoint(array $change, Collection $competitions, Collection $students, Collection $targets): array
+    private static function removeExtraPoint(Teacher $teacher, array $change, Collection $competitions, Collection $students, Collection $targets): array
     {
         $id = $change['extra_point_id'] ?? null;
         $uuid = $change['extra_point_uuid'] ?? null;
@@ -286,6 +291,10 @@ class CompetitionGradingService
 
         if (! $student || $competitions->get($student->circle_id)?->id !== (int) $row->leaderboard_id) {
             return self::rejected('extra_point_unavailable', 'لا يمكنك حذف هذه النقاط.');
+        }
+
+        if (! $teacher->mayWorkOn((int) $student->circle_id, CarbonImmutable::parse($row->date)->toDateString())) {
+            return self::rejected('substitute_day_only', 'تنوب في هذه الحلقة اليوم فقط، فلا تحذف إلا رصد اليوم.');
         }
 
         DB::table('leaderboard_extra_points')->where('id', $row->id)->delete();

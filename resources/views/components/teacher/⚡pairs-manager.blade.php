@@ -120,9 +120,10 @@ new class extends Component
         ];
     }
 
+    /** The teacher's circles, and any they stand in for today. */
     private function circles()
     {
-        return Auth::guard('teacher')->user()->circles()->orderBy('circles.id')->get();
+        return Auth::guard('teacher')->user()->workingCircles()->get();
     }
 
     private function circle()
@@ -130,10 +131,16 @@ new class extends Component
         return $this->circles()->firstWhere('id', $this->circleId) ?? abort(403);
     }
 
-    /** The day picked, never one after today. */
+    /** The day picked, never one after today — and today alone in a circle stood in for. */
     private function day(): string
     {
-        return min($this->date ?: TeacherSyncSnapshot::today(), TeacherSyncSnapshot::today());
+        $today = TeacherSyncSnapshot::today();
+
+        if ($this->circleId && in_array($this->circleId, Auth::guard('teacher')->user()->substituteCircleIds(), true)) {
+            return $today;
+        }
+
+        return min($this->date ?: $today, $today);
     }
 
     /** One of the circle's pairs of the day, and a place in it that recites. */
@@ -170,6 +177,8 @@ new class extends Component
 ?>
 
 <div class="space-y-6">
+    <x-teacher.standing-in />
+
     <div class="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
         <div>
             <flux:heading size="xl">{{ __('التسميع المتبادل') }}</flux:heading>

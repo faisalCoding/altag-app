@@ -122,6 +122,7 @@ Route::middleware(['auth:manager', 'approved', 'page.enabled'])->prefix('manager
     Route::view('/teachers', 'manager.teachers')->name('teachers');
     Route::view('/teacher-attendance', 'manager.teacher-attendance')->name('teacher-attendance');
     Route::view('/teacher-attendance-report', 'manager.teacher-attendance-report')->name('teacher-attendance-report');
+    Route::view('/substitutes', 'manager.substitutes')->name('substitutes');
     Route::view('/students', 'manager.students')->name('students');
     Route::view('/guardians', 'manager.guardians')->name('guardians');
     Route::view('/attendance-reports', 'manager.attendance-reports')->name('attendance-reports');
@@ -169,6 +170,7 @@ Route::middleware(['auth:supervisor', 'approved', 'page.enabled', 'surveys.requi
     Route::view('/teachers', 'supervisor.teachers')->name('teachers');
     Route::view('/teacher-attendance', 'supervisor.teacher-attendance')->name('teacher-attendance');
     Route::view('/teacher-attendance-report', 'supervisor.teacher-attendance-report')->name('teacher-attendance-report');
+    Route::view('/substitutes', 'supervisor.substitutes')->name('substitutes');
     Route::view('/odes', 'supervisor.odes')->name('odes');
     Route::view('/odes/paths', 'supervisor.ode-paths')->name('odes.paths');
     Route::view('/hadiths', 'supervisor.hadiths')->name('hadiths');
