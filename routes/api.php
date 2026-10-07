@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\V1\Teacher\AttendanceChangeController;
 use App\Http\Controllers\Api\V1\Teacher\AuthController as V1AuthController;
 use App\Http\Controllers\Api\V1\Teacher\ExamChangeController;
 use App\Http\Controllers\Api\V1\Teacher\ExtraPointChangeController;
+use App\Http\Controllers\Api\V1\Teacher\PeerPairController;
 use App\Http\Controllers\Api\V1\Teacher\ScoreChangeController;
 use App\Http\Controllers\Api\V1\Teacher\StudentContactController;
 use App\Http\Controllers\Api\V1\Teacher\SyncController;
@@ -47,6 +48,13 @@ Route::prefix('v1/teacher')->name('api.v1.teacher.')->group(function () {
 
         Route::middleware(['teacher.api:teacher.student-exams', 'throttle:120,1'])->group(function () {
             Route::post('/exams/changes', [ExamChangeController::class, 'store'])->name('exams.changes.store');
+        });
+
+        // Mutual recitation: the day's pairs, swaps and outcomes.
+        Route::middleware(['teacher.api:teacher.pairs', 'throttle:120,1'])->prefix('/pairs')->name('pairs.')->group(function () {
+            Route::post('/generate', [PeerPairController::class, 'generate'])->name('generate');
+            Route::post('/swap', [PeerPairController::class, 'swap'])->name('swap');
+            Route::post('/{pair}/result', [PeerPairController::class, 'record'])->whereNumber('pair')->name('result');
         });
 
         // The student's number and their guardian, from the student card.

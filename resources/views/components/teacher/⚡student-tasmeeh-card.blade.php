@@ -800,7 +800,30 @@ new class extends Component {
             'perms' => $perms,
             'currentTracks' => $currentTracks,
             'examBox' => $this->examBox(),
+            'peerResult' => $this->peerResult(),
         ];
+    }
+
+    /**
+     * How the student's mutual recitation went on the day picked, as a hint
+     * beside the grading: the mistakes their classmate counted, and whether
+     * they were found ready. Null when they recited to no one that day.
+     *
+     * @return array{mistakes: ?int, ready: ?bool}|null
+     */
+    private function peerResult(): ?array
+    {
+        $today = \App\Services\TeacherSyncSnapshot::today();
+        $date = is_string($this->gradedAtDate) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $this->gradedAtDate) ? $this->gradedAtDate : $today;
+
+        $pair = \App\Models\PeerPair::where('date', $date)
+            ->where(fn ($query) => $query->where('first_id', $this->student->id)->orWhere('second_id', $this->student->id))
+            ->first();
+        $place = $pair?->placeOf($this->student->id);
+
+        return $pair && $place && $pair->recites($place)
+            ? ['mistakes' => $pair->{"{$place}_mistakes"}, 'ready' => $pair->{"{$place}_ready"}]
+            : null;
     }
 
     public function placeholder(): string
@@ -986,6 +1009,23 @@ new class extends Component {
         }" x-show="currentQuranDay()" x-cloak>
             <flux:card x-bind:class="syncing && 'opacity-70'"
                 class="border-zinc-200 dark:border-zinc-700 transition-opacity">
+
+                {{-- How the student's mutual recitation went that day: a hint, not a grade. --}}
+                @if ($peerResult)
+                    <div class="mb-3 flex flex-wrap items-center gap-2 text-xs">
+                        <span class="inline-flex items-center gap-1 rounded-full bg-zinc-100 px-2.5 py-1 font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                            <flux:icon icon="arrows-right-left" class="size-3.5" />
+                            {{ __('التسميع المتبادل:') }}
+                            {{ $peerResult['mistakes'] === null ? __('لم تُسجَّل أخطاؤه') : $peerResult['mistakes'].' '.__('أخطاء') }}
+                        </span>
+                        @if ($peerResult['ready'])
+                            <span class="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+                                <flux:icon icon="check" class="size-3.5" />
+                                {{ __('جاهز للمعلم') }}
+                            </span>
+                        @endif
+                    </div>
+                @endif
 
                 {{-- Day navigation --}}
                 <div class="flex items-center justify-between mb-4 md:mb-8 border-b border-zinc-100 dark:border-zinc-800 pb-3 md:pb-4">

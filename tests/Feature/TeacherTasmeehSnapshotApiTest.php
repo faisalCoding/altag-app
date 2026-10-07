@@ -70,7 +70,7 @@ function snapshot(): TestResponse
 }
 
 it('tells the app which screens it may show', function () {
-    snapshot()->assertJsonPath('data.pages', ['tasmeeh' => true, 'student_exams' => true]);
+    snapshot()->assertJsonPath('data.pages', ['tasmeeh' => true, 'student_exams' => true, 'pairs' => true]);
 });
 
 it('sends the active quran plans of the teacher\'s students, newest first per student', function () {
@@ -210,7 +210,7 @@ it('sends no plans or exams once both screens are switched off for teachers', fu
     RoleScreenPermission::whereIn('screen_id', Screen::whereIn('route_name', ['teacher.tasmeeh', 'teacher.student-exams'])->pluck('id'))->delete();
 
     snapshot()
-        ->assertJsonPath('data.pages', ['tasmeeh' => false, 'student_exams' => false])
+        ->assertJsonPath('data.pages', ['tasmeeh' => false, 'student_exams' => false, 'pairs' => true])
         ->assertJsonPath('data.tasmeeh_plans', [])
         ->assertJsonPath('data.tasmeeh_days', [])
         ->assertJsonPath('data.exam_levels', [])
@@ -225,7 +225,7 @@ it('still sends the exams, read-only, while tasmeeh is on and the exams screen i
     RoleScreenPermission::where('screen_id', Screen::where('route_name', 'teacher.student-exams')->value('id'))->delete();
 
     $response = snapshot()
-        ->assertJsonPath('data.pages', ['tasmeeh' => true, 'student_exams' => false])
+        ->assertJsonPath('data.pages', ['tasmeeh' => true, 'student_exams' => false, 'pairs' => true])
         ->assertJsonPath('data.exam_levels.0.id', $level->id)
         ->assertJsonPath('data.exam_levels.0.juz_count', 1)
         ->assertJsonPath('data.exams.0.id', $pending->id);
@@ -241,7 +241,7 @@ it('sends the exams but no plans while only the exams screen is on', function ()
     RoleScreenPermission::where('screen_id', Screen::where('route_name', 'teacher.tasmeeh')->value('id'))->delete();
 
     snapshot()
-        ->assertJsonPath('data.pages', ['tasmeeh' => false, 'student_exams' => true])
+        ->assertJsonPath('data.pages', ['tasmeeh' => false, 'student_exams' => true, 'pairs' => true])
         ->assertJsonPath('data.tasmeeh_plans', [])
         ->assertJsonCount(1, 'data.exam_levels');
 });

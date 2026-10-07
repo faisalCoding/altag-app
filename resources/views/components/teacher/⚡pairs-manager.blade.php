@@ -1,422 +1,270 @@
 <?php
 
-use Livewire\Component;
+use App\Models\PeerPair;
 use App\Models\Student;
 use App\Models\StudentPlanDay;
+use App\Services\PeerPairing;
+use App\Services\TeacherSyncSnapshot;
+use Flux\Flux;
 use Illuminate\Support\Facades\Auth;
+use Livewire\Component;
 
+/**
+ * Mutual recitation: the day's pairs of a circle, made from the students
+ * present, kept for every teacher of the circle and the teacher app, with
+ * students swapped by hand and each recitation's outcome recorded.
+ */
 new class extends Component
 {
-    public $date;
-    public $pairs = [];
-    public $oneWayPairs = [];
-    public $unpaired = [];
-    public $hasGenerated = false;
+    public ?int $circleId = null;
 
-    public function mount()
+    public string $date = '';
+
+    /** The student picked to swap, waiting for the one to swap with. */
+    public ?int $swapping = null;
+
+    public function mount(): void
     {
-        $this->date = now()->format('Y-m-d');
+        $this->circleId = $this->circles()->first()?->id;
+        // The academy's day, not the server's.
+        $this->date = TeacherSyncSnapshot::today();
     }
 
-    public function generatePairs()
+    public function updatedCircleId(): void
     {
-        $teacher = Auth::guard('teacher')->user();
-        $circleIds = $teacher->circles()->pluck('circles.id');
+        $this->swapping = null;
+    }
 
-        // 1. Get present/late students
-        $students = Student::whereIn('circle_id', $circleIds)
-            ->whereHas('attendances', function($q) {
-                $q->whereDate('date', $this->date)
-                  ->whereIn('status', ['present', 'late']);
-            })->get();
+    public function updatedDate(): void
+    {
+        $this->swapping = null;
+    }
 
-        // 2. For each student, find their pending review range, and their memorized limit
-        $studentData = [];
-        foreach ($students as $student) {
-            $memorizedRange = $student->getMemorizedRange();
-            if (!$memorizedRange) {
-                // Cannot be paired if they don't have any memorized limit
-                continue;
-            }
+    public function generatePairs(): void
+    {
+        $circle = $this->circle();
 
-            // Find the pending review
-            $planDay = StudentPlanDay::whereHas('plan', function($q) use ($student) {
-                $q->where('student_id', $student->id)
-                  ->where('is_approved', true)
-                  ->where('status', 'active');
-            })
-            ->whereNotNull('review_from_ayah_id')
-            ->whereNotNull('review_to_ayah_id')
-            // A «لم يسمع» (0) was not recited, so that review is still pending.
-            ->where(fn ($q) => $q->whereNull('review_achievement')->orWhere('review_achievement', 0))
-            ->orderBy('date', 'asc')
-            ->first();
+        PeerPairing::generate($circle, $this->day(), Auth::guard('teacher')->id());
+        $this->swapping = null;
 
-            if ($planDay) {
-                $hasReview = true;
-                $reviewMin = min($planDay->review_from_ayah_id, $planDay->review_to_ayah_id);
-                $reviewMax = max($planDay->review_from_ayah_id, $planDay->review_to_ayah_id);
-                $reviewText = $planDay->formatRange('review');
-            } else {
-                $hasReview = false;
-                // If they have no pending review, consider their entire memorization (for display only)
-                $reviewMin = $memorizedRange['min'];
-                $reviewMax = $memorizedRange['max'];
-                
-                $minSurah = \App\Models\Ayah::find($reviewMin)->surah->name_arabic ?? '';
-                $maxSurah = \App\Models\Ayah::find($reviewMax)->surah->name_arabic ?? '';
-                $reviewText = "محفوظه بالكامل (" . $minSurah . " - " . $maxSurah . ")";
-            }
+        Flux::toast('وُزّعت الثنائيات', variant: 'success');
+    }
 
-            $memMinAyah = \App\Models\Ayah::find($memorizedRange['min']);
-            $memMaxAyah = \App\Models\Ayah::find($memorizedRange['max']);
-            $memMinText = $memMinAyah ? $memMinAyah->surah->name_arabic . ' (' . $memMinAyah->verse_number . ')' : '';
-            $memMaxText = $memMaxAyah ? $memMaxAyah->surah->name_arabic . ' (' . $memMaxAyah->verse_number . ')' : '';
-            $memText = "المحفوظ: " . $memMinText . " ➔ " . $memMaxText;
+    /** Pick a student to swap, then the one to swap with; the same student again lets go. */
+    public function pick(int $studentId): void
+    {
+        if ($this->swapping === null) {
+            $this->swapping = $studentId;
 
-            $effectiveMemMin = $memorizedRange['min'];
-            $effectiveMemMax = $memorizedRange['max'];
-
-            if ($hasReview) {
-                $effectiveMemMin = min($effectiveMemMin, $reviewMin);
-                $effectiveMemMax = max($effectiveMemMax, $reviewMax);
-            }
-
-            $studentData[$student->id] = [
-                'student' => $student,
-                'has_review' => $hasReview,
-                'review_min' => $reviewMin,
-                'review_max' => $reviewMax,
-                'mem_min' => $memorizedRange['min'],
-                'mem_max' => $memorizedRange['max'],
-                'effective_mem_min' => $effectiveMemMin,
-                'effective_mem_max' => $effectiveMemMax,
-                'mem_text' => $memText,
-                'review_text' => $reviewText,
-            ];
+            return;
         }
 
-        // 3. Build compatibility graph
-        $edges = [];
-        $degrees = [];
-        $canReciteTo = [];
-        $studentIds = array_keys($studentData);
+        if ($this->swapping === $studentId) {
+            $this->swapping = null;
 
-        foreach ($studentIds as $id) {
-            $degrees[$id] = 0;
-            $edges[$id] = [];
-            $canReciteTo[$id] = [];
+            return;
         }
 
-        for ($i = 0; $i < count($studentIds); $i++) {
-            for ($j = $i + 1; $j < count($studentIds); $j++) {
-                $idA = $studentIds[$i];
-                $idB = $studentIds[$j];
+        $circle = $this->circle();
+        $inCircle = Student::where('circle_id', $circle->id)->whereKey([$this->swapping, $studentId])->count();
 
-                $a = $studentData[$idA];
-                $b = $studentData[$idB];
-
-                // A recites to B: A's review is within B's mem (only if A actually has a review)
-                $aToB = !$a['has_review'] || ($a['review_min'] >= $b['effective_mem_min'] && $a['review_max'] <= $b['effective_mem_max']);
-                
-                // B recites to A: B's review is within A's mem (only if B actually has a review)
-                $bToA = !$b['has_review'] || ($b['review_min'] >= $a['effective_mem_min'] && $b['review_max'] <= $a['effective_mem_max']);
-
-                // However, they must not BOTH be without a review, otherwise they have nothing to do!
-                if (!$a['has_review'] && !$b['has_review']) {
-                    $aToB = false; // Prevents them from pairing uselessly
-                    $bToA = false;
-                }
-
-                if ($aToB && $a['has_review']) {
-                    $canReciteTo[$idA][] = $b['student']->name;
-                }
-                
-                if ($bToA && $b['has_review']) {
-                    $canReciteTo[$idB][] = $a['student']->name;
-                }
-
-                if ($aToB && $bToA) {
-                    $edges[$idA][] = $idB;
-                    $edges[$idB][] = $idA;
-                    $degrees[$idA]++;
-                    $degrees[$idB]++;
-                }
-            }
+        if ($inCircle === 2) {
+            PeerPairing::swap($circle, $this->day(), $this->swapping, $studentId);
         }
 
-        // 4. Greedy matching
-        $matched = [];
-        $pairs = [];
+        $this->swapping = null;
+    }
 
-        // Sort ids by degree ascending
-        uasort($degrees, function($a, $b) {
-            return $a <=> $b;
-        });
+    public function adjustMistakes(int $pairId, string $place, int $step): void
+    {
+        $pair = $this->pair($pairId, $place);
+        $mistakes = max(0, min(99, ($pair->{"{$place}_mistakes"} ?? 0) + ($step < 0 ? -1 : 1)));
 
-        foreach ($degrees as $id => $degree) {
-            if (in_array($id, $matched) || $degree === 0) continue;
+        PeerPairing::record($pair, $place, $mistakes, $pair->{"{$place}_ready"});
+    }
 
-            // Find available partner with the lowest degree
-            $bestPartner = null;
-            $bestPartnerDegree = PHP_INT_MAX;
+    public function toggleReady(int $pairId, string $place): void
+    {
+        $pair = $this->pair($pairId, $place);
 
-            foreach ($edges[$id] as $partnerId) {
-                if (!in_array($partnerId, $matched)) {
-                    if ($degrees[$partnerId] < $bestPartnerDegree) {
-                        $bestPartnerDegree = $degrees[$partnerId];
-                        $bestPartner = $partnerId;
-                    }
-                }
-            }
+        PeerPairing::record($pair, $place, $pair->{"{$place}_mistakes"}, ! $pair->{"{$place}_ready"});
+    }
 
-            if ($bestPartner) {
-                $matched[] = $id;
-                $matched[] = $bestPartner;
-                $pairs[] = [
-                    'student1' => $studentData[$id],
-                    'student2' => $studentData[$bestPartner],
-                ];
-            }
-        }
+    public function with(): array
+    {
+        $circle = $this->circleId ? $this->circles()->firstWhere('id', $this->circleId) : null;
+        $pairs = $circle ? PeerPairing::forDay($circle->id, $this->day()) : collect();
 
-        // 4.5 One-Way matching (Reciter and Listener)
-        $oneWayPairs = [];
-        $unmatchedIds = array_diff($studentIds, $matched);
+        return [
+            'circles' => $this->circles(),
+            'pairs' => $pairs,
+            'unpaired' => $circle ? PeerPairing::unpaired($circle->id, $this->day(), $pairs) : collect(),
+        ];
+    }
 
-        // Sort unmatched students by memorization amount (highest first) to give them priority
-        usort($unmatchedIds, function($idA, $idB) use ($studentData) {
-            $memCountA = $studentData[$idA]['effective_mem_max'] - $studentData[$idA]['effective_mem_min'];
-            $memCountB = $studentData[$idB]['effective_mem_max'] - $studentData[$idB]['effective_mem_min'];
-            return $memCountB <=> $memCountA;
-        });
+    private function circles()
+    {
+        return Auth::guard('teacher')->user()->circles()->orderBy('circles.id')->get();
+    }
 
-        foreach ($unmatchedIds as $idA) {
-            if (in_array($idA, $matched)) continue;
+    private function circle()
+    {
+        return $this->circles()->firstWhere('id', $this->circleId) ?? abort(403);
+    }
 
-            foreach ($unmatchedIds as $idB) {
-                if ($idA === $idB) continue;
-                if (in_array($idB, $matched)) continue;
+    /** The day picked, never one after today. */
+    private function day(): string
+    {
+        return min($this->date ?: TeacherSyncSnapshot::today(), TeacherSyncSnapshot::today());
+    }
 
-                $a = $studentData[$idA];
-                $b = $studentData[$idB];
+    /** One of the circle's pairs of the day, and a place in it that recites. */
+    private function pair(int $pairId, string $place): PeerPair
+    {
+        abort_unless(in_array($place, PeerPair::PLACES, true), 422);
 
-                // For one-way, the reciter MUST have a review
-                $aToB = $a['has_review'] && ($a['review_min'] >= $b['effective_mem_min'] && $a['review_max'] <= $b['effective_mem_max']);
-                $bToA = $b['has_review'] && ($b['review_min'] >= $a['effective_mem_min'] && $b['review_max'] <= $a['effective_mem_max']);
+        return PeerPair::whereKey($pairId)
+            ->where('circle_id', $this->circle()->id)
+            ->where('date', $this->day())
+            ->firstOrFail();
+    }
 
-                if ($aToB) {
-                    $matched[] = $idA;
-                    $matched[] = $idB;
-                    $oneWayPairs[] = [
-                        'reciter' => $a,
-                        'listener' => $b,
-                    ];
-                    break;
-                } elseif ($bToA) {
-                    $matched[] = $idA;
-                    $matched[] = $idB;
-                    $oneWayPairs[] = [
-                        'reciter' => $b,
-                        'listener' => $a,
-                    ];
-                    break;
-                }
-            }
-        }
-
-        $unpaired = [];
-        foreach ($students as $student) {
-            if (!in_array($student->id, $matched)) {
-                $reason = "لا يوجد توافق مع بقية الطلاب";
-                $memText = null;
-                $reviewText = null;
-                $listeners = [];
-                
-                if (!isset($studentData[$student->id])) {
-                    $reason = "ليس لديه أي سجل حفظ معتمد في النظام";
-                } else {
-                    $memText = $studentData[$student->id]['mem_text'];
-                    $reviewText = $studentData[$student->id]['review_text'];
-                    $listeners = $canReciteTo[$student->id] ?? [];
-                }
-                
-                $unpaired[] = [
-                    'student' => $student,
-                    'reason' => $reason,
-                    'mem_text' => $memText,
-                    'review_text' => $reviewText,
-                    'listeners' => $listeners,
-                ];
-            }
-        }
-
-        $this->pairs = $pairs;
-        $this->oneWayPairs = $oneWayPairs;
-        $this->unpaired = $unpaired;
-        $this->hasGenerated = true;
+    public function portion(PeerPair $pair, string $place): ?string
+    {
+        return StudentPlanDay::formatAyahRange($pair->{"{$place}FromAyah"}, $pair->{"{$place}ToAyah"});
     }
 };
 ?>
 
-<div>
-    <div class="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+<div class="space-y-6">
+    <div class="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
         <div>
-            <flux:heading size="xl">{{ __('نظام الثنائيات (التسميع المتبادل)') }}</flux:heading>
-            <flux:subheading>{{ __('قم بتوزيع الطلاب الحاضرين في ثنائيات بحيث يسمع كل طالب مراجعته لزميله الذي يحفظها سلفاً.') }}</flux:subheading>
+            <flux:heading size="xl">{{ __('التسميع المتبادل') }}</flux:heading>
+            <flux:subheading>{{ __('يُسمّع كل طالب مراجعته لزميل يحفظها، ويسجّل المعلم أخطاءه ومتى يصبح جاهزاً له.') }}</flux:subheading>
         </div>
-        
-        <div class="flex items-center gap-2">
-            <div class="w-40">
+
+        <div class="flex flex-wrap items-end gap-2">
+            @if ($circles->count() > 1)
+                <div class="w-44">
+                    <flux:select wire:model.live="circleId" label="{{ __('الحلقة') }}">
+                        @foreach ($circles as $circle)
+                            <flux:select.option value="{{ $circle->id }}">{{ $circle->name }}</flux:select.option>
+                        @endforeach
+                    </flux:select>
+                </div>
+            @endif
+            <div class="w-44">
                 <livewire:shared.hijri-datepicker wire:model.live="date" label="" />
             </div>
-            <flux:button wire:click="generatePairs" variant="primary" icon="sparkles">
-                {{ __('توليد الثنائيات') }}
+            <flux:button wire:click="generatePairs" variant="primary" icon="sparkles"
+                :wire:confirm="$pairs->isNotEmpty() ? __('تُستبدل ثنائيات هذا اليوم وما سُجّل فيها. متابعة؟') : null">
+                {{ $pairs->isEmpty() ? __('توليد الثنائيات') : __('إعادة التوليد') }}
             </flux:button>
         </div>
     </div>
 
-    @if($hasGenerated)
+    @if ($swapping)
+        <div class="flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-300">
+            <span>{{ __('اختر الطالب الذي يأخذ مكانه — من ثنائية أخرى أو ممن بلا زميل.') }}</span>
+            <flux:button size="sm" variant="ghost" wire:click="pick({{ $swapping }})">{{ __('إلغاء') }}</flux:button>
+        </div>
+    @endif
+
+    @if ($pairs->isEmpty())
+        <div class="flex flex-col items-center justify-center p-12 bg-white dark:bg-zinc-900 rounded-3xl border border-zinc-100 dark:border-zinc-800 shadow-xs text-center">
+            <div class="w-16 h-16 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-500 rounded-full flex items-center justify-center mb-5">
+                <flux:icon icon="users" class="size-8" />
+            </div>
+            <flux:heading size="lg" class="mb-2">{{ __('لا ثنائيات لهذا اليوم بعد') }}</flux:heading>
+            <p class="text-sm text-zinc-500 max-w-md">
+                {{ __('حضّر الطلاب ثم اضغط «توليد الثنائيات»: يقابل النظام مراجعة كل طالب حاضر بمحفوظ زملائه، وتظهر الثنائيات نفسها لكل معلمي الحلقة وفي تطبيق المعلم.') }}
+            </p>
+        </div>
+    @else
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            
-            <div class="lg:col-span-2 space-y-4">
-                <flux:heading size="lg" class="mb-2">{{ __('الثنائيات المتطابقة') }} ({{ count($pairs) }} {{ __('ثنائي') }})</flux:heading>
-                
-                @forelse($pairs as $index => $pair)
-                    <div class="p-5 bg-white dark:bg-zinc-900 border border-indigo-200 dark:border-indigo-500/20 rounded-2xl shadow-sm relative overflow-hidden">
-                        <div class="absolute top-0 left-0 w-1.5 h-full bg-indigo-500"></div>
-                        
-                        <div class="flex items-center justify-between gap-4">
-                            
-                            {{-- Student 1 --}}
-                            <div class="flex-1 text-right">
-                                <div class="text-xs text-emerald-600 dark:text-emerald-400 font-medium mb-1">{{ $pair['student1']['mem_text'] }}</div>
-                                <div class="font-bold text-lg text-zinc-900 dark:text-zinc-100">{{ $pair['student1']['student']->name }}</div>
-                                <div class="text-sm text-zinc-500 mt-1">يُسمِّع لزميله:</div>
-                                <div class="mt-2 text-sm font-medium px-3 py-1.5 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 rounded-lg inline-block">
-                                    {{ $pair['student1']['review_text'] }}
+            <div class="lg:col-span-2 space-y-3">
+                @foreach ($pairs as $pair)
+                    <div wire:key="pair-{{ $pair->id }}"
+                        class="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr] items-stretch gap-3 p-4 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-xs">
+                        @foreach (\App\Models\PeerPair::PLACES as $place)
+                            @php
+                                $student = $pair->{$place};
+                                $recites = $pair->recites($place);
+                                $mistakes = $pair->{"{$place}_mistakes"};
+                                $ready = $pair->{"{$place}_ready"};
+                            @endphp
+
+                            @if ($place === 'second')
+                                <div class="hidden sm:flex items-center justify-center text-zinc-400">
+                                    <flux:icon :icon="$pair->mutual ? 'arrows-right-left' : 'arrow-left'" class="size-5" />
                                 </div>
-                            </div>
+                            @endif
 
-                            {{-- Exchange Icon --}}
-                            <div class="shrink-0 flex flex-col items-center justify-center p-3 bg-zinc-50 dark:bg-zinc-800 rounded-full text-zinc-400">
-                                <flux:icon icon="arrows-right-left" class="size-6" />
-                            </div>
-
-                            {{-- Student 2 --}}
-                            <div class="flex-1 text-left">
-                                <div class="text-xs text-emerald-600 dark:text-emerald-400 font-medium mb-1">{{ $pair['student2']['mem_text'] }}</div>
-                                <div class="font-bold text-lg text-zinc-900 dark:text-zinc-100">{{ $pair['student2']['student']->name }}</div>
-                                <div class="text-sm text-zinc-500 mt-1">يُسمِّع لزميله:</div>
-                                <div class="mt-2 text-sm font-medium px-3 py-1.5 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 rounded-lg inline-block">
-                                    {{ $pair['student2']['review_text'] }}
+                            <div @class([
+                                'rounded-xl p-3 space-y-2',
+                                'bg-amber-50 ring-2 ring-amber-400 dark:bg-amber-500/10' => $swapping === $student?->id,
+                                'bg-zinc-50 dark:bg-zinc-800/50' => $swapping !== $student?->id,
+                            ])>
+                                <div class="flex items-center justify-between gap-2">
+                                    <button type="button" wire:click="pick({{ $student?->id }})"
+                                        class="font-bold text-zinc-900 dark:text-zinc-100 truncate text-start hover:underline"
+                                        title="{{ __('تبديل') }}">{{ $student?->name }}</button>
+                                    <flux:button size="xs" variant="subtle" icon="arrows-up-down" wire:click="pick({{ $student?->id }})"
+                                        aria-label="{{ __('تبديل :name', ['name' => $student?->name]) }}" />
                                 </div>
-                            </div>
 
-                        </div>
+                                @if ($recites)
+                                    <div class="text-xs text-zinc-500">
+                                        {{ __('يُسمّع:') }}
+                                        <span class="font-medium text-indigo-700 dark:text-indigo-300">{{ $this->portion($pair, $place) ?? __('لا ورد مراجعة له') }}</span>
+                                    </div>
+
+                                    <div class="flex items-center justify-between gap-2">
+                                        <div class="flex items-center gap-1" role="group" aria-label="{{ __('الأخطاء') }}">
+                                            <flux:button size="xs" variant="ghost" icon="minus" wire:click="adjustMistakes({{ $pair->id }}, '{{ $place }}', -1)"
+                                                :disabled="! $mistakes" aria-label="{{ __('خطأ أقل') }}" />
+                                            <span class="min-w-14 text-center text-sm font-semibold text-zinc-700 dark:text-zinc-200">
+                                                {{ $mistakes === null ? __('الأخطاء') : $mistakes.' '.__('أخطاء') }}
+                                            </span>
+                                            <flux:button size="xs" variant="ghost" icon="plus" wire:click="adjustMistakes({{ $pair->id }}, '{{ $place }}', 1)"
+                                                aria-label="{{ __('خطأ زائد') }}" />
+                                        </div>
+                                        <flux:button size="xs" wire:click="toggleReady({{ $pair->id }}, '{{ $place }}')"
+                                            :variant="$ready ? 'primary' : 'outline'" :icon="$ready ? 'check' : null">
+                                            {{ __('جاهز للمعلم') }}
+                                        </flux:button>
+                                    </div>
+                                @else
+                                    <div class="text-xs text-zinc-500">{{ __('يستمع لزميله ويصحح له') }}</div>
+                                @endif
+                            </div>
+                        @endforeach
                     </div>
+                @endforeach
+            </div>
+
+            <div class="space-y-3">
+                <flux:heading size="lg">{{ __('بلا زميل') }} ({{ $unpaired->count() }})</flux:heading>
+                @forelse ($unpaired as $item)
+                    <button type="button" wire:key="unpaired-{{ $item['student']->id }}" wire:click="pick({{ $item['student']->id }})"
+                        @class([
+                            'w-full text-start p-3 rounded-xl border transition-colors',
+                            'border-amber-400 bg-amber-50 dark:bg-amber-500/10' => $swapping === $item['student']->id,
+                            'border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:border-zinc-300' => $swapping !== $item['student']->id,
+                        ])>
+                        <div class="font-semibold text-zinc-900 dark:text-zinc-100">{{ $item['student']->name }}</div>
+                        <div class="text-xs text-zinc-500 mt-0.5">{{ $item['reason'] }}</div>
+                    </button>
                 @empty
-                    <div class="p-8 text-center bg-zinc-50 dark:bg-zinc-800/50 rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-700">
-                        <flux:icon icon="face-frown" class="size-8 text-zinc-400 mx-auto mb-3" />
-                        <div class="text-zinc-500">{{ __('لم نتمكن من إيجاد أي ثنائيات متطابقة لليوم المحدد.') }}</div>
+                    <div class="p-4 text-center bg-zinc-50 dark:bg-zinc-800/50 rounded-xl text-sm text-zinc-500">
+                        {{ __('كل الحاضرين في ثنائيات.') }}
                     </div>
                 @endforelse
 
-                @if(count($oneWayPairs) > 0)
-                    <flux:heading size="lg" class="mt-8 mb-2">{{ __('الثنائيات من طرف واحد (مُسَمِّع ومُستَمِع)') }} ({{ count($oneWayPairs) }} {{ __('ثنائي') }})</flux:heading>
-                    
-                    @foreach($oneWayPairs as $index => $pair)
-                        <div class="p-5 bg-white dark:bg-zinc-900 border border-emerald-200 dark:border-emerald-500/20 rounded-2xl shadow-sm relative overflow-hidden">
-                            <div class="absolute top-0 left-0 w-1.5 h-full bg-emerald-500"></div>
-                            
-                            <div class="flex items-center justify-between gap-4">
-                                
-                                {{-- Reciter --}}
-                                <div class="flex-1 text-right">
-                                    <div class="text-xs text-emerald-600 dark:text-emerald-400 font-medium mb-1">{{ $pair['reciter']['mem_text'] }}</div>
-                                    <div class="font-bold text-lg text-zinc-900 dark:text-zinc-100">{{ $pair['reciter']['student']->name }}</div>
-                                    <div class="text-sm text-zinc-500 mt-1">يُسمِّع لزميله:</div>
-                                    <div class="mt-2 text-sm font-medium px-3 py-1.5 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 rounded-lg inline-block">
-                                        {{ $pair['reciter']['review_text'] }}
-                                    </div>
-                                </div>
-
-                                {{-- Direction Icon --}}
-                                <div class="shrink-0 flex flex-col items-center justify-center p-3 bg-zinc-50 dark:bg-zinc-800 rounded-full text-zinc-400">
-                                    <flux:icon icon="arrow-left" class="size-6" />
-                                </div>
-
-                                {{-- Listener --}}
-                                <div class="flex-1 text-left">
-                                    <div class="text-xs text-emerald-600 dark:text-emerald-400 font-medium mb-1">{{ $pair['listener']['mem_text'] }}</div>
-                                    <div class="font-bold text-lg text-zinc-900 dark:text-zinc-100">{{ $pair['listener']['student']->name }}</div>
-                                    <div class="text-sm text-zinc-500 mt-1">دور هذا الطالب:</div>
-                                    <div class="mt-2 text-sm font-medium px-3 py-1.5 bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 rounded-lg inline-block">
-                                        يستمع لزميله ويصحح له
-                                    </div>
-                                </div>
-
-                            </div>
-                        </div>
-                    @endforeach
-                @endif
+                <p class="text-xs text-zinc-500 leading-relaxed">
+                    {{ __('اضغط اسمين لتبديلهما، أو اسمين بلا زميل لتجعلهما ثنائية. ومن بقي بلا زميل يُسمّع للمعلم مباشرة.') }}
+                </p>
             </div>
-
-            <div>
-                <flux:heading size="lg" class="mb-4 text-red-600 dark:text-red-400">{{ __('طلاب بدون ثنائي') }} ({{ count($unpaired) }})</flux:heading>
-                
-                <div class="space-y-3">
-                    @forelse($unpaired as $item)
-                        <div class="p-4 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-sm">
-                            <div class="text-xs text-emerald-600 dark:text-emerald-400 font-medium mb-1">
-                                {{ $item['mem_text'] ?? 'لا يوجد سجل محفوظ' }}
-                            </div>
-                            <div class="font-bold text-zinc-900 dark:text-zinc-100">{{ $item['student']->name }}</div>
-                            @if($item['review_text'])
-                                <div class="text-xs text-indigo-600 dark:text-indigo-400 mt-1">
-                                    <span class="font-semibold">يراجع:</span> {{ $item['review_text'] }}
-                                </div>
-                            @endif
-                            @if(count($item['listeners']) > 0)
-                                <div class="mt-3 p-2.5 bg-indigo-50 dark:bg-indigo-500/10 rounded-lg border border-indigo-100 dark:border-indigo-500/20">
-                                    <div class="text-xs font-bold text-indigo-700 dark:text-indigo-400 mb-1">
-                                        يمكنه التسميع لـ:
-                                    </div>
-                                    <div class="text-sm font-medium text-zinc-800 dark:text-zinc-200 leading-relaxed">
-                                        {{ implode('، ', $item['listeners']) }}
-                                    </div>
-                                </div>
-                            @endif
-                            <div class="text-xs text-red-500 mt-2 flex items-center gap-1">
-                                <flux:icon icon="exclamation-circle" class="size-4" />
-                                {{ $item['reason'] }}
-                            </div>
-                        </div>
-                    @empty
-                        <div class="p-4 text-center bg-zinc-50 dark:bg-zinc-800/50 rounded-xl text-sm text-zinc-500">
-                            {{ __('لا يوجد طلاب متبقين. توزيع مثالي!') }}
-                        </div>
-                    @endforelse
-                </div>
-                
-                <div class="mt-6 p-4 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 rounded-xl">
-                    <div class="text-sm text-amber-800 dark:text-amber-400 font-medium mb-1">ماذا تفعل بهؤلاء؟</div>
-                    <div class="text-xs text-amber-700 dark:text-amber-500">
-                        الطلاب غير الموزعين يجب أن يقوموا بتسميع المراجعة للمعلم مباشرة.
-                    </div>
-                </div>
-            </div>
-
-        </div>
-    @else
-        <div class="flex flex-col items-center justify-center p-12 bg-white dark:bg-zinc-900 rounded-3xl border border-zinc-100 dark:border-zinc-800 shadow-sm text-center">
-            <div class="w-20 h-20 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-500 rounded-full flex items-center justify-center mb-6">
-                <flux:icon icon="users" class="size-10" />
-            </div>
-            <flux:heading size="xl" class="mb-2">{{ __('توزيع الثنائيات الذكي') }}</flux:heading>
-            <p class="text-zinc-500 max-w-md mx-auto mb-6">
-                {{ __('قم باختيار تاريخ اليوم واضغط على زر التوليد. سيقوم النظام بتحليل خطط جميع الطلاب الحاضرين ومطابقة مراجعاتهم مع محفوظات بعضهم البعض لاستخراج أكبر عدد ممكن من الثنائيات.') }}
-            </p>
         </div>
     @endif
 </div>

@@ -6,6 +6,7 @@ use App\Http\Resources\TeacherResource;
 use App\Http\Resources\V1\SyncAttendanceResource;
 use App\Http\Resources\V1\SyncCircleResource;
 use App\Http\Resources\V1\SyncCompetitionResource;
+use App\Http\Resources\V1\SyncPeerPairResource;
 use App\Http\Resources\V1\SyncScoreResource;
 use App\Http\Resources\V1\SyncStudentResource;
 use App\Http\Resources\V1\SyncTurnResource;
@@ -15,6 +16,7 @@ use App\Models\AttendanceRevision;
 use App\Models\Circle;
 use App\Models\Leaderboard;
 use App\Models\LeaderboardScore;
+use App\Models\PeerPair;
 use App\Models\Student;
 use App\Models\Teacher;
 use App\Support\HijriDate;
@@ -124,6 +126,7 @@ class TeacherSyncSnapshot
         $pages = [
             'tasmeeh' => RolePages::isEnabled('teacher', 'teacher.tasmeeh'),
             'student_exams' => RolePages::isEnabled('teacher', 'teacher.student-exams'),
+            'pairs' => RolePages::isEnabled('teacher', 'teacher.pairs'),
         ];
 
         $tasmeeh = $pages['tasmeeh'] ? TasmeehSnapshot::for($students->modelKeys(), $from, $today) : TasmeehSnapshot::empty();
@@ -154,6 +157,16 @@ class TeacherSyncSnapshot
             'scores' => SyncScoreResource::collection($scores),
             'extra_points' => self::extraPoints($competitionIds->all(), $students->modelKeys(), $from, $today),
             ...$tasmeeh,
+            // The mutual-recitation pairs of the teacher's circles in the window.
+            'peer_pairs' => $pages['pairs']
+                ? SyncPeerPairResource::collection(PeerPair::whereIn('circle_id', $circles->modelKeys())
+                    ->where('date', '>=', $from)
+                    ->where('date', '<=', $today)
+                    ->orderBy('date')
+                    ->orderBy('circle_id')
+                    ->orderBy('position')
+                    ->get())
+                : [],
             // The turns students booked in the teacher's circles' queues.
             'turns' => $pages['tasmeeh']
                 ? SyncTurnResource::collection(TurnBooking::turnsBetween($circles->modelKeys(), $from, $today))
