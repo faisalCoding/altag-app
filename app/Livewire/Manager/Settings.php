@@ -4,6 +4,7 @@ namespace App\Livewire\Manager;
 
 use App\Models\Setting;
 use App\Support\Branding;
+use App\Support\SqliteSnapshot;
 use App\Support\TeacherAttendanceSettings;
 use Flux\Flux;
 use Illuminate\Support\Facades\Artisan;
@@ -167,7 +168,8 @@ class Settings extends Component
             mkdir($backupDir, 0755, true);
         }
 
-        copy($dbPath, $backupDir.'/'.$filename);
+        // Taken by SQLite itself, whole and consistent while the site runs.
+        SqliteSnapshot::to($backupDir.'/'.$filename);
         Flux::toast('تم حفظ النسخة الاحتياطية على الخادم بنجاح.', variant: 'success');
     }
 
@@ -230,10 +232,12 @@ class Settings extends Component
         // Create a safety backup of current state before replacing
         $safetyFilename = 'safety_pre_restore_'.now()->format('Y-m-d_H-i-s').'.sqlite';
         $backupDir = storage_path('app/backups');
-        copy($dbPath, $backupDir.'/'.$safetyFilename);
+        SqliteSnapshot::to($backupDir.'/'.$safetyFilename);
 
-        // Replace the current database with the selected backup
-        copy($backupPath, $dbPath);
+        // Replace the current database with the selected backup — never by
+        // copying over the live file, which left the old WAL to be replayed
+        // onto it and corrupted the database.
+        SqliteSnapshot::replaceWith($backupPath);
 
         // Re-run migrations one by one to safely apply any missing updates
         // If a migration fails (e.g., table already exists), we catch the error, mark it as completed, and continue

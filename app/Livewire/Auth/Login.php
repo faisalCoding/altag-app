@@ -21,7 +21,12 @@ class Login extends Component
 
     public string $password = '';
 
-    public bool $remember = false;
+    /**
+     * Ticked unless the user unticks it: most sign in on their own phone, and
+     * a session alone lapses after two hours without a request — a teacher
+     * coming back to the roll mid-morning was sent to sign in again.
+     */
+    public bool $remember = true;
 
     /**
      * The model each guard's credentials live in — checked in order to find

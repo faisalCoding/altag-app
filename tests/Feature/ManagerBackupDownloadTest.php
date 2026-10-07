@@ -9,10 +9,11 @@ uses(RefreshDatabase::class);
 it('streams the current database as a plain file download for a manager', function () {
     $this->actingAs(Manager::factory()->create(), 'manager');
 
-    // Point the sqlite path at a throwaway file so the download has something to
-    // stream (the test connection itself runs in :memory:, which has no file).
+    // Point the sqlite path at a throwaway database so the download has something
+    // to copy (the test connection itself runs in :memory:, which has no file).
     $tempDb = storage_path('app/testing_current_db.sqlite');
-    File::put($tempDb, 'SQLite format 3'."\0".str_repeat('x', 2048));
+    File::delete($tempDb);
+    (new PDO('sqlite:'.$tempDb))->exec('create table notes (id integer primary key)');
     config(['database.connections.sqlite.database' => $tempDb]);
 
     $response = $this->get(route('manager.backup.download'));

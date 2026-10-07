@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Manager;
 
 use App\Http\Controllers\Controller;
+use App\Support\SqliteSnapshot;
 use Illuminate\Support\Facades\File;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
@@ -24,7 +25,12 @@ class BackupController extends Controller
 
         $filename = 'manual_'.now()->format('Y-m-d_H-i-s').'.sqlite';
 
-        return response()->download($dbPath, $filename);
+        // A snapshot taken by SQLite, not the live file: that one lacks what
+        // still sits in the WAL, and downloaded mid-write it comes out torn.
+        $snapshot = storage_path('app/'.$filename);
+        SqliteSnapshot::to($snapshot);
+
+        return response()->download($snapshot, $filename)->deleteFileAfterSend();
     }
 
     /**

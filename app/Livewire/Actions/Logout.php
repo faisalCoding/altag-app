@@ -12,7 +12,8 @@ class Logout
      */
     public function __invoke()
     {
-        Auth::guard('web')->logout();
+        // This device only: the remember token is shared by every device.
+        Auth::guard('web')->logoutCurrentDevice();
 
         Session::invalidate();
         Session::regenerateToken();

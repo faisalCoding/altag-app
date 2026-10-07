@@ -23,8 +23,11 @@ use App\Models\Surah;
 use App\Models\Teacher;
 use App\Services\MessagingService;
 use App\Support\Branding;
+use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
 use Illuminate\Http\Request;
+use Illuminate\Session\Middleware\StartSession;
 use Illuminate\Support\Facades\Route;
+use Illuminate\View\Middleware\ShareErrorsFromSession;
 use Mccarlosen\LaravelMpdf\Facades\LaravelMpdf;
 
 Route::get('/', function () {
@@ -44,14 +47,17 @@ Route::get('/pending-approval', fn () => view('pending-approval'))
 Route::post('logout', function (Request $request) {
     $guard = request()->route('guard');
 
+    // This device only: logout() would also change the remember token every
+    // device of the person shares, and sign them out of their phone the next
+    // time its session lapsed.
     if ($guard) {
-        auth()->guard($guard)->logout();
+        auth()->guard($guard)->logoutCurrentDevice();
     } else {
         $guards = ['student', 'manager', 'supervisor', 'teacher', 'guardian', 'staff', 'web'];
 
         foreach ($guards as $guard) {
             if (auth()->guard($guard)->check()) {
-                auth()->guard($guard)->logout();
+                auth()->guard($guard)->logoutCurrentDevice();
             }
         }
     }
@@ -332,7 +338,7 @@ Route::middleware(['auth:student', 'approved', 'page.enabled', 'surveys.required
         return view('student.settings-page');
     })->name('settings');
     Route::post('/logout', function (Request $request) {
-        auth()->guard('student')->logout();
+        auth()->guard('student')->logoutCurrentDevice();
         $request->session()->invalidate();
         $request->session()->regenerateToken();
 
@@ -365,7 +371,9 @@ Route::middleware(['auth:staff', 'approved', 'page.enabled', 'surveys.required']
 Route::get('/magic/{token}', function ($token) {
     $student = Student::findByAccessToken($token) ?? abort(404);
 
-    auth()->guard('student')->login($student);
+    // Remembered, as a signed-in phone should be: the link is sent to the
+    // person's own WhatsApp, and a session alone lapses after two hours.
+    auth()->guard('student')->login($student, true);
     request()->session()->regenerate();
 
     return redirect()->route('student.dashboard');
@@ -374,7 +382,9 @@ Route::get('/magic/{token}', function ($token) {
 Route::get('/teacher-magic/{token}', function ($token) {
     $teacher = Teacher::findByAccessToken($token) ?? abort(404);
 
-    auth()->guard('teacher')->login($teacher);
+    // Remembered, as a signed-in phone should be: the link is sent to the
+    // person's own WhatsApp, and a session alone lapses after two hours.
+    auth()->guard('teacher')->login($teacher, true);
     request()->session()->regenerate();
 
     if (! $teacher->is_data_completed) {
@@ -395,7 +405,9 @@ Route::get('/teacher-magic/{token}', function ($token) {
 Route::get('/supervisor-magic/{token}', function ($token) {
     $supervisor = Supervisor::findByAccessToken($token) ?? abort(404);
 
-    auth()->guard('supervisor')->login($supervisor);
+    // Remembered, as a signed-in phone should be: the link is sent to the
+    // person's own WhatsApp, and a session alone lapses after two hours.
+    auth()->guard('supervisor')->login($supervisor, true);
     request()->session()->regenerate();
 
     return redirect()->route('supervisor.dashboard');
@@ -404,7 +416,9 @@ Route::get('/supervisor-magic/{token}', function ($token) {
 Route::get('/guardian-magic/{token}', function ($token) {
     $guardian = Guardian::findByAccessToken($token) ?? abort(404);
 
-    auth()->guard('guardian')->login($guardian);
+    // Remembered, as a signed-in phone should be: the link is sent to the
+    // person's own WhatsApp, and a session alone lapses after two hours.
+    auth()->guard('guardian')->login($guardian, true);
     request()->session()->regenerate();
 
     // If you add a complete profile step for guardians later, handle it here.
@@ -446,7 +460,16 @@ Route::get('/manifest.json', function () {
             ['src' => '/icon-maskable-512.png', 'sizes' => '512x512', 'type' => 'image/png', 'purpose' => 'maskable'],
         ],
     ], 200, ['Cache-Control' => 'public, max-age=3600'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-})->name('manifest');
+})
+    // No session: a browser fetches the manifest without cookies, so each page
+    // view opened a fresh empty session in the database and sent a session
+    // cookie back. It needs neither.
+    ->withoutMiddleware([
+        StartSession::class,
+        ShareErrorsFromSession::class,
+        PreventRequestForgery::class,
+    ])
+    ->name('manifest');
 
 Route::get('/quran-json', function () {
     return response()->json(Surah::with('ayahs')->get(), 200, [], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);

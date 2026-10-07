@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Support\SqliteSnapshot;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
@@ -29,10 +30,13 @@ class BackupDatabase extends Command
             mkdir($backupDir, 0755, true);
         }
 
-        if (copy($dbPath, $backupDir.'/'.$filename)) {
+        // Taken by SQLite itself: a copy() of the live file misses what still
+        // sits in the WAL, and can come out torn. See SqliteSnapshot.
+        try {
+            SqliteSnapshot::to($backupDir.'/'.$filename);
             $this->info("تم أخذ النسخة الاحتياطية بنجاح: {$filename}");
-        } else {
-            $this->error('فشل في أخذ النسخة الاحتياطية.');
+        } catch (\Throwable $e) {
+            $this->error('فشل في أخذ النسخة الاحتياطية: '.$e->getMessage());
         }
     }
 }

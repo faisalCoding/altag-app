@@ -38,10 +38,16 @@ return [
             'database' => env('DB_DATABASE', database_path('database.sqlite')),
             'prefix' => '',
             'foreign_key_constraints' => env('DB_FOREIGN_KEYS', true),
-            'busy_timeout' => env('DB_BUSY_TIMEOUT', 5000),
+            // Longer than the default 5s: a request waiting its turn to write
+            // beats one failing with "database is locked".
+            'busy_timeout' => env('DB_BUSY_TIMEOUT', 15000),
             'journal_mode' => env('DB_JOURNAL_MODE', 'wal'),
             'synchronous' => env('DB_SYNCHRONOUS', 'normal'),
-            'transaction_mode' => 'DEFERRED',
+            // IMMEDIATE takes the write lock when a transaction begins, waiting
+            // its turn above. DEFERRED took it at the first write, and in WAL
+            // mode a transaction that had read before another one wrote then
+            // failed at once with "database is locked", without waiting at all.
+            'transaction_mode' => env('DB_TRANSACTION_MODE', 'IMMEDIATE'),
         ],
 
         'mysql' => [
