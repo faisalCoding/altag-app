@@ -24,6 +24,7 @@ use App\Models\StudentPlan;
 use App\Models\StudentPlanDay;
 use App\Models\Teacher;
 use App\Services\GamificationService;
+use App\Services\StudentNextWird;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
@@ -2275,7 +2276,7 @@ it('shows the next hifz and the next review independently on the gamification da
         ]);
     }
 
-    $missions = Livewire::test('student.⚡gamification-dashboard')->viewData('pendingMissions');
+    $missions = StudentNextWird::missions($this->student);
     $byPart = collect($missions)->keyBy('pendingPart');
 
     expect($missions)->toHaveCount(2)
@@ -2322,7 +2323,8 @@ it('offers the plan links on the gamification dashboard as well', function () {
         ->assertOk()
         // The gamification dashboard really is the one being served.
         ->assertSee('gam-stats-bar', false)
-        ->assertSee('عرض وطباعة')
+        // In the wird card under the student's own card.
+        ->assertSee('خطتك مع تقييماتها')
         ->assertSee(route('student.plan.print', ['kind' => 'quran', 'id' => $plan->id]), false);
 });
 

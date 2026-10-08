@@ -559,14 +559,14 @@ it('keeps the rank in the pinned stats bar on one line', function () {
 });
 
 /**
- * The mission card is the earliest ungraded day of the plan, which is rarely
- * tomorrow, yet the heading always said «غداً». It now names the day the date
- * beside it really is.
+ * The Quran's portion and the plan links are in the wird card under the
+ * student's own card; listing them again under the enthusiasm card said the
+ * same thing twice.
  */
-it('names the mission card by its real day instead of always «غداً»', function (int $offsetDays, string $heading) {
+it('lists no Quran missions under the enthusiasm card, the wird card says what is due', function () {
     $plan = StudentPlan::create([
         'student_id' => $this->student->id,
-        'start_date' => now()->addDays($offsetDays)->format('Y-m-d'),
+        'start_date' => now()->format('Y-m-d'),
         'days_count' => 1,
         'active_days' => [0, 1, 2, 3, 4, 5, 6],
         'status' => 'active',
@@ -574,75 +574,27 @@ it('names the mission card by its real day instead of always «غداً»', func
         'is_approved' => 1,
         'created_by_role' => 'teacher',
     ]);
-    StudentPlanDay::create([
-        'student_plan_id' => $plan->id,
-        'date' => now()->addDays($offsetDays)->format('Y-m-d'),
-        'day_name' => 'الأحد',
-        ...planDayPortion(),
-    ]);
-
-    $component = Livewire::test('student.gamification-dashboard')->assertSee($heading);
-
-    foreach (array_diff(['مهمة متأخرة لم تُسمَّع بعد', 'مهمة اليوم', 'المهمة المطلوبة غداً', 'المهمة القادمة'], [$heading]) as $other) {
-        $component->assertDontSee($other);
-    }
-})->with([
-    'a day long past, never recited' => [-11, 'مهمة متأخرة لم تُسمَّع بعد'],
-    'today' => [0, 'مهمة اليوم'],
-    'tomorrow' => [1, 'المهمة المطلوبة غداً'],
-    'a later day' => [5, 'المهمة القادمة'],
-]);
-
-/**
- * A review plan has no hifz: its days owe none, and showed an overdue hifz
- * task with «لا يوجد نص محدد».
- */
-it('gives a review plan no hifz task', function () {
-    $plan = StudentPlan::create([
-        'student_id' => $this->student->id,
-        'start_date' => now()->subDays(11)->format('Y-m-d'),
-        'days_count' => 1,
-        'active_days' => [0, 1, 2, 3, 4, 5, 6],
-        'status' => 'active',
-        'plan_type' => 'review',
-        'is_approved' => 1,
-        'created_by_role' => 'teacher',
-    ]);
-    StudentPlanDay::create([
-        'student_plan_id' => $plan->id,
-        'date' => now()->format('Y-m-d'),
-        'day_name' => 'الاثنين',
-        'review_from_ayah_id' => planDayPortion()['review_from_ayah_id'],
-        'review_to_ayah_id' => planDayPortion()['review_to_ayah_id'],
-    ]);
-
-    $component = Livewire::test('student.gamification-dashboard')
-        ->assertSee('مهمة اليوم')
-        ->assertDontSee('لا يوجد نص محدد')
-        ->assertDontSee('مهمة متأخرة لم تُسمَّع بعد');
-
-    expect(collect($component->viewData('pendingMissions'))->pluck('pendingPart')->all())->toBe(['review']);
-});
-
-it('reads the mission day in Riyadh, where it is already the next day after 21:00 UTC', function () {
-    // 22:00 UTC on 06-08 is 01:00 on 06-09 in Riyadh.
-    Carbon::setTestNow('2026-06-08 22:00:00');
-
-    $plan = StudentPlan::create([
-        'student_id' => $this->student->id,
-        'start_date' => '2026-06-09',
-        'days_count' => 1,
-        'active_days' => [0, 1, 2, 3, 4, 5, 6],
-        'status' => 'active',
-        'plan_type' => 'hifz_review',
-        'is_approved' => 1,
-        'created_by_role' => 'teacher',
-    ]);
-    StudentPlanDay::create(['student_plan_id' => $plan->id, 'date' => '2026-06-09', 'day_name' => 'الثلاثاء', ...planDayPortion()]);
+    StudentPlanDay::create(['student_plan_id' => $plan->id, 'date' => now()->format('Y-m-d'), 'day_name' => 'الأحد', ...planDayPortion()]);
 
     Livewire::test('student.gamification-dashboard')
-        ->assertSee('مهمة اليوم')
-        ->assertDontSee('المهمة المطلوبة غداً');
+        ->assertDontSee('المهام والخطط')
+        ->assertDontSee('مهمة اليوم')
+        ->assertDontSee('عرض وطباعة');
+});
+
+it('shows the hadith missions only to a stage that memorises hadith', function () {
+    $this->stage->update(['hadith_enabled' => false]);
+
+    Livewire::test('student.gamification-dashboard')
+        ->assertDontSee('مهام حفظ الحديث المجدولة')
+        ->assertDontSee('data-hadith-missions', false);
+
+    $this->stage->update(['hadith_enabled' => true]);
+    $this->student->refresh();
+    $this->actingAs($this->student, 'student');
+
+    Livewire::test('student.gamification-dashboard')
+        ->assertSee('مهام حفظ الحديث المجدولة');
 });
 
 /*

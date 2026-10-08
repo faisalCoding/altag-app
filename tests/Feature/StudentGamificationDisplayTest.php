@@ -14,8 +14,6 @@ use App\Models\GamificationTransaction;
 use App\Models\Leaderboard;
 use App\Models\Stage;
 use App\Models\Student;
-use App\Models\StudentPlan;
-use App\Models\StudentPlanDay;
 use App\Models\Teacher;
 use App\Services\GamificationService;
 use Carbon\Carbon;
@@ -324,61 +322,11 @@ it('keeps the stats bar\'s XP label short enough for a phone', function () {
         ->and($component->html())->toMatch('/data-stats-xp-label[^>]*>.*?النقاط\s*<\/span>/su');
 });
 
-/* ------------------------------------------------------- the mission card */
+/* ------------------------------------------------------- an «ممتاز»'s points */
 
-function makeDisplayPendingPlan(Student $student): void
-{
-    $plan = StudentPlan::create([
-        'student_id' => $student->id,
-        'start_date' => '2026-06-08',
-        'days_count' => 1,
-        'active_days' => [0, 1, 2, 3, 4, 5, 6],
-        'status' => 'active',
-        'plan_type' => 'hifz_review',
-        'is_approved' => 1,
-        'created_by_role' => 'teacher',
-    ]);
-
-    StudentPlanDay::create([
-        'student_plan_id' => $plan->id,
-        'date' => '2026-06-08',
-        'day_name' => 'الاثنين',
-        ...planDayPortion(),
-    ]);
-}
-
-it('promises on the mission card the XP an «ممتاز» actually pays, and nothing for a part not rewarded', function () {
-    makeDisplayLeaderboard($this->circle, ['settings' => [
-        'hifz_enabled' => true,
-        'hifz_excellent_xp' => 20,
-        'hifz_excellent_coins' => 3,
-        'review_enabled' => false,
-    ]]);
-    makeDisplayPendingPlan($this->student);
-
-    $component = Livewire::test('student.gamification-dashboard')
-        ->assertSee('+20 XP')
-        ->assertDontSee('+10 XP')
-        ->assertDontSee('+5 XP');
-
-    // Two cards (hifz and review), the XP shown on the hifz one only.
-    expect($component->viewData('pendingMissions'))->toHaveCount(2)
-        ->and(substr_count($component->html(), 'data-mission-xp'))->toBe(1);
-});
-
-it('reads the mission card\'s XP from the old setting keys the way grading does', function () {
-    makeDisplayLeaderboard($this->circle, ['settings' => [
-        'hifz_enabled' => true,
-        'hifz_excellent' => 8,
-        'review_enabled' => true,
-    ]]);
-    makeDisplayPendingPlan($this->student);
-
-    Livewire::test('student.gamification-dashboard')
-        ->assertSee('+8 XP')
-        ->assertSee('+5 XP');
-
-    expect(GamificationService::excellentGradePoints(['hifz_enabled' => true, 'hifz_excellent_xp' => 20, 'hifz_excellent_coins' => 3], 'hifz'))
+it('reads an «ممتاز»\'s points from the old setting keys the way grading does', function () {
+    expect(GamificationService::excellentGradePoints(['hifz_enabled' => true, 'hifz_excellent' => 8], 'hifz'))->toBe(['xp' => 8, 'coins' => 8])
+        ->and(GamificationService::excellentGradePoints(['hifz_enabled' => true, 'hifz_excellent_xp' => 20, 'hifz_excellent_coins' => 3], 'hifz'))
         ->toBe(['xp' => 20, 'coins' => 3])
         ->and(GamificationService::excellentGradePoints(['review_enabled' => true], 'review'))->toBe(['xp' => 5, 'coins' => 5])
         ->and(GamificationService::excellentGradePoints(['hifz_excellent_xp' => 20], 'hifz'))->toBe(['xp' => 0, 'coins' => 0]);

@@ -940,24 +940,13 @@ new class extends Component {
         $dailyDigest = $activeGamification ? \App\Services\GamificationNewsService::getDailyDigest($activeGamification->id, $newsDate) : [];
         $availableNewsDates = $activeGamification ? \App\Services\GamificationNewsService::getAvailableDates($activeGamification->id) : [];
 
-        $activeApprovedPlans = \App\Models\StudentPlan::where('student_id', $student->id)->where('status', 'active')->where('is_approved', 1)->get();
-
-        // What each plan asks of the student next, picked as the teacher app
-        // picks it — a shortfall carried into the next portion, a portion
-        // covered whole skipped — so the student is set the portion their
-        // teacher grades. See StudentNextWird and the card above this page.
-        $pendingMissions = \App\Services\StudentNextWird::missions($student);
-
-        // Fetch Earliest Pending Hadith Missions (one per active Hadith plan)
-        // A stage that does not memorise the mutun or the odes shows the
-        // student neither; emptied here so every section built on them hides.
-        $activeHadithPlans = $student->memorisesHadith()
+        // The Quran's portion and every plan link are in the wird card under
+        // the student's own card. Only the hadith missions are listed here,
+        // and only for a stage that memorises the mutun: one that does not
+        // shows the student none of it.
+        $memorisesHadith = $student->memorisesHadith();
+        $activeHadithPlans = $memorisesHadith
             ? \App\Models\StudentHadithPlan::where('student_id', $student->id)->where('status', 'active')->get()
-            : collect();
-
-        $activeOdePlans = $student->memorisesOdes()
-            ? \App\Models\StudentOdePlan::where('student_id', $student->id)
-                ->where('status', 'active')->with('path.ode')->get()
             : collect();
         $pendingHadithMissions = [];
         foreach ($activeHadithPlans as $plan) {
@@ -1169,11 +1158,8 @@ new class extends Component {
             'newsDate' => $newsDate,
             'studentXP' => $gamificationLevelInfo['xp'] ?? 0,
             'pendingRewards' => $pendingRewards,
-            'pendingMissions' => $pendingMissions,
+            'memorisesHadith' => $memorisesHadith,
             'pendingHadithMissions' => $pendingHadithMissions,
-            'activeApprovedPlans' => $activeApprovedPlans,
-            'activeHadithPlans' => $activeHadithPlans,
-            'activeOdePlans' => $activeOdePlans,
             'teamStandings' => $teamStandings,
             'teamStudents' => $teamStudents,
             'teamStudentStates' => $teamStudentStates,
@@ -2620,123 +2606,21 @@ new class extends Component {
 
         <!-- Leaderboard Content -->
         <div x-show="currentTab === 'leaderboard'" x-cloak class="space-y-6">
-            <!-- Quranic Missions Section inside Main Tab -->
-            <div class="space-y-4">
-                @php
-                    $showTeamMultiplier = false;
-                    if ($activeGamification && isset($gamificationLevelInfo['perks']) && $studentTeam && $teamRole === 'leader') {
-                        $lvlSettings = $gamificationLevelInfo['perks']->settings ?? [];
-                        $showTeamMultiplier = (bool) ($lvlSettings['has_team_multiplier'] ?? true);
-                    }
-                @endphp
+            @php
+                // The team tab's multiplier button reads this too.
+                $showTeamMultiplier = false;
+                if ($activeGamification && isset($gamificationLevelInfo['perks']) && $studentTeam && $teamRole === 'leader') {
+                    $lvlSettings = $gamificationLevelInfo['perks']->settings ?? [];
+                    $showTeamMultiplier = (bool) ($lvlSettings['has_team_multiplier'] ?? true);
+                }
+            @endphp
+
+            {{-- The Quran's portion and the plan links live in the card under the
+                 student's own; only the hadith missions stay here, and only for a
+                 student whose stage memorises hadith. --}}
+            @if ($memorisesHadith)
+            <div class="space-y-4" data-hadith-missions>
                 <flux:heading size="lg" class="text-slate-900 flex items-center gap-2 font-black">
-                    <svg class="size-6 text-slate-600 dark:text-slate-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path>
-                    </svg>
-                    {{ __('المهام والخطط') }}
-                </flux:heading>
-
-                {{--
-                    This dashboard replaces the plain one whenever a competition is
-                    running, so the plan links have to exist here too or most students
-                    never see them.
-                --}}
-                @php
-                    $planLinks = collect()
-                        ->concat($activeApprovedPlans->map(fn ($p) => ['kind' => 'quran', 'id' => $p->id, 'label' => __('خطة الحفظ والمراجعة')]))
-                        ->concat($activeHadithPlans->map(fn ($p) => ['kind' => 'hadith', 'id' => $p->id, 'label' => __('خطة المتن')]))
-                        ->concat($activeOdePlans->map(fn ($p) => ['kind' => 'ode', 'id' => $p->id, 'label' => $p->path?->ode?->name ?? __('خطة المنظومة')]));
-                @endphp
-
-                @if($planLinks->isNotEmpty())
-                    <div class="flex flex-wrap gap-2">
-                        @foreach($planLinks as $link)
-                            <a href="{{ route('student.plan.print', ['kind' => $link['kind'], 'id' => $link['id']]) }}"
-                                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-slate-700 text-xs font-bold shadow-sm hover:bg-slate-50 transition-colors">
-                                <flux:icon icon="printer" class="size-4" />
-                                {{ __('عرض وطباعة') }}: {{ $link['label'] }}
-                            </a>
-                        @endforeach
-                    </div>
-                @endif
-                @if(empty($pendingMissions))
-                    <div class="bg-white border border-slate-200 rounded-2xl p-5 text-center shadow-sm">
-                        <p class="text-sm text-slate-500">{{ __('لا توجد مهام قرآنية معلقة حالياً') }}</p>
-                    </div>
-                @else
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        @foreach($pendingMissions as $m)
-                            <div class="bg-white border border-slate-200 rounded-2xl p-5 space-y-4 shadow-sm">
-                                <div>
-                                    <div class="flex items-center justify-between mb-1">
-                                        <flux:badge color="indigo" size="sm">
-                                            {{ $m->pendingPart === 'review' ? __('مراجعة') : __('حفظ') }}
-                                        </flux:badge>
-                                        <span class="text-xs text-slate-400">{{ $m->day_name }} (<x-hijri-date :date="$m->date" />)</span>
-                                    </div>
-                                    @php
-                                        /*
-                                         * The mission is the earliest ungraded day, which is rarely
-                                         * tomorrow: usually today, and for a skipped day or a plan
-                                         * that has run out, a day long past. The heading said
-                                         * «غداً» regardless, beside a date that said otherwise, so
-                                         * it now names the day the date is, in Riyadh's calendar.
-                                         */
-                                        $missionDate = $m->date->toDateString();
-                                        $missionToday = \App\Services\TeacherSyncSnapshot::today();
-                                        $missionHeading = match (true) {
-                                            $missionDate < $missionToday => __('مهمة متأخرة لم تُسمَّع بعد'),
-                                            $missionDate === $missionToday => __('مهمة اليوم'),
-                                            $missionDate === now('Asia/Riyadh')->addDay()->toDateString() => __('المهمة المطلوبة غداً'),
-                                            default => __('المهمة القادمة'),
-                                        };
-                                    @endphp
-                                    <h4 class="font-black text-slate-900 text-lg leading-tight mt-2">
-                                        {{ $missionHeading }}
-                                    </h4>
-                                </div>
-
-                                @php
-                                    // What an «ممتاز» pays here, as grading pays it; 0 when the competition doesn't reward this part.
-                                    $maxXP = \App\Services\GamificationService::excellentGradePoints($activeGamification->settings ?? [], $m->pendingPart)['xp'];
-                                @endphp
-                                <div class="flex flex-col sm:flex-row items-stretch gap-4 bg-slate-50/60 rounded-xl p-3 border border-slate-100">
-                                    <div class="space-y-3 flex-1">
-                                        @if($m->pendingPart === 'hifz')
-                                            <div>
-                                                <span class="text-[10px] text-slate-400 font-bold block uppercase tracking-wider">{{ __('مقرر الحفظ:') }}</span>
-                                                <p class="text-slate-800 text-sm font-semibold mt-0.5">{{ $m->formatRange('hifz') ?? 'لا يوجد نص محدد' }}</p>
-                                            </div>
-                                        @endif
-                                        @if($m->pendingPart === 'review')
-                                            <div>
-                                                <span class="text-[10px] text-slate-400 font-bold block uppercase tracking-wider">{{ __('مقرر المراجعة:') }}</span>
-                                                <p class="text-slate-800 text-sm font-semibold mt-0.5">{{ $m->formatRange('review') ?? 'لا يوجد نص محدد' }}</p>
-                                            </div>
-                                        @endif
-                                    </div>
-                                    @if($maxXP > 0 || $showTeamMultiplier)
-                                    <div class="flex flex-row sm:flex-col items-center sm:items-end justify-between sm:justify-center gap-3 pt-3 sm:pt-0 sm:pr-4 border-t sm:border-t-0 sm:border-r border-slate-200/60">
-                                        @if($maxXP > 0)
-                                            <div data-mission-xp class="text-right">
-                                                <span class="text-[9px] text-slate-400 font-bold block">{{ __('النقاط المتاحة') }}</span>
-                                                <span class="text-base font-black text-emerald-600">+{{ $maxXP }} XP</span>
-                                            </div>
-                                        @endif
-                                        @if($showTeamMultiplier)
-                                            <flux:button variant="primary" wire:click="openDoublePointsModal('{{ $m->date->format('Y-m-d') }}', 'team')" size="sm" class="bg-team-primary hover:bg-team-primary-hover border-none font-bold !text-white shadow-sm" style="color: white !important;" icon="bolt">
-                                                {{ __('مضاعفة النقاط') }}
-                                            </flux:button>
-                                        @endif
-                                    </div>
-                                    @endif
-                                </div>
-                            </div>
-                        @endforeach
-                    </div>
-                @endif
-
-                <flux:heading size="lg" class="text-slate-900 flex items-center gap-2 font-black mt-6">
                     <svg class="size-6 text-slate-600 dark:text-slate-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path>
                     </svg>
@@ -2951,6 +2835,7 @@ new class extends Component {
                     </div>
                 @endif
             </div>
+            @endif
 
             {{-- Standings Table. Its id is the one the plain dashboard's table
                  carries, so the sidebar's «المتصدرون» and the rank tile both land
