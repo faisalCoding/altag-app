@@ -37,8 +37,7 @@
          * them: black at the foot, lifting to a dark grey at the head.
          */
         $usesBrandSidebar = auth('manager')->check() || auth('student')->check()
-            || auth('teacher')->check() || auth('supervisor')->check() || auth('guardian')->check()
-            || auth('staff')->check();
+            || auth('teacher')->check() || auth('supervisor')->check() || auth('guardian')->check();
     @endphp
     <flux:sidebar sticky collapsible="mobile"
         @class([

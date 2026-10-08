@@ -5,9 +5,8 @@
         'teacher' => 'معلم حلقة',
         'student' => 'طالب',
         'guardian' => 'ولي أمر',
-        'staff' => 'موظف',
     ];
-    $validGuards = ['manager', 'supervisor', 'teacher', 'student', 'guardian', 'staff'];
+    $validGuards = ['manager', 'supervisor', 'teacher', 'student', 'guardian'];
     // The active role is derived from the current route's own name prefix
     // first (e.g. "supervisor.dashboard" -> "supervisor"), not by scanning
     // guards in a fixed priority order — switching roles keeps every guard

@@ -82,7 +82,7 @@ class RequirePendingSurveys
      */
     private static function currentUser(Request $request): array
     {
-        foreach (['manager', 'supervisor', 'teacher', 'student', 'guardian', 'staff'] as $guard) {
+        foreach (['manager', 'supervisor', 'teacher', 'student', 'guardian'] as $guard) {
             if ($user = $request->user($guard)) {
                 return [$user, $guard];
             }

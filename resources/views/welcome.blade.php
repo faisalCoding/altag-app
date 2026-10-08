@@ -2,7 +2,7 @@
     $name = App\Support\Branding::siteName();
     $ar = fn ($n) => App\Support\HijriDate::arabicDigits($n);
 
-    $signedIn = collect(['manager', 'supervisor', 'teacher', 'student', 'guardian', 'staff'])
+    $signedIn = collect(['manager', 'supervisor', 'teacher', 'student', 'guardian'])
         ->first(fn ($guard) => auth()->guard($guard)->check());
 
     // Shown only when there is something to show. A new academy reading

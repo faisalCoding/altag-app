@@ -72,36 +72,6 @@ it('switches the active role tab and shows that role pages', function () {
         ->assertSee('التقارير');
 });
 
-it('creates a new custom role with every screen disabled by default', function () {
-    $manager = Manager::factory()->create();
-    $this->actingAs($manager, 'manager');
-
-    Livewire::test('manager.role-permissions')
-        ->set('newRoleLabel', 'مشرف مساعد')
-        ->call('createRole');
-
-    $role = Role::where('label', 'مشرف مساعد')->first();
-
-    expect($role)->not->toBeNull();
-    expect($role->is_system)->toBeFalse();
-    expect($role->guard_name)->toBe('staff');
-    expect(RoleScreenPermission::where('role_id', $role->id)->count())->toBe(0);
-});
-
-it('rejects creating a role with a duplicate name', function () {
-    $manager = Manager::factory()->create();
-    $this->actingAs($manager, 'manager');
-
-    Livewire::test('manager.role-permissions')
-        ->set('newRoleLabel', 'مشرف مساعد')
-        ->call('createRole')
-        ->set('newRoleLabel', 'مشرف مساعد')
-        ->call('createRole')
-        ->assertHasErrors('newRoleLabel');
-
-    expect(Role::where('label', 'مشرف مساعد')->count())->toBe(1);
-});
-
 it('refuses to grant a system role a screen owned by another role', function () {
     $manager = Manager::factory()->create();
     $this->actingAs($manager, 'manager');
@@ -128,22 +98,12 @@ it('shows a system role only its own screens, not other roles pages', function (
         ->assertDontSee('سجل الحضور');       // teacher.attendance — must not leak in
 });
 
-it('still lets a custom role be granted a screen from another namespace', function () {
-    $manager = Manager::factory()->create();
-    $this->actingAs($manager, 'manager');
-
-    $customRole = Role::create([
-        'key' => 'accountant_x',
-        'label' => 'محاسب اختبار',
-        'guard_name' => 'staff',
-        'is_system' => false,
-        'is_active' => true,
-    ]);
-    $managerScreen = Screen::where('route_name', 'manager.attendance-reports')->firstOrFail();
+it('offers no way to create a role: the five built-in ones are all there are', function () {
+    $this->actingAs(Manager::factory()->create(), 'manager');
 
     Livewire::test('manager.role-permissions')
-        ->call('toggle', $customRole->id, $managerScreen->id);
+        ->assertDontSee('إضافة دور')
+        ->assertDontSee('إنشاء دور جديد');
 
-    expect(RoleScreenPermission::where('role_id', $customRole->id)->where('screen_id', $managerScreen->id)->exists())
-        ->toBeTrue();
+    expect(method_exists(Role::class, 'staff'))->toBeFalse();
 });

@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * Scopes a User subclass (Manager/Supervisor/Teacher/Student/Guardian/Staff) to
+ * Scopes a User subclass (Manager/Supervisor/Teacher/Student/Guardian) to
  * the users who hold that one role, and relays the per-role approval columns
  * (which live on `user_roles`, not `users`, since a person can be approved for
  * one role and pending for another simultaneously) through attribute

@@ -28,7 +28,7 @@ use Illuminate\Support\Facades\DB;
  * the later cutover phase for the handful of people this applies to.
  */
 #[Signature('users:migrate-legacy {--dry-run : Only count rows per table and report; write nothing}')]
-#[Description('Copy the 6 legacy role tables into the unified users/user_roles tables (Phase 2 of the users-table consolidation).')]
+#[Description('Copy the 5 legacy role tables into the unified users/user_roles tables (Phase 2 of the users-table consolidation).')]
 class MigrateLegacyUsers extends Command
 {
     /**
@@ -36,7 +36,7 @@ class MigrateLegacyUsers extends Command
      * guardian's NEW id). Managers must migrate before anything whose
      * approved_by/rejected_by needs remapping to a manager's new id.
      */
-    protected const ORDER = ['managers', 'guardians', 'supervisors', 'teachers', 'students', 'staffs'];
+    protected const ORDER = ['managers', 'guardians', 'supervisors', 'teachers', 'students'];
 
     public function handle(): int
     {
@@ -143,10 +143,6 @@ class MigrateLegacyUsers extends Command
             $data['joined_at'] = $row->joined_at ?? null;
             $data['status'] = $row->status ?? 'active';
             $data['avatar_path'] = $row->avatar_path ?? null;
-        }
-
-        if ($table === 'staffs') {
-            $data['staff_role_id'] = $row->role_id ?? null;
         }
 
         return $data;

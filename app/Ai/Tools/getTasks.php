@@ -86,7 +86,6 @@ class getTasks implements Tool
             'Teacher' => 'معلم',
             'Student' => 'طالب',
             'Guardian' => 'ولي أمر',
-            'Staff' => 'موظف',
             default => null,
         };
     }

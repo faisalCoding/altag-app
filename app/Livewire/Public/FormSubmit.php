@@ -245,7 +245,7 @@ class FormSubmit extends Component
      */
     private static function currentUser(): ?User
     {
-        foreach (['manager', 'supervisor', 'teacher', 'student', 'guardian', 'staff'] as $guard) {
+        foreach (['manager', 'supervisor', 'teacher', 'student', 'guardian'] as $guard) {
             if ($user = auth()->guard($guard)->user()) {
                 return $user;
             }

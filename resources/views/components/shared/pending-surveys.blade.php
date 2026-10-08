@@ -1,7 +1,7 @@
 @php
     use App\Models\FormAssignment;
 
-    $currentUser = collect(['manager', 'supervisor', 'teacher', 'student', 'guardian', 'staff'])
+    $currentUser = collect(['manager', 'supervisor', 'teacher', 'student', 'guardian'])
         ->map(fn ($guard) => auth()->guard($guard)->user())
         ->first(fn ($candidate) => $candidate !== null);
 

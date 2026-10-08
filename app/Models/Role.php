@@ -43,12 +43,6 @@ class Role extends Model
         return $this->hasMany(RoleScreenPermission::class);
     }
 
-    /** @return HasMany<Staff, $this> */
-    public function staff(): HasMany
-    {
-        return $this->hasMany(Staff::class, 'staff_role_id');
-    }
-
     /** @return BelongsTo<Manager, $this> */
     public function createdBy(): BelongsTo
     {

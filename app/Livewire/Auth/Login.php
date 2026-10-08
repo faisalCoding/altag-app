@@ -4,7 +4,6 @@ namespace App\Livewire\Auth;
 
 use App\Models\Guardian;
 use App\Models\Manager;
-use App\Models\Staff;
 use App\Models\Student;
 use App\Models\Supervisor;
 use App\Models\Teacher;
@@ -41,7 +40,6 @@ class Login extends Component
         'guardian' => Guardian::class,
         'supervisor' => Supervisor::class,
         'manager' => Manager::class,
-        'staff' => Staff::class,
     ];
 
     /**
@@ -55,7 +53,6 @@ class Login extends Component
         'guardian' => '/parent',
         'supervisor' => '/supervisor',
         'manager' => '/manager',
-        'staff' => '/staff',
     ];
 
     public function login()

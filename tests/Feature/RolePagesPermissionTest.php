@@ -1,7 +1,6 @@
 <?php
 
 use App\Models\Manager;
-use App\Models\Role;
 use App\Models\RoleScreenPermission;
 use App\Models\Screen;
 use App\Models\Teacher;
@@ -78,29 +77,4 @@ it('queries the screen catalog and permission set at most once each per request 
         ->count();
 
     expect($permissionQueries)->toBeLessThanOrEqual(1);
-});
-
-it('leaves a manager-created custom role with no access to any screen by default', function () {
-    Role::create([
-        'key' => 'assistant_supervisor',
-        'label' => 'مشرف مساعد',
-        'guard_name' => 'staff',
-        'is_system' => false,
-    ]);
-
-    expect(RolePages::isEnabled('assistant_supervisor', 'supervisor.circles'))->toBeFalse();
-});
-
-it('lets a manager-created custom role see a screen once explicitly granted to it', function () {
-    $role = Role::create([
-        'key' => 'assistant_supervisor',
-        'label' => 'مشرف مساعد',
-        'guard_name' => 'staff',
-        'is_system' => false,
-    ]);
-
-    $screen = Screen::where('route_name', 'supervisor.circles')->firstOrFail();
-    RoleScreenPermission::create(['role_id' => $role->id, 'screen_id' => $screen->id]);
-
-    expect(RolePages::isEnabled('assistant_supervisor', 'supervisor.circles'))->toBeTrue();
 });

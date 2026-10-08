@@ -5,13 +5,13 @@ use App\Livewire\Settings\Profile;
 use App\Livewire\Settings\Security;
 use Illuminate\Support\Facades\Route;
 
-Route::middleware(['auth:manager,supervisor,teacher,student,guardian,staff,web'])->group(function () {
+Route::middleware(['auth:manager,supervisor,teacher,student,guardian,web'])->group(function () {
     Route::redirect('settings', 'settings/profile');
 
     Route::livewire('settings/profile', Profile::class)->name('profile.edit');
 });
 
-Route::middleware(['auth:manager,supervisor,teacher,student,guardian,staff,web', 'verified'])->group(function () {
+Route::middleware(['auth:manager,supervisor,teacher,student,guardian,web', 'verified'])->group(function () {
     Route::livewire('settings/appearance', Appearance::class)->name('appearance.edit');
 
     // NOTE: Fortify's `password.confirm` gate is intentionally omitted here.

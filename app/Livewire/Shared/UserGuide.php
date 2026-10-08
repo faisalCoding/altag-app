@@ -11,7 +11,7 @@ class UserGuide extends Component
 {
     public function render()
     {
-        $guard = collect(['manager', 'supervisor', 'teacher', 'student', 'guardian', 'staff'])
+        $guard = collect(['manager', 'supervisor', 'teacher', 'student', 'guardian'])
             ->first(fn ($g) => auth()->guard($g)->check());
 
         $sections = collect(UserGuideContent::for($guard ?? ''))

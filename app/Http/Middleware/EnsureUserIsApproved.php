@@ -20,8 +20,7 @@ class EnsureUserIsApproved
              ?? $request->user('supervisor')
              ?? $request->user('teacher')
              ?? $request->user('student')
-             ?? $request->user('guardian')
-             ?? $request->user('staff');
+             ?? $request->user('guardian');
 
         if (! $user) {
             return $next($request);

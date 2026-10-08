@@ -41,7 +41,7 @@ Route::get('/', function () {
 })->name('home');
 
 Route::get('/pending-approval', fn () => view('pending-approval'))
-    ->middleware('auth:manager,supervisor,teacher,student,guardian,staff')
+    ->middleware('auth:manager,supervisor,teacher,student,guardian')
     ->name('pending-approval');
 
 Route::post('logout', function (Request $request) {
@@ -53,7 +53,7 @@ Route::post('logout', function (Request $request) {
     if ($guard) {
         auth()->guard($guard)->logoutCurrentDevice();
     } else {
-        $guards = ['student', 'manager', 'supervisor', 'teacher', 'guardian', 'staff', 'web'];
+        $guards = ['student', 'manager', 'supervisor', 'teacher', 'guardian', 'web'];
 
         foreach ($guards as $guard) {
             if (auth()->guard($guard)->check()) {
@@ -94,7 +94,7 @@ Route::post('/switch-role/{guard}', function (string $guard) {
     }
 
     return redirect()->route("{$guard}.dashboard");
-})->middleware('auth:manager,supervisor,teacher,student,guardian,staff')->name('switch-role');
+})->middleware('auth:manager,supervisor,teacher,student,guardian')->name('switch-role');
 
 $roles = [
     'manager' => 'مدير',
@@ -102,10 +102,9 @@ $roles = [
     'teacher' => 'معلم',
     'student' => 'طالب',
     'guardian' => 'ولي أمر',
-    'staff' => 'موظف',
 ];
 
-Route::middleware('auth:manager,supervisor,teacher,student,guardian,staff')->group(function () use ($roles) {
+Route::middleware('auth:manager,supervisor,teacher,student,guardian')->group(function () use ($roles) {
     Route::get('dashboard', function () use ($roles) {
         foreach (array_keys($roles) as $roleKey) {
             if (auth()->guard($roleKey)->check()) {
@@ -149,7 +148,6 @@ Route::middleware(['auth:manager', 'approved', 'page.enabled'])->prefix('manager
     Route::view('/api-docs', 'manager.api-docs')->name('api-docs');
     Route::view('/messages', 'manager.messages')->name('messages');
     Route::view('/role-permissions', 'manager.role-permissions')->name('role-permissions');
-    Route::view('/staff-members', 'manager.staff-members')->name('staff-members');
     Route::view('/forms', 'manager.forms')->name('forms');
     Route::get('/forms/create', fn () => view('manager.form-create'))->name('forms.create');
     Route::get('/forms/{id}/edit', fn ($id) => view('manager.form-edit', ['formId' => $id]))->name('forms.edit');
@@ -353,12 +351,6 @@ Route::middleware(['auth:guardian', 'approved', 'page.enabled', 'surveys.require
     Route::view('/guide', 'shared.guide')->name('guide');
 });
 
-Route::middleware(['auth:staff', 'approved', 'page.enabled', 'surveys.required'])->prefix('staff')->name('staff.')->group(function () {
-    Route::view('/dashboard', 'staff.dashboard')->name('dashboard');
-    Route::view('/messages', 'staff.messages')->name('messages');
-    Route::view('/guide', 'shared.guide')->name('guide');
-});
-
 // Magic Link Routes
 Route::get('/magic/{token}', function ($token) {
     $student = Student::findByAccessToken($token) ?? abort(404);
@@ -480,7 +472,7 @@ Route::get('/f/{slug}/{token}', FormReport::class)->name('forms.report');
 // Where the survey gate sends anyone who owes a blocking survey. Reachable from
 // behind the gate by design — it is the way through it.
 Route::get('/surveys/required', function () {
-    $user = collect(['manager', 'supervisor', 'teacher', 'student', 'guardian', 'staff'])
+    $user = collect(['manager', 'supervisor', 'teacher', 'student', 'guardian'])
         ->map(fn ($guard) => auth()->guard($guard)->user())
         ->first(fn ($candidate) => $candidate !== null);
 
@@ -498,7 +490,7 @@ Route::get('/surveys/required', function () {
     }
 
     return view('surveys.required', ['assignments' => $assignments]);
-})->middleware('auth:manager,supervisor,teacher,student,guardian,staff')->name('surveys.required');
+})->middleware('auth:manager,supervisor,teacher,student,guardian')->name('surveys.required');
 Route::get('/r/circle-report', PublicCircleReport::class)->name('reports.circle')->middleware('signed');
 Route::get('/r/coin-redemption', PublicCoinRedemption::class)->name('redemption.circle')->middleware('signed');
 Route::get('/r/results-display', PublicResultsDisplay::class)->name('results.display')->middleware('signed');

@@ -3,7 +3,6 @@
 use App\Livewire\Auth\Login;
 use App\Models\Guardian;
 use App\Models\Manager;
-use App\Models\Staff;
 use App\Models\Student;
 use App\Models\Supervisor;
 use App\Models\Teacher;
@@ -21,7 +20,6 @@ dataset('guards', [
     'teacher' => [Teacher::class, 'teacher'],
     'student' => [Student::class, 'student'],
     'guardian' => [Guardian::class, 'guardian'],
-    'staff' => [Staff::class, 'staff'],
 ]);
 
 it('logs a user in via the unified login and redirects straight to their own dashboard', function (string $model, string $guard) {

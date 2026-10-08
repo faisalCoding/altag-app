@@ -183,12 +183,6 @@
         wire:navigate>
         صلاحيات الصفحات
     </flux:sidebar.item>
-    @if(\App\Support\RolePages::isEnabled('manager', 'manager.staff-members'))
-        <flux:sidebar.item class="[&_svg]:bg-[#7c3aed] hover:[&_svg]:bg-[#6d28d9]" icon="identification" :href="route('manager.staff-members')" :current="request()->routeIs('manager.staff-members')"
-            wire:navigate>
-            إدارة الموظفين
-        </flux:sidebar.item>
-    @endif
 
     @if(\App\Support\RolePages::isEnabled('manager', 'manager.forms'))
         <flux:sidebar.item class="[&_svg]:bg-[#14b8a6] hover:[&_svg]:bg-[#0d9488]" icon="document-text" :href="route('manager.forms')"

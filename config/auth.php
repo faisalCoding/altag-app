@@ -2,7 +2,6 @@
 
 use App\Models\Guardian;
 use App\Models\Manager;
-use App\Models\Staff;
 use App\Models\Student;
 use App\Models\Supervisor;
 use App\Models\Teacher;
@@ -68,10 +67,6 @@ return [
             'driver' => 'session',
             'provider' => 'guardians',
         ],
-        'staff' => [
-            'driver' => 'session',
-            'provider' => 'staffs',
-        ],
     ],
 
     /*
@@ -115,10 +110,6 @@ return [
         'guardians' => [
             'driver' => 'eloquent',
             'model' => Guardian::class,
-        ],
-        'staffs' => [
-            'driver' => 'eloquent',
-            'model' => Staff::class,
         ],
     ],
 
@@ -174,12 +165,6 @@ return [
         ],
         'guardians' => [
             'provider' => 'guardians',
-            'table' => env('AUTH_PASSWORD_RESET_TOKEN_TABLE', 'password_reset_tokens'),
-            'expire' => 60,
-            'throttle' => 60,
-        ],
-        'staffs' => [
-            'provider' => 'staffs',
             'table' => env('AUTH_PASSWORD_RESET_TOKEN_TABLE', 'password_reset_tokens'),
             'expire' => 60,
             'throttle' => 60,

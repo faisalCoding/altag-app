@@ -17,11 +17,11 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
 use Laravel\Sanctum\HasApiTokens;
 
 /**
- * The single wide table backing all 6 role guards (manager/supervisor/teacher/
- * student/guardian/staff). A user's role(s) are tracked in `user_roles`, not
+ * The single wide table backing all 5 role guards (manager/supervisor/teacher/
+ * student/guardian). A user's role(s) are tracked in `user_roles`, not
  * here — a person can hold multiple roles (e.g. approved teacher + pending
- * supervisor) simultaneously. The Manager/Supervisor/Teacher/Student/Guardian/
- * Staff subclasses are thin: they add a global scope restricting to their one
+ * supervisor) simultaneously. The Manager/Supervisor/Teacher/Student/Guardian
+ * subclasses are thin: they add a global scope restricting to their one
  * role via `App\Models\Concerns\BelongsToRole`. All relationships below are
  * defined here on the base class rather than duplicated per subclass, even
  * though some (e.g. memorization stats) semantically only apply to students.
@@ -34,7 +34,7 @@ class User extends Authenticatable
 
     /**
      * Explicit — without it, Eloquent would guess each subclass's table name
-     * from its own class name (managers/supervisors/.../staff) instead of
+     * from its own class name (managers/supervisors/...) instead of
      * inheriting this one shared table.
      */
     protected $table = 'users';
@@ -60,7 +60,6 @@ class User extends Authenticatable
         'password',
         'phone',
         'access_token',
-        'staff_role_id',
         'permissions',
         'circle_id',
         'guardian_id',
@@ -223,12 +222,6 @@ class User extends Authenticatable
     public function students(): HasMany
     {
         return $this->hasMany(Student::class, 'guardian_id');
-    }
-
-    /** @return BelongsTo<Role, $this> */
-    public function staffRole(): BelongsTo
-    {
-        return $this->belongsTo(Role::class, 'staff_role_id');
     }
 
     /** @return HasMany<Attendance, $this> */

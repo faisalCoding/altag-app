@@ -5,7 +5,6 @@ namespace App\Services;
 use App\Models\Circle;
 use App\Models\Guardian;
 use App\Models\Manager;
-use App\Models\Staff;
 use App\Models\Student;
 use App\Models\Supervisor;
 use App\Models\Teacher;
@@ -21,7 +20,6 @@ class MessagingService
         'supervisor' => 'مشرف',
         'guardian' => 'ولي أمر',
         'manager' => 'مدير',
-        'staff' => 'موظف',
     ];
 
     public const MODELS = [
@@ -30,10 +28,9 @@ class MessagingService
         'supervisor' => Supervisor::class,
         'guardian' => Guardian::class,
         'manager' => Manager::class,
-        'staff' => Staff::class,
     ];
 
-    protected const GUARDS = ['student', 'teacher', 'supervisor', 'guardian', 'manager', 'staff'];
+    protected const GUARDS = ['student', 'teacher', 'supervisor', 'guardian', 'manager'];
 
     /**
      * Resolve the currently authenticated participant across all five guards.
