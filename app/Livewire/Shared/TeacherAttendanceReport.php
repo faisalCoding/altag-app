@@ -108,6 +108,13 @@ class TeacherAttendanceReport extends Component
      * One teacher's period. The rate leaves out the days they were excused:
      * a leave granted is not an absence.
      *
+     * The days owed are those the roll call lists the teacher on: the working
+     * days of their circles' stages. The manager's whole academy lists every
+     * teacher every day, one with no circle too, so such a teacher owes every
+     * stage's days; anywhere else a teacher off the chosen stages' circles —
+     * one who has moved on — is here only for the days they were marked, and
+     * owes no others. Today is not owed yet: its roll may still be called.
+     *
      * @param  Collection<int, TeacherAttendance>  $records
      * @param  array<int, array<string, true>>  $workingDays
      * @param  array<int, int>  $chosen
@@ -115,8 +122,11 @@ class TeacherAttendanceReport extends Component
      */
     private function row(Teacher $teacher, Collection $records, array $workingDays, array $chosen): array
     {
-        $stages = array_values(array_intersect($this->scope()->stagesOf($teacher), $chosen)) ?: $chosen;
+        $wholeAcademy = $this->role === 'manager' && $this->stageIds === [];
+        $stages = array_values(array_intersect($this->scope()->circleStages($teacher), $chosen))
+            ?: ($wholeAcademy ? $chosen : []);
         $days = collect($stages)->flatMap(fn (int $stageId) => array_keys($workingDays[$stageId] ?? []))->unique();
+        $today = $this->today();
 
         $marked = $records->map(fn (TeacherAttendance $record) => $record->date->format('Y-m-d'))->flip();
         $counts = $records->countBy('status');
@@ -131,7 +141,7 @@ class TeacherAttendanceReport extends Component
             'late' => $counts['late'] ?? 0,
             'excused' => $counts['excused'] ?? 0,
             'absent' => $counts['absent'] ?? 0,
-            'unrecorded' => $days->reject(fn (string $day) => $marked->has($day))->count(),
+            'unrecorded' => $days->reject(fn (string $day) => $marked->has($day) || $day >= $today)->count(),
             'rate' => $counted > 0 ? (int) round($present / $counted * 100) : null,
             // What needs a second look: every day that was not a plain "present".
             'away' => $records->where('status', '!=', 'present')->sortByDesc('date')->values(),
@@ -140,7 +150,10 @@ class TeacherAttendanceReport extends Component
 
     /**
      * Stage by stage and day by day, how many of the stage's teachers were
-     * marked. Null when the period is too long to lay out as columns.
+     * marked — those teachers, not any record filed under the stage: a teacher
+     * who has moved on, still filed there, made a day look complete while one
+     * of the stage's own went unmarked. Null when the period is too long to
+     * lay out as columns.
      *
      * @param  array<int, int>  $chosen
      * @param  Collection<int, array<string, mixed>>  $rows
@@ -155,18 +168,22 @@ class TeacherAttendanceReport extends Component
         }
 
         $days = collect($workingDays)->flatMap(fn (array $set) => array_keys($set))->unique()->sort()->values()->all();
-        $marked = $records->groupBy(fn (TeacherAttendance $record) => $record->stage_id.'|'.$record->date->format('Y-m-d'));
+        $markedOn = $records->groupBy(fn (TeacherAttendance $record) => $record->date->format('Y-m-d'))
+            ->map(fn (Collection $day) => $day->pluck('teacher_id')->flip());
 
         $stages = Stage::whereIn('id', $chosen)->with('supervisors:id,name')->get()
-            ->map(function (Stage $stage) use ($rows, $days, $marked, $workingDays) {
-                $expected = $rows->filter(fn (array $row) => in_array($stage->id, $this->scope()->circleStages($row['teacher']), true))->count();
+            ->map(function (Stage $stage) use ($rows, $days, $markedOn, $workingDays) {
+                $teacherIds = $rows
+                    ->filter(fn (array $row) => in_array($stage->id, $this->scope()->circleStages($row['teacher']), true))
+                    ->map(fn (array $row) => $row['teacher']->id);
+                $expected = $teacherIds->count();
 
                 return [
                     'name' => $stage->name,
                     'supervisors' => $stage->supervisors->pluck('name')->implode('، '),
                     'expected' => $expected,
                     'cells' => collect($days)->mapWithKeys(fn (string $day) => [$day => isset($workingDays[$stage->id][$day])
-                        ? ['marked' => $marked->get($stage->id.'|'.$day)?->count() ?? 0, 'expected' => $expected]
+                        ? ['marked' => $teacherIds->filter(fn (int $id) => isset($markedOn[$day][$id]))->count(), 'expected' => $expected]
                         : null])->all(),
                 ];
             })

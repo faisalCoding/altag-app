@@ -319,3 +319,26 @@ ui-toast [data-flux-toast-dialog] > * {
 .att-off {
     background-image: repeating-linear-gradient(45deg, rgb(161 161 170 / 0.18) 0 4px, transparent 4px 8px);
 }
+
+/*
+ * The teachers' attendance follow-up grid, a cell per stage and day: short
+ * classes for the same reason as the report's above.
+ */
+.roll-cell { @apply inline-flex size-8 items-center justify-center rounded-md font-bold; }
+.roll-full { @apply bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300; }
+.roll-part { @apply bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300; }
+.roll-none { @apply bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300; }
+.roll-wait { @apply border border-dashed border-zinc-300 text-[10px] font-medium text-zinc-400 dark:border-zinc-600; }
+.roll-off { @apply font-normal text-zinc-300 dark:text-zinc-600; }
+
+/* The teachers' report: a line per teacher, and its days when opened. */
+.st-present { @apply bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300; }
+.st-late { @apply bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300; }
+.st-excused { @apply bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300; }
+.st-absent { @apply bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300; }
+.tar-line { @apply grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 px-4 py-3 sm:grid-cols-[minmax(0,2.4fr)_repeat(7,minmax(0,1fr))] sm:px-5; }
+.tar-open { @apply cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/40; }
+.tar-chip { @apply inline-flex items-center justify-center gap-1 rounded-md px-1.5 py-0.5 font-bold sm:min-w-7 sm:justify-self-center; }
+.tar-zero { @apply hidden text-zinc-300 sm:inline sm:justify-self-center dark:text-zinc-600; }
+.tar-days { @apply mx-4 mb-4 divide-y divide-zinc-100 rounded-xl bg-zinc-50 sm:mx-5 dark:divide-zinc-800 dark:bg-zinc-800/50; }
+.tar-day { @apply flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-xs; }

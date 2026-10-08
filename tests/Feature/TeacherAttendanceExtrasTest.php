@@ -138,8 +138,10 @@ it('names the substitute in the report', function () {
         'substitute_teacher_id' => $this->cover->id,
     ]);
 
+    // Sent as data and laid out when the teacher's line is opened.
     Livewire::test(Report::class, ['role' => 'supervisor'])
-        ->assertSee('البديل: أستاذ خالد');
+        ->assertSee('"b":"أستاذ خالد"')
+        ->assertSee('x-html="daysHtml(days)"', false);
 });
 
 // ─────────── WhatsApp notice ───────────

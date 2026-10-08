@@ -66,9 +66,36 @@ it('counts each teacher against the working days of their stage', function () {
 
     expect($row['working'])->toBe(5);
     expect([$row['present'], $row['late'], $row['excused'], $row['absent']])->toBe([1, 1, 1, 1]);
-    expect($row['unrecorded'])->toBe(1);
+    // Thursday is today: its roll may still be called, so it is not owed yet.
+    expect($row['unrecorded'])->toBe(0);
     // Present and late over the days counted, leaving out the excused one.
     expect($row['rate'])->toBe(67);
+});
+
+it('owes a day the roll was not called on once the day is over', function () {
+    Carbon\Carbon::setTestNow('2026-09-18 08:00:00');
+    $this->actingAs($this->supervisor, 'supervisor');
+
+    expect(rowOf(teacherReport(), $this->teacher)['unrecorded'])->toBe(1);
+});
+
+it('owes a teacher who has moved on only the days they were marked', function () {
+    $moved = Teacher::factory()->create(['name' => 'أستاذ منقول']);
+    TeacherAttendance::create(['teacher_id' => $moved->id, 'stage_id' => $this->stage->id, 'date' => '2026-09-13', 'status' => 'present']);
+    $this->actingAs($this->supervisor, 'supervisor');
+
+    $page = teacherReport();
+    $row = rowOf($page, $moved);
+
+    expect($row['working'])->toBe(0)
+        ->and($row['unrecorded'])->toBe(0)
+        ->and($row['present'])->toBe(1)
+        // Nor does their record make the stage's day look complete.
+        ->and($page->viewData('followUp')['stages'][0]['cells']['2026-09-13'])->toBe(['marked' => 1, 'expected' => 1]);
+
+    TeacherAttendance::where('teacher_id', $this->teacher->id)->whereDate('date', '2026-09-13')->delete();
+
+    expect(teacherReport()->viewData('followUp')['stages'][0]['cells']['2026-09-13'])->toBe(['marked' => 0, 'expected' => 1]);
 });
 
 it('lists the days that need a second look, with their reason', function () {
@@ -77,7 +104,10 @@ it('lists the days that need a second look, with their reason', function () {
     $row = rowOf(teacherReport(), $this->teacher);
 
     expect($row['away']->pluck('status')->all())->toBe(['absent', 'excused', 'late']);
-    teacherReport()->assertSee('السبب: مريض');
+    // Sent as data and laid out when the teacher's line is opened.
+    teacherReport()
+        ->assertSee('"n":"مريض"')
+        ->assertSee('x-html="daysHtml(days)"', false);
 });
 
 it('keeps a supervisor to their own stages', function () {
