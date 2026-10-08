@@ -104,10 +104,8 @@ it('lists the days that need a second look, with their reason', function () {
     $row = rowOf(teacherReport(), $this->teacher);
 
     expect($row['away']->pluck('status')->all())->toBe(['absent', 'excused', 'late']);
-    // Sent as data and laid out when the teacher's line is opened.
-    teacherReport()
-        ->assertSee('"n":"مريض"')
-        ->assertSee('x-html="daysHtml(days)"', false);
+    // Said in the day's cell, and shown under the grid when it is tapped.
+    teacherReport()->assertSee('غائب، السبب: مريض');
 });
 
 it('keeps a supervisor to their own stages', function () {
@@ -141,6 +139,42 @@ it('opens on the Hijri month so far and never counts past today', function () {
         ->set('toDate', '2026-09-30');
 
     expect($page->viewData('to'))->toBe('2026-09-17');
+});
+
+it('lays each teacher out day by day, the line summed at its end and each day at its foot', function () {
+    $this->actingAs($this->supervisor, 'supervisor');
+
+    $page = teacherReport();
+    $cells = rowOf($page, $this->teacher)['cells'];
+
+    expect($page->viewData('days'))->toBe(['2026-09-13', '2026-09-14', '2026-09-15', '2026-09-16', '2026-09-17'])
+        ->and(collect($cells)->map(fn ($cell) => $cell['state'])->all())->toBe([
+            '2026-09-13' => 'present', '2026-09-14' => 'late', '2026-09-15' => 'excused',
+            '2026-09-16' => 'absent', '2026-09-17' => 'pending',
+        ])
+        // A plain «present» has nothing more to say; the others say it.
+        ->and($cells['2026-09-13']['title'])->toBeNull()
+        ->and($cells['2026-09-16']['title'])->toContain('غائب، السبب: مريض')
+        ->and($page->viewData('dayTotals')['2026-09-14'])->toBe(['present' => 1, 'counted' => 1, 'missing' => 0, 'rate' => 100])
+        ->and($page->viewData('dayTotals')['2026-09-16'])->toBe(['present' => 0, 'counted' => 1, 'missing' => 0, 'rate' => 0]);
+
+    $page->assertSee('data-teacher-grid', false)
+        ->assertSee('data-teacher-rate="67"', false)
+        ->assertSee('data-day-total="2026-09-16"', false);
+});
+
+it('marks a working day nobody marked once it is over, and leaves the days a teacher does not owe blank', function () {
+    Carbon\Carbon::setTestNow('2026-09-18 08:00:00');
+    $moved = Teacher::factory()->create(['name' => 'أستاذ منقول']);
+    TeacherAttendance::create(['teacher_id' => $moved->id, 'stage_id' => $this->stage->id, 'date' => '2026-09-13', 'status' => 'present']);
+    $this->actingAs($this->supervisor, 'supervisor');
+
+    $page = teacherReport();
+
+    expect(rowOf($page, $this->teacher)['cells']['2026-09-17']['state'])->toBe('missing')
+        ->and(rowOf($page, $moved)['cells']['2026-09-13']['state'])->toBe('present')
+        ->and(rowOf($page, $moved)['cells']['2026-09-14']['state'])->toBe('off')
+        ->and($page->viewData('dayTotals')['2026-09-17']['missing'])->toBe(1);
 });
 
 it('shows day by day whether each stage was marked', function () {

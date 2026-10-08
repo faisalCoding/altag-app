@@ -9,7 +9,7 @@
     $ar = fn ($n) => HijriDate::arabicDigits((int) $n);
 
     // One colour per status, the ones the roll call marks with; the classes
-    // (.st-*, and the .tar-* of the lines) live in app.css, short, since a
+    // (.st-*, and the .tg-* of the grid) live in app.css, short, since a
     // month of teachers is sent again with every change of period.
     $statusStyles = [
         'present' => ['label' => 'حاضر', 'badge' => 'st-present'],
@@ -25,9 +25,6 @@
         default => 'text-rose-600 dark:text-rose-400',
     };
 
-    // A teacher's line (.tar-line): on a phone the name and the rate, the
-    // counts beneath as labelled chips; from sm up one column each.
-    $chevron = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" class="size-3.5 shrink-0 text-zinc-400 transition-transform" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12.5 15 7.5 10l5-5"/></svg>';
     $check = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.5" class="size-4" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="m5 10.5 3.5 3.5L15 7"/></svg>';
 @endphp
 
@@ -118,103 +115,111 @@
         </div>
 
         {{-- ─────────── المعلمون ─────────── --}}
-        <div class="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-100 dark:border-zinc-800 shadow-xs overflow-hidden"
-            x-data="{
-                badge: @js(collect($statusStyles)->map(fn ($style) => $style['badge'])),
-                label: @js(collect($statusStyles)->map(fn ($style) => $style['label'])),
-                esc(text) { const span = document.createElement('span'); span.textContent = text; return span.innerHTML },
-                {{-- A teacher's days off the usual, laid out once here for every line
-                     rather than a template sent with each. --}}
-                daysHtml(days) {
-                    return days.map((day) => '<div class=&quot;tar-day&quot;>'
-                        + '<span class=&quot;text-zinc-600 dark:text-zinc-300 min-w-36&quot;>' + this.esc(day.d) + '</span>'
-                        + '<span class=&quot;rounded-md px-1.5 py-0.5 font-bold ' + this.badge[day.s] + '&quot;>' + this.label[day.s] + '</span>'
-                        + (day.a ? '<span class=&quot;text-amber-700 dark:text-amber-400&quot;>حضر الساعة <span dir=&quot;ltr&quot;>' + this.esc(day.a) + '</span>' + (day.m ? '، متأخراً ' + this.esc(day.m) + ' دقيقة' : '') + '</span>' : '')
-                        + (day.n ? '<span class=&quot;text-zinc-500 dark:text-zinc-400&quot;>السبب: ' + this.esc(day.n) + '</span>' : '')
-                        + (day.b ? '<span class=&quot;text-zinc-500 dark:text-zinc-400&quot;>البديل: ' + this.esc(day.b) + '</span>' : '')
-                        + '</div>').join('')
-                },
-            }">
+        {{-- A line per teacher, a column per day, like the stages' follow-up
+             below: each cell the teacher's day, the teacher's sum at the end of
+             the line and the day's at the foot of the column. A cell with more
+             to say carries it in its title, and a tap shows it underneath. --}}
+        <div class="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-100 dark:border-zinc-800 shadow-xs overflow-hidden" x-data="{ picked: '' }">
             <div class="px-4 sm:px-5 py-4 border-b border-zinc-100 dark:border-zinc-800">
                 <flux:heading size="sm">المعلمون</flux:heading>
-                <flux:subheading class="text-xs">نسبة الحضور = الحاضر والمتأخر من الأيام المسجّلة، دون أيام الاستئذان. اضغط المعلم لترى أيامه.</flux:subheading>
+                <flux:subheading class="text-xs">حالة كل معلم في كل يوم دوام. النسبة = الحاضر والمتأخر من الأيام المسجّلة، دون أيام الاستئذان.</flux:subheading>
             </div>
 
             @if ($rows->isEmpty())
                 <x-teacher-roll-empty message="لا يوجد معلمون في المراحل المختارة." />
             @else
-                <div class="divide-y divide-zinc-100 dark:divide-zinc-800" data-teacher-rows>
-                    <div class="tar-line !hidden sm:!grid !py-2.5 bg-zinc-50 dark:bg-zinc-800/50 text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                        <div>المعلم</div>
-                        <div class="text-center">أيام الدوام</div>
-                        @foreach (['present', 'late', 'excused', 'absent'] as $status)
-                            <div class="text-center">{{ $statusStyles[$status]['label'] }}</div>
-                        @endforeach
-                        <div class="text-center">لم يُحضَّر</div>
-                        <div class="text-center">النسبة</div>
-                    </div>
-
-                    @php ob_start(); @endphp
-                    @foreach ($rows as $row)
-                        @php
-                            // The days off the usual, built in the browser when the
-                            // line is opened rather than sent hidden with every line.
-                            $awayDays = $row['away']->map(fn ($day) => array_filter([
-                                'd' => HijriDate::withWeekday($day->date),
-                                's' => $day->status,
-                                'a' => $day->status === 'late' && $day->arrived_at ? $day->arrivalLabel() : null,
-                                'm' => $day->status === 'late' && $day->arrived_at && $day->minutesLate() ? $ar($day->minutesLate()) : null,
-                                'n' => $day->notes,
-                                'b' => $day->substitute && in_array($day->status, \App\Models\TeacherAttendance::AWAY, true) ? $day->substitute->name : null,
-                            ]))->values();
-                            $hasAway = $awayDays->isNotEmpty();
-                        @endphp
-                        <div wire:key="teacher-row-{{ $row['teacher']->id }}" data-teacher-row="{{ $row['teacher']->id }}"
-                            x-data="{ open: false, days: {{ json_encode($awayDays, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP) }} }">
-                            <div class="tar-line {{ $hasAway ? 'tar-open' : '' }}"
-                                @if ($hasAway) x-on:click="open = ! open" role="button" x-bind:aria-expanded="open" @endif>
-                                <div class="flex items-center gap-2 min-w-0">
-                                    @if ($hasAway)
-                                        <span x-bind:class="open && '-rotate-90'" class="inline-flex transition-transform">{!! $chevron !!}</span>
-                                    @else
-                                        <span class="size-3.5 shrink-0"></span>
-                                    @endif
-                                    <div class="min-w-0">
-                                        <div class="font-medium text-zinc-800 dark:text-zinc-100 truncate">{{ $row['teacher']->name }}</div>
-                                        <div class="text-xs text-zinc-400 truncate">{{ $row['circles'] ?: 'بلا حلقة' }}</div>
-                                    </div>
-                                </div>
-
-                                <div class="sm:order-last text-end sm:text-center text-lg sm:text-base font-black {{ $rateTone($row['rate']) }}">
-                                    {{ $row['rate'] === null ? '—' : $ar($row['rate']).'٪' }}
-                                </div>
-
-                                {{-- The counts: chips under the name on a phone, columns from sm up. --}}
-                                <div class="col-span-2 flex flex-wrap gap-1.5 sm:contents text-xs">
-                                    <span class="inline-flex items-center gap-1 rounded-md bg-zinc-100 px-1.5 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 sm:justify-self-center sm:bg-transparent sm:px-0 sm:text-sm dark:sm:bg-transparent">
-                                        <span class="sm:hidden">دوام</span>{{ $ar($row['working']) }}
-                                    </span>
-                                    @foreach (['present', 'late', 'excused', 'absent'] as $status)
-                                        @if ($row[$status] > 0)
-                                            <span class="tar-chip {{ $statusStyles[$status]['badge'] }}"><span class="sm:hidden font-medium">{{ $statusStyles[$status]['label'] }}</span>{{ $ar($row[$status]) }}</span>
-                                        @else
-                                            <span class="tar-zero">٠</span>
+                @php
+                    $gridDays = $days ?? [];
+                    $letters = \App\Livewire\Shared\TeacherAttendanceReport::STATUS_LETTERS;
+                @endphp
+                <div class="overflow-x-auto">
+                    <table class="tg-table text-xs" data-teacher-grid
+                        x-on:click="const cell = $event.target.closest('td[title]'); if (cell) picked = cell.title">
+                        <thead>
+                            <tr class="text-zinc-400">
+                                <th class="tg-name text-start font-medium px-3 sm:px-4 py-2">المعلم</th>
+                                @foreach ($gridDays as $day)
+                                    <th class="font-normal px-0.5 py-2 text-center whitespace-nowrap {{ $day === $today ? 'text-zinc-700 dark:text-zinc-200' : '' }}">
+                                        <div>{{ HijriDate::weekday($day) }}</div>
+                                        <div class="font-bold text-zinc-600 dark:text-zinc-300">{{ HijriDate::format($day, 'd') }}</div>
+                                    </th>
+                                @endforeach
+                                <th class="tg-sum font-medium px-3 py-2 text-center">الملخّص</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach ($rows as $row)
+                                @php
+                                    // The line's day cells built here, one string: forty teachers
+                                    // over a month is a thousand of them.
+                                    $line = '';
+                                    foreach ($row['cells'] ?? [] as $day => $cell) {
+                                        $class = match ($cell['state']) {
+                                            'present', 'late', 'excused', 'absent' => 'tg st-'.$cell['state'],
+                                            'missing' => 'tg tg-miss',
+                                            'pending' => 'tg tg-wait',
+                                            default => 'tg tg-off',
+                                        };
+                                        $line .= '<td class="'.$class.'"'.($cell['title'] ? ' title="'.e($cell['title']).'"' : '').'>'.($letters[$cell['state']] ?? '').'</td>';
+                                    }
+                                @endphp
+                                <tr wire:key="teacher-row-{{ $row['teacher']->id }}" data-teacher-row="{{ $row['teacher']->id }}">
+                                    <td class="tg-name px-3 sm:px-4 py-1.5">
+                                        <div class="font-medium text-zinc-800 dark:text-zinc-100 truncate max-w-32 sm:max-w-48">{{ $row['teacher']->name }}</div>
+                                        <div class="text-[11px] text-zinc-400 truncate max-w-32 sm:max-w-48">{{ $row['circles'] ?: 'بلا حلقة' }}</div>
+                                    </td>
+                                    {!! $line !!}
+                                    <td class="tg-sum px-3 py-1.5 text-center" data-teacher-rate="{{ $row['rate'] ?? 'none' }}">
+                                        <div class="text-sm font-black {{ $rateTone($row['rate']) }}">{{ $row['rate'] === null ? '—' : $ar($row['rate']).'٪' }}</div>
+                                        <div class="text-[10px] text-zinc-500 whitespace-nowrap">غياب {{ $ar($row['absent']) }}، تأخر {{ $ar($row['late']) }}</div>
+                                        @if ($row['unrecorded'] > 0)
+                                            <div class="text-[10px] font-bold text-rose-600 dark:text-rose-400 whitespace-nowrap">{{ $ar($row['unrecorded']) }} لم يُحضَّر</div>
                                         @endif
-                                    @endforeach
-                                    @if ($row['unrecorded'] > 0)
-                                        <span class="tar-chip bg-rose-600 text-white sm:bg-transparent sm:px-0 sm:text-sm sm:text-rose-600 dark:sm:bg-transparent dark:sm:text-rose-400"><span class="sm:hidden font-medium">لم يُحضَّر</span>{{ $ar($row['unrecorded']) }}</span>
-                                    @else
-                                        <span class="tar-zero">٠</span>
-                                    @endif
-                                </div>
-                            </div>
+                                    </td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                        <tfoot>
+                            <tr class="border-t border-zinc-100 dark:border-zinc-800">
+                                <td class="tg-name px-3 sm:px-4 py-2 font-bold text-zinc-700 dark:text-zinc-200">نسبة اليوم</td>
+                                @foreach ($gridDays as $day)
+                                    @php
+                                        $total = $dayTotals[$day];
+                                    @endphp
+                                    <td class="px-0.5 py-2 text-center whitespace-nowrap" data-day-total="{{ $day }}"
+                                        title="{{ HijriDate::withWeekday($day) }}: حضر {{ $ar($total['present']) }} من {{ $ar($total['counted']) }}{{ $total['missing'] > 0 ? '، ولم يُحضَّر '.$ar($total['missing']) : '' }}">
+                                        <div class="font-black {{ $rateTone($total['rate']) }}">{{ $total['rate'] === null ? '—' : $ar($total['rate']).'٪' }}</div>
+                                        @if ($total['missing'] > 0)
+                                            <div class="text-[10px] font-bold text-rose-600 dark:text-rose-400">{{ $ar($total['missing']) }}</div>
+                                        @endif
+                                    </td>
+                                @endforeach
+                                <td class="tg-sum px-3 py-2 text-center">
+                                    <div class="text-base font-black {{ $rateTone($totals['rate']) }}">{{ $totals['rate'] === null ? '—' : $ar($totals['rate']).'٪' }}</div>
+                                    <div class="text-[10px] text-zinc-500">الكل</div>
+                                </td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
 
-                            @if ($hasAway)
-                                <template x-if="open"><div class="tar-days" x-html="daysHtml(days)"></div></template>
-                            @endif
-                        </div>
-                    @endforeach
-                    {!! preg_replace('/>\s+</', '><', ob_get_clean()) !!}
+                @if ($days === null)
+                    <p class="px-5 py-3 text-xs text-zinc-400 border-t border-zinc-100 dark:border-zinc-800">
+                        الأيام تظهر أعمدةً لفترة لا تزيد على {{ $ar(\App\Livewire\Shared\TeacherAttendanceReport::FOLLOW_UP_MAX_DAYS) }} يوماً.
+                    </p>
+                @endif
+
+                <div class="px-4 sm:px-5 py-3 border-t border-zinc-100 dark:border-zinc-800 space-y-2">
+                    <p class="min-h-5 text-xs text-zinc-700 dark:text-zinc-200" x-show="picked" x-text="picked"></p>
+                    <div class="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-zinc-500">
+                        @foreach ($letters as $status => $letter)
+                            <span class="inline-flex items-center gap-1.5"><span class="tg-key st-{{ $status }}">{{ $letter }}</span>{{ $statusStyles[$status]['label'] }}</span>
+                        @endforeach
+                        <span class="inline-flex items-center gap-1.5"><span class="tg-key border-2 border-dashed border-rose-400"></span>لم يُحضَّر</span>
+                        <span class="inline-flex items-center gap-1.5"><span class="tg-key border border-dashed border-zinc-400"></span>اليوم، لم يُحضَّر بعد</span>
+                        <span class="inline-flex items-center gap-1.5"><span class="font-bold text-rose-600 dark:text-rose-400">١</span>تحت النسبة: من لم يُحضَّر ذلك اليوم</span>
+                        <span x-show="! picked">اضغط خانة لترى تفاصيلها.</span>
+                    </div>
                 </div>
             @endif
         </div>
