@@ -84,16 +84,17 @@ it('drops a part once every one of its days is graded', function () {
         ->and($missions[0]->pendingPart)->toBe('hifz');
 });
 
-it('picks the earliest ungraded day even when a later one was graded', function () {
-    // A teacher graded day 3's review but skipped day 2: the skipped day wins.
+it('follows the last portion recited, as the teacher app does, past a day left ungraded', function () {
+    // The teacher graded day 3's review, the last, and left day 2: the plan
+    // follows what was recited last, so its review is done — as the app shows
+    // the teacher, the student is not set a portion the teacher has moved past.
     StudentPlanDay::where('student_plan_id', $this->plan->id)
         ->whereDate('date', '2026-07-03')
         ->update(['review_achievement' => 3]);
 
     $missions = Livewire::test('student.⚡dashboard')->viewData('pendingMissions');
 
-    expect(collect($missions)->firstWhere('pendingPart', 'review')->date->format('Y-m-d'))
-        ->toBe('2026-07-02');
+    expect(collect($missions)->firstWhere('pendingPart', 'review'))->toBeNull();
 });
 
 it('falls back to the review for the hero card once hifz is finished', function () {

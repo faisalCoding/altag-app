@@ -940,34 +940,13 @@ new class extends Component {
         $dailyDigest = $activeGamification ? \App\Services\GamificationNewsService::getDailyDigest($activeGamification->id, $newsDate) : [];
         $availableNewsDates = $activeGamification ? \App\Services\GamificationNewsService::getAvailableDates($activeGamification->id) : [];
 
-        // Fetch Earliest Pending Missions (one per active approved plan)
         $activeApprovedPlans = \App\Models\StudentPlan::where('student_id', $student->id)->where('status', 'active')->where('is_approved', 1)->get();
 
-        /*
-         * Hifz and review advance at their own pace, so each gets its own
-         * earliest ungraded day. Taking the single earliest day with either
-         * part ungraded showed only whichever was further behind, and hid the
-         * other one entirely. See the same note on the main dashboard.
-         */
-        $pendingMissions = [];
-        foreach ($activeApprovedPlans as $plan) {
-            foreach (['hifz', 'review'] as $part) {
-                $day = \App\Models\StudentPlanDay::with(['fromAyah.surah', 'toAyah.surah', 'reviewFromAyah.surah', 'reviewToAyah.surah'])
-                    ->where('student_plan_id', $plan->id)
-                    // Owed: a portion for the part, not yet recited («لم يسمع» still owes it).
-                    ->pending($part)
-                    ->orderBy('date', 'asc')
-                    ->first();
-
-                if (! $day) {
-                    continue;
-                }
-
-                $day->setRelation('plan', $plan);
-                $day->pendingPart = $part;
-                $pendingMissions[] = $day;
-            }
-        }
+        // What each plan asks of the student next, picked as the teacher app
+        // picks it — a shortfall carried into the next portion, a portion
+        // covered whole skipped — so the student is set the portion their
+        // teacher grades. See StudentNextWird and the card above this page.
+        $pendingMissions = \App\Services\StudentNextWird::missions($student);
 
         // Fetch Earliest Pending Hadith Missions (one per active Hadith plan)
         // A stage that does not memorise the mutun or the odes shows the

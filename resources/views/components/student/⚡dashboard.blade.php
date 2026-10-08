@@ -47,36 +47,11 @@ new class extends Component {
         $todayStr = Carbon::now()->format('Y-m-d');
         $last30Start = Carbon::now()->subDays(30)->format('Y-m-d');
 
-        // Fetch Earliest Pending Missions (one per active approved plan)
-        $activeApprovedPlans = \App\Models\StudentPlan::where('student_id', $student->id)->where('status', 'active')->where('is_approved', 1)->get();
-
-        /*
-         * Hifz and review advance at their own pace: a teacher may be several
-         * days ahead on one and behind on the other. Picking the single
-         * earliest day with either part ungraded meant the student saw only
-         * whichever was further behind, and never the other one at all. Each
-         * part gets its own earliest ungraded day, and carries a marker so the
-         * card shows that part alone.
-         */
-        $pendingMissions = [];
-        foreach ($activeApprovedPlans as $plan) {
-            foreach (['hifz', 'review'] as $part) {
-                $day = StudentPlanDay::with(['fromAyah.surah', 'toAyah.surah', 'reviewFromAyah.surah', 'reviewToAyah.surah'])
-                    ->where('student_plan_id', $plan->id)
-                    // Owed: a portion for the part, not yet recited («لم يسمع» still owes it).
-                    ->pending($part)
-                    ->orderBy('date', 'asc')
-                    ->first();
-
-                if (! $day) {
-                    continue;
-                }
-
-                $day->setRelation('plan', $plan);
-                $day->pendingPart = $part;
-                $pendingMissions[] = $day;
-            }
-        }
+        // What each plan asks of the student next, picked as the teacher app
+        // picks it — a shortfall carried into the next portion, a portion
+        // covered whole skipped — so the student is set the portion their
+        // teacher grades. See StudentNextWird and the card above this page.
+        $pendingMissions = \App\Services\StudentNextWird::missions($student);
 
         // Named so the summary and hero cards never read hifz fields off a
         // review day, which would show a range the student already recited.
@@ -774,48 +749,9 @@ new class extends Component {
             </div>
 
             @unless($leaderboard)
-            {{-- Today's mission + notifications --}}
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                <div class="lg:col-span-2 rounded-2xl border border-emerald-100 dark:border-emerald-900/40 bg-gradient-to-br from-emerald-50 to-white dark:from-emerald-950/20 dark:to-zinc-900 p-6">
-                    @php
-                        // Prefer the next hifz; fall back to the next review when hifz is done.
-                        $heroMission = $pendingHifzMission ?? $pendingReviewMission;
-                        $heroHadithMission = $pendingHadithMissions[0] ?? null;
-                    @endphp
-                    @if($heroMission)
-                        <div class="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 text-sm font-bold mb-3">
-                            <flux:icon icon="flag" variant="solid" class="size-4" />
-                            {{ __('مهمة اليوم') }}
-                        </div>
-                        <div class="text-xl font-bold text-zinc-800 dark:text-zinc-100 mb-1">
-                            {{ $heroMission->formatRange($heroMission->pendingPart) ?? __('حفظ مقطع جديد') }}
-                        </div>
-                        <p class="text-sm text-zinc-500 dark:text-zinc-400 mb-4">{{ $heroMission->pendingPart === 'review' ? __('مراجعة') : __('حفظ') }}</p>
-                        <flux:button href="#today-mission" variant="primary" icon="play" class="!bg-emerald-600 hover:!bg-emerald-700">
-                            {{ __('ابدأ الآن') }}
-                        </flux:button>
-                    @elseif($heroHadithMission)
-                        <div class="flex items-center gap-2 text-rose-600 dark:text-rose-400 text-sm font-bold mb-3">
-                            <flux:icon icon="flag" variant="solid" class="size-4" />
-                            {{ __('مهمة اليوم') }}
-                        </div>
-                        <div class="text-xl font-bold text-zinc-800 dark:text-zinc-100 mb-1">
-                            {{ __('حفظ حديث جديد') }}
-                        </div>
-                        <flux:button href="{{ route('student.plan') }}" variant="primary" icon="play" class="!bg-rose-600 hover:!bg-rose-700" wire:navigate>
-                            {{ __('ابدأ الآن') }}
-                        </flux:button>
-                    @else
-                        <div class="flex items-center gap-3 text-emerald-700 dark:text-emerald-400">
-                            <flux:icon icon="check-circle" variant="solid" class="size-8" />
-                            <div>
-                                <div class="font-bold">{{ __('أنت في يوم راحة اليوم!') }}</div>
-                                <p class="text-sm text-zinc-500 dark:text-zinc-400 mt-0.5">{{ __('لا توجد مهام معلقة حالياً') }}</p>
-                            </div>
-                        </div>
-                    @endif
-                </div>
-
+            {{-- Notifications. Today's mission is the card at the top of the page,
+                 picked as the teacher app picks it. --}}
+            <div class="grid grid-cols-1 gap-4">
                 <div class="rounded-2xl border border-zinc-100 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6">
                     <div class="flex items-center gap-2 text-zinc-500 dark:text-zinc-400 text-sm font-bold mb-3">
                         <flux:icon icon="bell" class="size-4" />

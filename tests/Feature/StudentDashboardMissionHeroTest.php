@@ -63,14 +63,14 @@ beforeEach(function () {
     $this->actingAs($this->student, 'student');
 });
 
-it('shows a positive empty state when there are no pending missions', function () {
+it('shows a calm empty state when there are no pending missions', function () {
     $this->get(route('student.dashboard'))
         ->assertSuccessful()
-        ->assertSee('أنت في يوم راحة اليوم!')
+        ->assertSee('لا واجب عليك الآن.')
         ->assertSee('لا توجد تنبيهات حالياً');
 });
 
-it('shows the pending hifz mission in the hero card', function () {
+it('shows the pending hifz mission in the card at the top', function () {
     $plan = StudentPlan::create([
         'student_id' => $this->student->id,
         'plan_type' => 'hifz',
@@ -89,11 +89,12 @@ it('shows the pending hifz mission in the hero card', function () {
         'to_ayah_id' => 7,
     ]);
 
+    // In the card at the top of the page, which took the hero card's place.
     $this->get(route('student.dashboard'))
         ->assertSuccessful()
-        ->assertSee('مهمة اليوم')
+        ->assertSee('واجبك القادم')
         ->assertSee('الفاتحة')
-        ->assertDontSee('أنت في يوم راحة اليوم!');
+        ->assertDontSee('لا واجب عليك الآن.');
 });
 
 it('shows next exam and today session in the notifications card', function () {

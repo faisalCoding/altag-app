@@ -276,8 +276,9 @@ it('pins the queries one tap on the page runs', function () {
 
     // Measured with a team, a track, a milestone and a rival team on screen.
     // Two fewer since the turn queue reads the circle's stage, not every
-    // teacher's booking session.
-    expect($tap->count())->toBe(54);
+    // teacher's booking session; four more since the missions are picked as
+    // the teacher app picks them, from the plan's days and every session.
+    expect($tap->count())->toBe(58);
 });
 
 /*
