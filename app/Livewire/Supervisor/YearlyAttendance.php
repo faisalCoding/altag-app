@@ -5,6 +5,7 @@ namespace App\Livewire\Supervisor;
 use App\Models\Attendance as AttendanceModel;
 use App\Models\Circle;
 use App\Support\HijriDate;
+use App\Support\RollCallReminder;
 use Carbon\Carbon;
 use Flux\Flux;
 use Illuminate\Support\Facades\DB;
@@ -52,6 +53,7 @@ class YearlyAttendance extends Component
                 'teacher_name' => $teacher?->name ?? 'غير محدد',
                 'teacher_phone' => $teacher?->phone,
                 'teacher_access_token' => $teacher?->access_token,
+                'reminder_url' => RollCallReminder::whatsappUrl($teacher, $this->selectedDate),
             ];
         })->toArray();
 

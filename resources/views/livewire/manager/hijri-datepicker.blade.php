@@ -5,7 +5,8 @@
         class="w-full flex items-center justify-between text-right bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 shadow-sm rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 disabled:opacity-50">
         <div class="flex flex-col text-right">
             <span class="text-xs text-zinc-500 dark:text-zinc-400">{{ $label }}</span>
-            <span class="font-medium text-zinc-900 dark:text-zinc-100 mt-0.5">
+            {{-- One line always, so two pickers side by side stand the same height. --}}
+            <span class="font-medium text-zinc-900 dark:text-zinc-100 mt-0.5 whitespace-nowrap">
                 {{ $this->hijriFormattedDate ?: 'حدد التاريخ' }}
             </span>
         </div>

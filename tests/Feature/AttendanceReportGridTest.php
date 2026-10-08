@@ -11,6 +11,8 @@ use App\Models\Student;
 use App\Models\Teacher;
 use App\Services\AttendanceReportGrid;
 use App\Services\StudentStatusService;
+use App\Support\HijriDate;
+use App\Support\RollCallReminder;
 use Livewire\Livewire;
 
 /*
@@ -140,6 +142,55 @@ it('draws the day cells as links to the names behind them', function () {
         ->assertSee('٢ لم يُسجَّل')
         ->assertSee('data-circle-rate="80"', false)
         ->assertSee(route('manager.attendance-list', ['circleId' => $this->circle->id, 'date' => '2026-07-05']), false);
+});
+
+it('asks the circle\'s teacher over WhatsApp to take a missed roll, with a link onto that day', function () {
+    $this->teacher->update(['name' => 'خالد عبدالله', 'phone' => '0501234567', 'access_token' => 'tok-123']);
+    $this->actingAs(Manager::factory()->create(), 'manager');
+
+    $html = Livewire::test(AttendanceReports::class)
+        ->set('fromDate', '2026-07-04')
+        ->set('toDate', '2026-07-09')
+        ->html();
+
+    expect(preg_match('/data-cell="'.$this->circle->id.'-2026-07-07"[^>]*>(.*?)<\/td>/s', $html, $cell))->toBe(1);
+
+    $url = html_entity_decode(str($cell[1])->after('href="')->before('"')->toString());
+    parse_str((string) parse_url($url, PHP_URL_QUERY), $query);
+
+    expect($url)->toStartWith('https://wa.me/966501234567?')
+        ->and($cell[1])->toContain('data-reminder')
+        ->and($query['text'])->toContain('أ. خالد')
+        ->toContain(HijriDate::dayMonth('2026-07-07'))
+        ->toContain(route('teacher.magic-link', ['token' => 'tok-123', 'redirect' => route('teacher.attendance', ['date' => '2026-07-07'])]));
+});
+
+it('opens the day page instead when the teacher has no phone to remind', function () {
+    $this->teacher->update(['phone' => null]);
+    $this->actingAs(Manager::factory()->create(), 'manager');
+
+    $html = Livewire::test(AttendanceReports::class)->set('fromDate', '2026-07-04')->set('toDate', '2026-07-09')->html();
+
+    preg_match('/data-cell="'.$this->circle->id.'-2026-07-07"[^>]*>(.*?)<\/td>/s', $html, $cell);
+
+    expect($cell[1])->not->toContain('wa.me')
+        ->toContain(route('manager.attendance-list', ['circleId' => $this->circle->id, 'date' => '2026-07-07']));
+});
+
+it('says it is fetching while a new range is read', function () {
+    $this->actingAs(Manager::factory()->create(), 'manager');
+
+    $html = Livewire::test(AttendanceReports::class)->html();
+
+    expect($html)->toMatch('/wire:loading\.flex[^>]*wire:target="fromDate, toDate, clearFilters, downloadPDF"[^>]*data-report-loading/')
+        ->toContain('جارٍ جلب بيانات الفترة')
+        ->toContain('wire:loading.class="opacity-40 pointer-events-none"');
+});
+
+it('writes the reminder number the way wa.me reads it', function () {
+    expect(RollCallReminder::phone('0501234567'))->toBe('966501234567')
+        ->and(RollCallReminder::phone('+966 50 123 4567'))->toBe('966501234567')
+        ->and(RollCallReminder::whatsappUrl(null, '2026-07-07'))->toBeNull();
 });
 
 it('says when the range runs backwards, rather than asking for one', function () {

@@ -226,7 +226,7 @@ final class AttendanceReportGrid
      */
     private static function circles(array $stageIds): Collection
     {
-        return Circle::with('stage')
+        return Circle::with(['stage', 'teachers'])
             ->leftJoin('stages', 'stages.id', '=', 'circles.stage_id')
             ->when($stageIds !== [], fn ($q) => $q->whereIn('circles.stage_id', $stageIds))
             ->select('circles.*')

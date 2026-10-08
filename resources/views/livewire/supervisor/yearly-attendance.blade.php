@@ -123,26 +123,10 @@
 
                         <div class="flex items-center gap-2">
                             <flux:button.group>
-                                @if ($circle['teacher_phone'] && !$circle['is_completed'])
-                                    @php
-                                        $teacherFirstName = explode(' ', trim($circle['teacher_name']))[0];
-
-                                        $phone = ltrim($circle['teacher_phone'], '0');
-                                        if (!str_starts_with($phone, '966')) {
-                                            $phone = '966' . $phone;
-                                        }
-
-                                        $redirectUrl = route('teacher.attendance', ['date' => $selectedDate]);
-                                        $magicLink = route('teacher.magic-link', [
-                                            'token' => $circle['teacher_access_token'],
-                                            'redirect' => $redirectUrl
-                                        ]);
-                                        $hjri_date_without_year = implode(' ', array_slice(explode(' ', $selectedDateHijri), 0, 2));
-                                        $rawMsg = "السلام عليكم ورحمة الله و بركاته\nكيف حالك أ. {$teacherFirstName}\nارجو انك تكمل تحضير يوم {$hjri_date_without_year}\nتقدر توصل لصفحة التحضير لهذا اليوم عبر الرابط\n{$magicLink}";
-                                        $msg = urlencode($rawMsg);
-                                    @endphp
+                                @if ($circle['teacher_phone'] && !$circle['is_completed'] && $circle['reminder_url'])
+                                    {{-- The shared reminder: a sign-in link onto that day's roll call. --}}
                                     <flux:button size="sm" variant="ghost" square
-                                        href="https://wa.me/{{ $phone }}?text={{ $msg }}" target="_blank">
+                                        href="{{ $circle['reminder_url'] }}" target="_blank">
                                         <flux:icon icon="chat-bubble-left-right" class="size-4 text-green-500" />
                                     </flux:button>
                                 @elseif ($circle['teacher_phone'] && $circle['is_completed'])

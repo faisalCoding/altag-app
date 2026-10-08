@@ -4,13 +4,14 @@
     $ar = fn ($n) => HijriDate::arabicDigits($n);
 
     // A day's rate as a colour, the same bands on the screen and the sheet;
-    // spelled out for Tailwind.
+    // the classes live in app.css (.att-*), short, since a month of circles is
+    // hundreds of cells sent again with every change of range.
     $band = fn (?int $rate) => match (true) {
-        $rate === null => 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400',
-        $rate >= 90 => 'bg-emerald-200 text-emerald-900 dark:bg-emerald-800/70 dark:text-emerald-50',
-        $rate >= 75 => 'bg-lime-100 text-lime-900 dark:bg-lime-900/50 dark:text-lime-100',
-        $rate >= 60 => 'bg-amber-200 text-amber-950 dark:bg-amber-800/60 dark:text-amber-50',
-        default => 'bg-rose-200 text-rose-950 dark:bg-rose-800/60 dark:text-rose-50',
+        $rate === null => 'att-none',
+        $rate >= 90 => 'att-90',
+        $rate >= 75 => 'att-75',
+        $rate >= 60 => 'att-60',
+        default => 'att-low',
     };
     $rateText = fn (?int $rate) => match (true) {
         $rate === null => 'text-zinc-400',
@@ -19,7 +20,6 @@
         $rate >= 60 => 'text-amber-700 dark:text-amber-400',
         default => 'text-rose-700 dark:text-rose-400',
     };
-    $hatch = 'background-image: repeating-linear-gradient(45deg, rgb(161 161 170 / 0.18) 0 4px, transparent 4px 8px)';
 @endphp
 
 <div dir="rtl">
@@ -35,26 +35,35 @@
             <flux:button wire:click="downloadPDF" icon="printer" variant="outline">طباعة تقرير</flux:button>
 
             {{-- Date Filters --}}
-            <div class="flex items-end gap-2 bg-zinc-50 dark:bg-zinc-800/50 p-2 rounded-xl border border-zinc-200 dark:border-zinc-800">
-                <div class="flex flex-col gap-1 w-36">
-                    <label class="text-xs font-medium text-zinc-500">من تاريخ</label>
+            {{-- The picker carries its own label. Both fields the same width,
+                 wide enough that no date wraps onto a second line. --}}
+            <div class="flex items-stretch gap-2 bg-zinc-50 dark:bg-zinc-800/50 p-2 rounded-xl border border-zinc-200 dark:border-zinc-800" data-date-filters>
+                <div class="w-48">
                     <livewire:manager.hijri-datepicker wire:model.live="fromDate" label="من تاريخ" />
                 </div>
-                <div class="flex flex-col gap-1 w-36">
-                    <label class="text-xs font-medium text-zinc-500">إلى تاريخ</label>
+                <div class="w-48">
                     <livewire:manager.hijri-datepicker wire:model.live="toDate" label="إلى تاريخ" />
                 </div>
-                <button wire:click="clearFilters" class="p-2 text-zinc-400 hover:text-red-500" title="آخر سبعة أيام" aria-label="آخر سبعة أيام">
+                <button wire:click="clearFilters" class="flex items-center p-2 text-zinc-400 hover:text-red-500" title="آخر سبعة أيام" aria-label="آخر سبعة أيام">
                     <flux:icon icon="x-mark" class="size-5" />
                 </button>
             </div>
         </div>
     </div>
 
+    {{-- A new range is read on the server: say so while it is, rather than
+         leave the old figures standing as though nothing had been asked. --}}
+    <div wire:loading.flex wire:target="fromDate, toDate, clearFilters, downloadPDF" data-report-loading
+        class="mx-6 mb-3 items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-medium text-sky-800 dark:border-sky-800 dark:bg-sky-900/30 dark:text-sky-200">
+        <flux:icon.loading class="size-4" />
+        <span wire:loading wire:target="fromDate, toDate, clearFilters">جارٍ جلب بيانات الفترة…</span>
+        <span wire:loading wire:target="downloadPDF">جارٍ تجهيز التقرير للطباعة…</span>
+    </div>
+
     @php
         $picked = array_map('intval', $stageIds);
         $isShown = fn (int $stageKey) => $picked === [] || in_array($stageKey, $picked, true);
-        $chipOn = 'border-maroon bg-maroon/10 text-maroon dark:text-red-secondary font-bold';
+        $chipOn = 'border-maroon bg-maroon/10 text-maroon dark:border-red-300/70 dark:bg-red-300/15 dark:text-red-100 font-bold';
         $chipOff = 'border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-white dark:hover:bg-zinc-800';
     @endphp
 
@@ -64,6 +73,8 @@
          (a print or a new range), deferred. The key follows the range, so a
          new range brings new figures rather than keeping the old ones. --}}
     <div wire:key="report-{{ $fromDate }}-{{ $toDate }}"
+        wire:loading.class="opacity-40 pointer-events-none" wire:target="fromDate, toDate, clearFilters"
+        class="transition-opacity"
         x-data="{
             stages: $wire.entangle('stageIds'),
             circles: @js($circleTotals),
@@ -220,47 +231,38 @@
                                     <td class="sticky right-0 z-[1] bg-white dark:bg-zinc-900 px-3 py-1.5 font-medium text-zinc-700 dark:text-zinc-300">
                                         {{ $circle->name }}
                                     </td>
+                                    @php
+                                        $reminder = \App\Support\RollCallReminder::class;
+                                        $teacher = $circle->teachers->first();
+                                    @endphp
+                                    {{-- Each cell on one line, built here: a month of circles is
+                                         hundreds of them, and the indentation and block markers
+                                         of a template per cell were most of what went over the
+                                         wire with each change of range. --}}
                                     @foreach ($dates as $day)
                                         @php
                                             $cell = $row['cells'][$day['date']];
-                                            $link = route('manager.attendance-list', ['circleId' => $circle->id, 'date' => $day['date']]);
-                                            $detail = 'حاضر '.$ar($cell['present'] - $cell['late']).' · متأخر '.$ar($cell['late']).' · غائب '.$ar($cell['absent'])
-                                                .' · مستأذن '.$ar($cell['excused']).($cell['unmarked'] > 0 ? ' · لم يُسجَّل '.$ar($cell['unmarked']) : '');
+                                            $link = e(route('manager.attendance-list', ['circleId' => $circle->id, 'date' => $day['date']]));
+                                            $inner = match ($cell['state']) {
+                                                'data' => '<a href="'.$link.'" wire:navigate class="att-cell '.$band($cell['rate']).'" title="'.e('حاضر '.$ar($cell['present'] - $cell['late']).'، متأخر '.$ar($cell['late']).'، غائب '.$ar($cell['absent']).'، مستأذن '.$ar($cell['excused']).($cell['unmarked'] > 0 ? '، لم يُسجَّل '.$ar($cell['unmarked']) : '')).'">'
+                                                    .'<span class="block text-[13px] font-bold">'.$ar($cell['present']).'/'.$ar($cell['expected'] - $cell['excused']).'</span>'
+                                                    .($cell['unmarked'] > 0 ? '<span class="block text-[10px] font-medium opacity-80">'.$ar($cell['unmarked']).' لم يُسجَّل</span>' : '')
+                                                    .'</a>',
+                                                // A missed roll call asks the circle's teacher to take it,
+                                                // over WhatsApp, with a link onto that day's roll call.
+                                                'missing' => ($whatsapp = $reminder::whatsappUrl($teacher, $day['date']))
+                                                    ? '<a href="'.e($whatsapp).'" target="_blank" rel="noopener" class="att-missing" data-reminder title="'.e('ذكّر '.($teacher?->name ?? 'المعلم').' بالتحضير عبر واتساب').'">لم يُحضَّر</a>'
+                                                    : '<a href="'.$link.'" wire:navigate class="att-missing" title="يوم دوام لم يُحضَّر فيه">لم يُحضَّر</a>',
+                                                'pending' => '<a href="'.$link.'" wire:navigate class="att-pending" title="لم يُحضَّر بعد اليوم">لم يُحضَّر بعد</a>',
+                                                'off' => '<div class="att-off" title="ليس يوم دوام لهذه المرحلة"></div>',
+                                                default => '<span class="text-zinc-300 dark:text-zinc-700">—</span>',
+                                            };
                                         @endphp
-                                        <td class="p-0 text-center align-middle" data-cell="{{ $circle->id }}-{{ $day['date'] }}" data-state="{{ $cell['state'] }}">
-                                            @switch ($cell['state'])
-                                                @case('data')
-                                                    <a href="{{ $link }}" wire:navigate title="{{ $detail }}"
-                                                        class="block rounded-md px-1 py-1.5 leading-tight hover:ring-2 hover:ring-zinc-400 {{ $band($cell['rate']) }}">
-                                                        <span class="block text-[13px] font-bold">{{ $ar($cell['present']) }}/{{ $ar($cell['expected'] - $cell['excused']) }}</span>
-                                                        @if ($cell['unmarked'] > 0)
-                                                            <span class="block text-[10px] font-medium opacity-80">{{ $ar($cell['unmarked']) }} لم يُسجَّل</span>
-                                                        @endif
-                                                    </a>
-                                                    @break
-                                                @case('missing')
-                                                    <a href="{{ $link }}" wire:navigate title="يوم دوام لم يُحضَّر فيه"
-                                                        class="block rounded-md border-2 border-dashed border-rose-400 px-1 py-1.5 text-[10px] font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20">
-                                                        لم يُحضَّر
-                                                    </a>
-                                                    @break
-                                                @case('pending')
-                                                    <a href="{{ $link }}" wire:navigate title="لم يُحضَّر بعد اليوم"
-                                                        class="block rounded-md border border-dashed border-zinc-300 dark:border-zinc-600 px-1 py-1.5 text-[10px] text-zinc-400">
-                                                        لم يُحضَّر بعد
-                                                    </a>
-                                                    @break
-                                                @case('off')
-                                                    <div class="h-9 rounded-md" style="{{ $hatch }}" title="ليس يوم دوام لهذه المرحلة"></div>
-                                                    @break
-                                                @default
-                                                    <span class="text-zinc-300 dark:text-zinc-700">—</span>
-                                            @endswitch
-                                        </td>
+                                        <td class="att-day" data-cell="{{ $circle->id }}-{{ $day['date'] }}" data-state="{{ $cell['state'] }}">{!! $inner !!}</td>
                                     @endforeach
                                     <td class="bg-zinc-50 dark:bg-zinc-800/50 px-2 py-1.5 text-center" data-circle-rate="{{ $totals['rate'] ?? 'none' }}">
                                         <div class="text-base font-black {{ $rateText($totals['rate']) }}">{{ $totals['rate'] === null ? '—' : $ar($totals['rate']).'٪' }}</div>
-                                        <div class="text-[10px] text-zinc-500 whitespace-nowrap">غياب {{ $ar($totals['absent']) }} · تأخر {{ $ar($totals['late']) }}</div>
+                                        <div class="text-[10px] text-zinc-500 whitespace-nowrap">غياب {{ $ar($totals['absent']) }}، تأخر {{ $ar($totals['late']) }}</div>
                                         @if ($totals['missing'] > 0)
                                             <div class="text-[10px] font-bold text-rose-600 dark:text-rose-400 whitespace-nowrap">{{ $ar($totals['missing']) }} بلا تحضير</div>
                                         @endif
@@ -297,12 +299,12 @@
 
             {{-- Legend --}}
             <div class="flex flex-wrap items-center gap-x-4 gap-y-1.5 mt-3 text-xs text-zinc-500 dark:text-zinc-400">
-                <span class="flex items-center gap-1.5"><span class="size-3 rounded-sm bg-emerald-200"></span>٩٠٪ فأكثر</span>
-                <span class="flex items-center gap-1.5"><span class="size-3 rounded-sm bg-lime-100"></span>٧٥–٨٩٪</span>
-                <span class="flex items-center gap-1.5"><span class="size-3 rounded-sm bg-amber-200"></span>٦٠–٧٤٪</span>
-                <span class="flex items-center gap-1.5"><span class="size-3 rounded-sm bg-rose-200"></span>أقل من ٦٠٪</span>
-                <span class="flex items-center gap-1.5"><span class="size-3 rounded-sm border border-zinc-300" style="{{ $hatch }}"></span>ليس يوم دوام</span>
-                <span class="flex items-center gap-1.5"><span class="size-3 rounded-sm border-2 border-dashed border-rose-400"></span>يوم دوام لم يُحضَّر</span>
+                <span class="flex items-center gap-1.5"><span class="size-3 rounded-sm att-90"></span>٩٠٪ فأكثر</span>
+                <span class="flex items-center gap-1.5"><span class="size-3 rounded-sm att-75"></span>٧٥–٨٩٪</span>
+                <span class="flex items-center gap-1.5"><span class="size-3 rounded-sm att-60"></span>٦٠–٧٤٪</span>
+                <span class="flex items-center gap-1.5"><span class="size-3 rounded-sm att-low"></span>أقل من ٦٠٪</span>
+                <span class="flex items-center gap-1.5"><span class="att-off !size-3 !rounded-sm border border-zinc-300"></span>ليس يوم دوام</span>
+                <span class="flex items-center gap-1.5"><span class="size-3 rounded-sm border-2 border-dashed border-rose-400"></span>يوم دوام لم يُحضَّر (اضغطه لتذكير المعلم عبر واتساب)</span>
                 <span>الخلية: الحاضرون (والمتأخرون) من الطلاب المشاركين، والمستأذن خارجها. اضغطها لترى الأسماء.</span>
             </div>
         @endif

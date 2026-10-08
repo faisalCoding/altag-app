@@ -63,7 +63,7 @@
                     <label wire:key="stage-filter-{{ $stage->id }}"
                         class="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs transition-colors
                             {{ in_array((string) $stage->id, array_map('strval', $stageIds), true)
-                                ? 'border-maroon bg-maroon/10 text-maroon dark:text-red-secondary font-bold'
+                                ? 'border-maroon bg-maroon/10 text-maroon dark:border-red-300/70 dark:bg-red-300/15 dark:text-red-100 font-bold'
                                 : 'border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800' }}">
                         <input type="checkbox" wire:model.live="stageIds" value="{{ $stage->id }}" class="sr-only">
                         {{ $stage->name }}
