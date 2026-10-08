@@ -138,7 +138,7 @@ it('draws the day cells as links to the names behind them', function () {
         ->assertSee('data-summary-unmarked="2"', false)
         ->assertSee('data-cell="'.$this->circle->id.'-2026-07-07" data-state="missing"', false)
         ->assertSee('لم يُحضَّر')
-        ->assertSee('٢/٣')
+        ->assertSee('٢ / ٣')
         ->assertSee('٢ لم يُسجَّل')
         ->assertSee('data-circle-rate="80"', false)
         ->assertSee(route('manager.attendance-list', ['circleId' => $this->circle->id, 'date' => '2026-07-05']), false);

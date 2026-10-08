@@ -177,7 +177,7 @@
                         @switch ($cell['state'])
                             @case('data')
                                 <td style="{{ $band($cell['rate']) }}">
-                                    <span class="present">{{ $ar($cell['present']) }}</span>/{{ $ar($cell['expected'] - $cell['excused']) }}
+                                    <span class="present">{{ $ar($cell['present']) }}</span> / {{ $ar($cell['expected'] - $cell['excused']) }}
                                     @if ($cell['unmarked'] > 0)
                                         <br><span class="unmarked">{{ $ar($cell['unmarked']) }} لم يُسجَّل</span>
                                     @endif

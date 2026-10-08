@@ -245,7 +245,8 @@
                                             $link = e(route('manager.attendance-list', ['circleId' => $circle->id, 'date' => $day['date']]));
                                             $inner = match ($cell['state']) {
                                                 'data' => '<a href="'.$link.'" wire:navigate class="att-cell '.$band($cell['rate']).'" title="'.e('حاضر '.$ar($cell['present'] - $cell['late']).'، متأخر '.$ar($cell['late']).'، غائب '.$ar($cell['absent']).'، مستأذن '.$ar($cell['excused']).($cell['unmarked'] > 0 ? '، لم يُسجَّل '.$ar($cell['unmarked']) : '')).'">'
-                                                    .'<span class="block text-[13px] font-bold">'.$ar($cell['present']).'/'.$ar($cell['expected'] - $cell['excused']).'</span>'
+                                                    // Spaced, so the two read as two: present, then of how many.
+                                                    .'<span class="block text-[13px] font-bold">'.$ar($cell['present']).' / '.$ar($cell['expected'] - $cell['excused']).'</span>'
                                                     .($cell['unmarked'] > 0 ? '<span class="block text-[10px] font-medium opacity-80">'.$ar($cell['unmarked']).' لم يُسجَّل</span>' : '')
                                                     .'</a>',
                                                 // A missed roll call asks the circle's teacher to take it,
@@ -255,7 +256,7 @@
                                                     : '<a href="'.$link.'" wire:navigate class="att-missing" title="يوم دوام لم يُحضَّر فيه">لم يُحضَّر</a>',
                                                 'pending' => '<a href="'.$link.'" wire:navigate class="att-pending" title="لم يُحضَّر بعد اليوم">لم يُحضَّر بعد</a>',
                                                 'off' => '<div class="att-off" title="ليس يوم دوام لهذه المرحلة"></div>',
-                                                default => '<span class="text-zinc-300 dark:text-zinc-700">—</span>',
+                                                default => '<span class="att-empty">—</span>',
                                             };
                                         @endphp
                                         <td class="att-day" data-cell="{{ $circle->id }}-{{ $day['date'] }}" data-state="{{ $cell['state'] }}">{!! $inner !!}</td>

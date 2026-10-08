@@ -302,15 +302,20 @@ ui-toast [data-flux-toast-dialog] > * {
  * page light. The bands are the printed sheet's.
  */
 .att-day { @apply p-0 text-center align-middle; }
-.att-cell { @apply block rounded-md px-1 py-1.5 leading-tight hover:ring-2 hover:ring-zinc-400; }
+
+/* Every cell the same height, one line or two, so a row reads level. */
+.att-cell, .att-missing, .att-pending, .att-off, .att-empty {
+    @apply flex h-11 flex-col items-center justify-center rounded-md px-1 leading-tight;
+}
+.att-cell { @apply hover:ring-2 hover:ring-zinc-400; }
+.att-empty { @apply text-zinc-300 dark:text-zinc-700; }
 .att-90 { @apply bg-emerald-200 text-emerald-900 dark:bg-emerald-800/70 dark:text-emerald-50; }
 .att-75 { @apply bg-lime-100 text-lime-900 dark:bg-lime-900/50 dark:text-lime-100; }
 .att-60 { @apply bg-amber-200 text-amber-950 dark:bg-amber-800/60 dark:text-amber-50; }
 .att-low { @apply bg-rose-200 text-rose-950 dark:bg-rose-800/60 dark:text-rose-50; }
 .att-none { @apply bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400; }
-.att-missing { @apply block rounded-md border-2 border-dashed border-rose-400 px-1 py-1.5 text-[10px] font-bold text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-900/20; }
-.att-pending { @apply block rounded-md border border-dashed border-zinc-300 px-1 py-1.5 text-[10px] text-zinc-400 dark:border-zinc-600; }
+.att-missing { @apply border-2 border-dashed border-rose-400 text-[10px] font-bold text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-900/20; }
+.att-pending { @apply border border-dashed border-zinc-300 text-[10px] text-zinc-400 dark:border-zinc-600; }
 .att-off {
-    @apply h-9 rounded-md;
     background-image: repeating-linear-gradient(45deg, rgb(161 161 170 / 0.18) 0 4px, transparent 4px 8px);
 }
