@@ -3,8 +3,9 @@
 use App\Models\AcademicCalendarEvent;
 use App\Models\Circle;
 use App\Models\GamificationBadge;
-use App\Models\GamificationTransaction;
 use App\Models\Leaderboard;
+use App\Models\LeaderboardCriterion;
+use App\Models\LeaderboardScore;
 use App\Models\Stage;
 use App\Models\Student;
 use App\Models\Teacher;
@@ -33,11 +34,32 @@ beforeEach(function () {
     $this->actingAs($this->student, 'student');
 });
 
-it('shows an honest empty state for badges and leaderboard with no active competition', function () {
+it('shows no empty badge or leaderboard cards with no active competition', function () {
     $this->get(route('student.dashboard'))
         ->assertSuccessful()
-        ->assertSee('لا توجد مسابقة نشطة لعرض الأوسمة بعد')
-        ->assertSee('لا توجد مسابقة نشطة حالياً');
+        ->assertDontSee('لا توجد مسابقة نشطة لعرض الأوسمة بعد')
+        ->assertDontSee('لا توجد مسابقة نشطة حالياً')
+        ->assertDontSee('لم تحصل على أوسمة بعد')
+        ->assertDontSee('لوحة المتصدرين');
+});
+
+it('shows no empty badge card in a competition the student won no badge in', function () {
+    $leaderboard = Leaderboard::create([
+        'circle_id' => $this->circle->id,
+        'title' => 'مسابقة تجريبية',
+        'competition_type' => 'points',
+        'start_date' => now()->subDays(2),
+        'end_date' => now()->addDays(2),
+        'is_active' => true,
+        'settings' => [],
+    ]);
+    $leaderboard->circles()->attach($this->circle->id);
+
+    $this->get(route('student.dashboard'))
+        ->assertSuccessful()
+        ->assertDontSee('لم تحصل على أوسمة بعد')
+        ->assertDontSee('لا توجد مسابقة نشطة حالياً')
+        ->assertDontSee('لوحة المتصدرين');
 });
 
 it('shows claimed badges and excludes pending ones', function () {
@@ -100,17 +122,21 @@ it('shows the top-3 podium widget when standings exist', function () {
     ]);
     $leaderboard->circles()->attach($this->circle->id);
 
-    GamificationTransaction::create([
-        'student_id' => $this->student->id,
+    $criterion = LeaderboardCriterion::create([
         'leaderboard_id' => $leaderboard->id,
-        'type' => 'earn',
-        'amount' => 55,
-        'xp_amount' => 55,
-        'description' => 'نقاط تجريبية',
+        'name' => 'الحفظ',
+        'points' => 55,
+    ]);
+    LeaderboardScore::create([
+        'leaderboard_id' => $leaderboard->id,
+        'student_id' => $this->student->id,
+        'leaderboard_criterion_id' => $criterion->id,
+        'date' => now(),
     ]);
 
     $this->get(route('student.dashboard'))
         ->assertSuccessful()
-        ->assertSee($this->student->name)
-        ->assertSee('55 XP');
+        ->assertSee('لوحة المتصدرين')
+        ->assertSee('55 نقطة')
+        ->assertDontSee('55 XP');
 });

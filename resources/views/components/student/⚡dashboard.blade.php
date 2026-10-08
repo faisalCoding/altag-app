@@ -308,11 +308,6 @@ new class extends Component {
         $surahMap = \App\Services\MemorizationJourneyService::surahMap($student);
         $completedSurahsCount = collect($surahMap)->where('status', 'full')->count();
 
-        $studentLevel = null;
-        if ($leaderboard) {
-            $studentLevel = \App\Services\GamificationService::getStudentLevel($student->id, $leaderboard->id);
-        }
-
         $monthlyStats = \App\Services\MemorizationJourneyService::monthlyAyahsMemorized($student);
         $recentActivity = \App\Services\StudentActivityFeedService::recentActivity($student, $leaderboard);
 
@@ -364,7 +359,6 @@ new class extends Component {
             'recentActivity' => $recentActivity,
             'teamTaskAssignment' => $teamTaskAssignment,
             'currentStreak' => $currentStreak,
-            'studentLevel' => $studentLevel,
             'pendingMissions' => $pendingMissions,
             'pendingHifzMission' => $pendingHifzMission,
             'pendingReviewMission' => $pendingReviewMission,
@@ -721,42 +715,6 @@ new class extends Component {
     @else
         <div class="space-y-8" dir="rtl">
 
-            {{-- Level / XP progress: kept visible even when a competition is
-            active, since it's scoped to that competition (leaderboard_id),
-            not general daily content. --}}
-            <div class="rounded-2xl border border-zinc-100 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6 shadow-xs">
-                @if($studentLevel && $studentLevel['current'])
-                    @php
-                        $levelProgress = \App\Services\GamificationService::levelProgressPercentage($studentLevel);
-                    @endphp
-                    <div class="flex items-center gap-5">
-                        <x-student.partials.progress-ring :percentage="$levelProgress" :size="88" progress-class="text-maroon">
-                            <div class="text-center">
-                                <div class="text-lg font-black text-zinc-800 dark:text-zinc-100">{{ $studentLevel['current']->level_number ?? 1 }}</div>
-                                <div class="text-[10px] text-zinc-400">{{ __('مستوى') }}</div>
-                            </div>
-                        </x-student.partials.progress-ring>
-                        <div class="min-w-0">
-                            <div class="font-bold text-zinc-800 dark:text-zinc-100">{{ $studentLevel['current']->name ?? __('المستوى الحالي') }}</div>
-                            <div class="text-sm text-zinc-500 dark:text-zinc-400 mt-1">
-                                {{ $studentLevel['xp'] }} XP
-                                @if($studentLevel['next'])
-                                    / {{ $studentLevel['next']->xp_required }} XP
-                                    <span class="text-zinc-400">({{ __('باقي :points نقطة للمستوى القادم', ['points' => max(0, $studentLevel['next']->xp_required - $studentLevel['xp'])]) }})</span>
-                                @else
-                                    <span class="text-zinc-400">{{ __('أقصى مستوى!') }}</span>
-                                @endif
-                            </div>
-                        </div>
-                    </div>
-                @else
-                    <div class="flex items-center gap-3 text-zinc-400">
-                        <flux:icon icon="trophy" class="size-6" />
-                        <span class="text-sm">{{ __('لا توجد مسابقة نشطة حالياً لعرض مستواك ونقاطك') }}</span>
-                    </div>
-                @endif
-            </div>
-
             @unless($leaderboard)
             {{-- Notifications. Today's mission is the card at the top of the page,
                  picked as the teacher app picks it. --}}
@@ -820,38 +778,37 @@ new class extends Component {
             </div>
             @endunless
 
-            {{-- Achievements + leaderboard mini widget: badges earned and the
-            top-3 preview are both scoped to the active competition, so they
-            stay visible alongside it rather than being hidden as "everything
-            else". --}}
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {{-- Achievements + leaderboard mini widget, scoped to the active
+            competition. Levels and XP belong to the gamification page alone;
+            here a card shows only when it has something to show: badges the
+            student won, a podium of students who scored. --}}
+            @php
+                $hasPodium = $leaderboard && collect($leaderboardStandings)->where('score', '>', 0)->isNotEmpty();
+            @endphp
+            @if($studentBadges->isNotEmpty() || $hasPodium)
+            <div class="grid grid-cols-1 {{ $studentBadges->isNotEmpty() && $hasPodium ? 'lg:grid-cols-2' : '' }} gap-4">
+                @if($studentBadges->isNotEmpty())
                 <div class="rounded-2xl border border-zinc-100 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6 shadow-xs">
-                    <x-student.partials.section-heading :title="__('الإنجازات')" icon="trophy" href="{{ $leaderboard ? '#leaderboard-standings' : null }}" />
-                    @if($studentBadges->isNotEmpty())
-                        <div class="grid grid-cols-3 sm:grid-cols-4 gap-3">
-                            @foreach($studentBadges as $badge)
-                                <div class="flex flex-col items-center gap-1.5 p-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 text-center" wire:key="badge-{{ $badge->id }}">
-                                    <flux:icon icon="{{ $badge->icon ?: 'trophy' }}" variant="solid" class="size-6 text-amber-500" />
-                                    <span class="text-[11px] font-bold text-zinc-600 dark:text-zinc-300 truncate w-full">{{ $badge->name }}</span>
-                                </div>
-                            @endforeach
-                        </div>
-                    @elseif($leaderboard)
-                        <div class="text-center py-6 text-sm text-zinc-400">{{ __('لم تحصل على أوسمة بعد') }}</div>
-                    @else
-                        <div class="text-center py-6 text-sm text-zinc-400">{{ __('لا توجد مسابقة نشطة لعرض الأوسمة بعد') }}</div>
-                    @endif
+                    <x-student.partials.section-heading :title="__('الإنجازات')" icon="trophy" href="#leaderboard-standings" />
+                    <div class="grid grid-cols-3 sm:grid-cols-4 gap-3">
+                        @foreach($studentBadges as $badge)
+                            <div class="flex flex-col items-center gap-1.5 p-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 text-center" wire:key="badge-{{ $badge->id }}">
+                                <flux:icon icon="{{ $badge->icon ?: 'trophy' }}" variant="solid" class="size-6 text-amber-500" />
+                                <span class="text-[11px] font-bold text-zinc-600 dark:text-zinc-300 truncate w-full">{{ $badge->name }}</span>
+                            </div>
+                        @endforeach
+                    </div>
                 </div>
+                @endif
 
+                @if($hasPodium)
                 <div class="rounded-2xl border border-zinc-100 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6 shadow-xs">
-                    <x-student.partials.section-heading :title="__('لوحة المتصدرين')" icon="star" href="{{ $leaderboard ? '#leaderboard-standings' : null }}" />
-                    @if($leaderboard && !empty($leaderboardStandings) && collect($leaderboardStandings)->isNotEmpty())
-                        <x-student.partials.leaderboard-podium :top3="collect($leaderboardStandings)->take(3)->values()" />
-                    @else
-                        <div class="text-center py-6 text-sm text-zinc-400">{{ __('لا توجد مسابقة نشطة حالياً') }}</div>
-                    @endif
+                    <x-student.partials.section-heading :title="__('لوحة المتصدرين')" icon="star" href="#leaderboard-standings" />
+                    <x-student.partials.leaderboard-podium :top3="collect($leaderboardStandings)->take(3)->values()" />
                 </div>
+                @endif
             </div>
+            @endif
 
             @unless($leaderboard)
             {{-- Monthly stats + recent activity + team assignment --}}

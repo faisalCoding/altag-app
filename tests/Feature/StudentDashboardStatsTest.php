@@ -68,10 +68,10 @@ it('shows honest empty states for a brand new student with no leaderboard', func
         ->assertSee('ابدأ رحلتك في الحفظ')
         ->assertSee('لم تكتمل سورة بعد')
         ->assertSee('ابدأ اليوم!')
-        ->assertSee('لا توجد مسابقة نشطة حالياً لعرض مستواك ونقاطك');
+        ->assertDontSee('لا توجد مسابقة نشطة حالياً لعرض مستواك ونقاطك');
 });
 
-it('shows the level and xp progress when an active leaderboard exists', function () {
+it('shows no level card for a competition that is not gamification', function () {
     $leaderboard = Leaderboard::create([
         'circle_id' => $this->circle->id,
         'title' => 'مسابقة تجريبية',
@@ -109,8 +109,8 @@ it('shows the level and xp progress when an active leaderboard exists', function
 
     $this->get(route('student.dashboard'))
         ->assertSuccessful()
-        ->assertSee('مبتدئ')
-        ->assertSee('40 XP')
+        ->assertDontSee('مبتدئ')
+        ->assertDontSee('للمستوى القادم')
         ->assertDontSee('لا توجد مسابقة نشطة حالياً لعرض مستواك ونقاطك');
 });
 
