@@ -1,10 +1,10 @@
 @php
-    $navItems = [
+    $navItems = collect([
         ['name' => 'الرئيسية', 'route' => 'student.dashboard', 'icon' => 'home', 'active' => ['student.dashboard']],
-        ['name' => 'خطتي', 'route' => 'student.plan', 'icon' => 'book-open', 'active' => ['student.plan', 'student.plan-creator', 'student.show-plan']],
-        ['name' => 'الحفظ', 'route' => 'student.hifz', 'icon' => 'bookmark', 'active' => ['student.hifz']],
-        ['name' => 'المراجعة', 'route' => 'student.review', 'icon' => 'arrow-path', 'active' => ['student.review']],
-    ];
+        ['name' => 'خطتي', 'route' => 'student.plan', 'icon' => 'book-open', 'active' => ['student.plan', 'student.plan-creator', 'student.plan.print']],
+        ['name' => 'الانضباط', 'route' => 'student.attendance', 'icon' => 'clipboard-document-check', 'active' => ['student.attendance']],
+        ['name' => 'التقارير', 'route' => 'student.reports', 'icon' => 'chart-bar-square', 'active' => ['student.reports']],
+    ])->filter(fn (array $item) => \App\Support\RolePages::isEnabled('student', $item['route']));
 @endphp
 
 {{-- The four pages a student opens daily, one tap away; everything else

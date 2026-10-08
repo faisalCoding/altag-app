@@ -8,8 +8,8 @@ use Illuminate\Contracts\View\View;
 
 /**
  * One week of the programme on its own page, laid out to print or save as a
- * PDF. The route says whether a guardian or a student is asking; either way
- * the week must be published and belong to a track their stages attend.
+ * PDF for a guardian: the week must be published and belong to a track
+ * their children's stages attend.
  */
 class ProgramSchedulePrintController extends Controller
 {

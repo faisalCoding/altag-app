@@ -146,7 +146,7 @@ new class extends Component {
                         </div>
 
                         <div class="flex items-center gap-2 mt-6">
-                            <flux:button class="flex-1" variant="filled" icon="eye" href="{{ route('student.show-plan', $plan->id) }}">
+                            <flux:button class="flex-1" variant="filled" icon="eye" href="{{ route('student.plan.print', ['kind' => 'quran', 'id' => $plan->id]) }}">
                                 {{ __('عرض الجدول اليومي') }}
                             </flux:button>
 

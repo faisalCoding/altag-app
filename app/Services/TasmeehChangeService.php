@@ -370,7 +370,7 @@ class TasmeehChangeService
             'grading',
             'تقييم جديد',
             "قام معلمك بتقييم {$label} الخاص بك",
-            route('student.hifz'),
+            route('student.dashboard'),
         );
     }
 

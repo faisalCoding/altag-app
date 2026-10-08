@@ -68,8 +68,8 @@ it('switches the active role tab and shows that role pages', function () {
     Livewire::test('manager.role-permissions')
         ->call('setActiveRole', $studentRole->id)
         ->assertSet('activeRoleId', $studentRole->id)
-        ->assertSee('الحفظ')
-        ->assertSee('المراجعة');
+        ->assertSee('سجل الانضباط')
+        ->assertSee('التقارير');
 });
 
 it('creates a new custom role with every screen disabled by default', function () {

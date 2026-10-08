@@ -197,7 +197,7 @@ new class extends Component {
                 'grading',
                 'تقييم جديد',
                 "قام معلمك بتقييم {$label} الخاص بك في المنظومة",
-                route('student.hifz'),
+                route('student.dashboard'),
             );
         }
 
@@ -265,7 +265,7 @@ new class extends Component {
                 'grading',
                 'تقييم جديد',
                 "قام معلمك بتقييم {$label} الخاص بك في الحديث",
-                route('student.hifz'),
+                route('student.dashboard'),
             );
         }
 

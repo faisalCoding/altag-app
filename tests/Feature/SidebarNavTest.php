@@ -1,5 +1,7 @@
 <?php
 
+use Illuminate\Support\Facades\Route;
+
 /**
  * The sidebar is read in Arabic; an English label is a leftover, not a choice.
  */
@@ -12,22 +14,21 @@ it('leaves no untranslated label in any sidebar', function () {
 });
 
 /**
- * The sidebar's «الإنجازات» and «المتصدرون» are fragments on the plain
- * dashboard. Most students see the gamification one instead, where the same
- * content sits inside a tab — so the fragment has to open the tab, or the two
- * items lead nowhere for three students in four.
+ * The student's menu keeps the home page, the Quran plans, the exams, the
+ * discipline record, the reports and the messages. The hifz, review, calendar
+ * and programme pages were removed, and the achievements and leaderboard live
+ * on the home page alone.
  */
-it('opens the matching tab when the gamification dashboard is reached by fragment', function () {
-    $markup = file_get_contents(resource_path('views/components/student/⚡gamification-dashboard.blade.php'));
+it('lists only the pages a student keeps', function () {
+    $markup = file_get_contents(resource_path('views/student/sidebar-nav.blade.php'));
 
-    expect($markup)->toContain("'#achievements': 'badges'")
-        ->and($markup)->toContain("'#leaderboard-standings': 'leaderboard'");
+    foreach (['الحفظ', 'المراجعة', 'التقويم', 'جدول البرنامج', 'الإنجازات', 'المتصدرون'] as $label) {
+        expect($markup)->not->toContain("__('{$label}')");
+    }
 
-    // And the plain dashboard still carries the anchors themselves.
-    $plain = file_get_contents(resource_path('views/components/student/⚡dashboard.blade.php'));
-
-    expect($plain)->toContain('id="achievements"')
-        ->and($plain)->toContain('id="leaderboard-standings"');
+    foreach (['student.hifz', 'student.review', 'student.calendar', 'student.schedule', 'student.show-plan'] as $route) {
+        expect(Route::has($route))->toBeFalse($route);
+    }
 });
 
 /**

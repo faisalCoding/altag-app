@@ -315,7 +315,6 @@ Route::middleware(['auth:student', 'approved', 'page.enabled', 'surveys.required
     Route::get('/dashboard', fn () => view('student.dashboard'))->name('dashboard');
     Route::view('/plan', 'student.my-plan')->name('plan');
     Route::view('/plan/create', 'student.plan-creator')->name('plan-creator');
-    Route::view('/plan/show/{id}', 'student.show-plan')->name('show-plan');
 
     // A printable plan the student can read and hand in, with each graded day
     // carrying the colour of its grade.
@@ -323,14 +322,7 @@ Route::middleware(['auth:student', 'approved', 'page.enabled', 'surveys.required
         ->whereIn('kind', ['quran', 'ode', 'hadith'])
         ->name('plan.print');
     Route::view('/attendance', 'student.attendance')->name('attendance');
-    Route::view('/hifz', 'student.hifz')->name('hifz');
-    Route::view('/review', 'student.review')->name('review');
     Route::view('/exams', 'student.exams')->name('exams');
-    Route::view('/calendar', 'student.calendar')->name('calendar');
-    Route::view('/schedule', 'student.schedule')->name('schedule');
-    Route::get('/schedule/weeks/{week}/print', ProgramSchedulePrintController::class)
-        ->defaults('role', 'student')
-        ->name('schedule.print');
     Route::view('/reports', 'student.reports')->name('reports');
     Route::view('/messages', 'student.messages')->name('messages');
     Route::view('/guide', 'shared.guide')->name('guide');

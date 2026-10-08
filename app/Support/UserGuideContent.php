@@ -203,15 +203,12 @@ class UserGuideContent
                 'heading' => 'مساري القرآني',
                 'pages' => [
                     ['title' => 'مساري القرآني', 'route' => 'student.plan', 'icon' => 'book-open', 'description' => 'عرض خطتك الحالية في الحفظ والمراجعة يومًا بيوم.'],
-                    ['title' => 'الحفظ', 'route' => 'student.hifz', 'icon' => 'bookmark', 'description' => 'مهمة الحفظ المطلوبة منك اليوم وآخر تقييم حصلت عليه.'],
-                    ['title' => 'المراجعة', 'route' => 'student.review', 'icon' => 'arrow-path', 'description' => 'مهمة المراجعة المطلوبة منك اليوم.'],
                 ],
             ],
             [
                 'heading' => 'المتابعة',
                 'pages' => [
                     ['title' => 'الاختبارات', 'route' => 'student.exams', 'icon' => 'academic-cap', 'description' => 'اختباراتك القادمة ونتائج اختباراتك السابقة.'],
-                    ['title' => 'التقويم', 'route' => 'student.calendar', 'icon' => 'calendar', 'description' => 'مناسبات وإجازات المجمع القادمة.'],
                     ['title' => 'سجل الانضباط', 'route' => 'student.attendance', 'icon' => 'clipboard-document-check', 'description' => 'سجل حضورك وغيابك خلال الشهر.'],
                     ['title' => 'التقارير', 'route' => 'student.reports', 'icon' => 'chart-bar-square', 'description' => 'تقرير شامل عن تقدّمك في الحفظ والمراجعة عبر الوقت.'],
                 ],

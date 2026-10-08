@@ -11,6 +11,11 @@
         1 => ['label' => 'مقبول', 'cell' => 'grade-acceptable'],
         0 => ['label' => 'لم يسمع', 'cell' => 'grade-not-heard'],
     ];
+
+    // Back to the page the plan was opened from (the home page or the plans
+    // page), when it is one of ours; the home page otherwise.
+    $back = url()->previous(route('student.dashboard'));
+    $back = str_starts_with($back, url('/').'/') && $back !== url()->current() ? $back : route('student.dashboard');
 @endphp
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
@@ -71,7 +76,7 @@
                 class="px-3 py-1.5 bg-indigo-600 text-white rounded shadow-sm hover:bg-indigo-700 font-medium text-xs">
                 طباعة الخطة
             </button>
-            <a href="{{ route('student.dashboard') }}"
+            <a href="{{ $back }}"
                 class="px-3 py-1.5 bg-zinc-100 text-zinc-700 rounded hover:bg-zinc-200 font-medium text-xs">
                 رجوع
             </a>

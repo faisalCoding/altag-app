@@ -13,6 +13,7 @@ use App\Services\ProgramScheduleService;
 use Carbon\Carbon;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Route;
 use Livewire\Livewire;
 
 uses(RefreshDatabase::class);
@@ -127,13 +128,13 @@ it('ignores a track the reader is not linked to', function () {
         ->assertSet('trackId', $this->track->id);
 });
 
-it('shows a student the track of their own stage', function () {
+it('has no schedule page for a student', function () {
     $this->actingAs($this->child, 'student');
 
-    $this->get(route('student.schedule'))
-        ->assertSuccessful()
-        ->assertSee('الدرس العلمي')
-        ->assertDontSee('مرحلة أخرى');
+    expect(Route::has('student.schedule'))->toBeFalse()
+        ->and(Route::has('student.schedule.print'))->toBeFalse();
+
+    Livewire::test('shared.program-schedule', ['role' => 'student'])->assertForbidden();
 });
 
 it('prints only a published week of a readable track', function () {

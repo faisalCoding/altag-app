@@ -14,7 +14,7 @@ use Livewire\Attributes\Url;
 use Livewire\Component;
 
 /*
- * The evening programme's schedule as a guardian or a student reads it: one
+ * The evening programme's schedule as a guardian reads it: one
  * day, one week (the printed poster or a card per day) or a month at a glance.
  * Only the tracks linked to the reader's school stages are offered, and only
  * published weeks are shown.
@@ -48,7 +48,7 @@ new class extends Component
 
     public function mount(string $role = 'guardian'): void
     {
-        abort_unless(in_array($role, ['guardian', 'student'], true) && Auth::guard($role)->check(), 403);
+        abort_unless($role === 'guardian' && Auth::guard($role)->check(), 403);
 
         $this->role = $role;
         $this->view = in_array($this->view, ['day', 'week', 'month'], true) ? $this->view : 'day';
@@ -65,7 +65,7 @@ new class extends Component
     }
 
     /**
-     * The guardian's children, or the student themself.
+     * The guardian's children.
      *
      * @return EloquentCollection<int, \App\Models\Student>
      */
@@ -98,10 +98,6 @@ new class extends Component
     #[Computed]
     public function childrenByTrack(): array
     {
-        if ($this->role !== 'guardian') {
-            return [];
-        }
-
         return $this->tracks->mapWithKeys(function (ScheduleTrack $track) {
             $stageIds = $track->stages->pluck('id')->all();
 
@@ -307,9 +303,9 @@ new class extends Component
         <div class="rounded-2xl border border-zinc-100 bg-white p-10 text-center dark:border-zinc-800 dark:bg-zinc-900">
             <flux:icon icon="calendar" class="mx-auto mb-3 size-10 text-zinc-300 dark:text-zinc-600" />
             <p class="font-bold text-zinc-700 dark:text-zinc-200">
-                {{ $role === 'guardian' ? 'لا يوجد جدول مرتبط بمراحل أبنائك بعد.' : 'لا يوجد جدول مرتبط بمرحلتك بعد.' }}
+                لا يوجد جدول مرتبط بمراحل أبنائك بعد.
             </p>
-            <p class="mt-1 text-sm text-zinc-500">سيظهر هنا حين تربط الإدارة مرحلة البرنامج بمرحلتك الدراسية.</p>
+            <p class="mt-1 text-sm text-zinc-500">سيظهر هنا حين تربط الإدارة مرحلة البرنامج بمرحلة أبنائك الدراسية.</p>
         </div>
     @else
         <div class="flex flex-wrap items-center gap-3">

@@ -27,13 +27,15 @@ beforeEach(function () {
     $this->actingAs($this->student, 'student');
 });
 
-it('renders the leaderboard anchor link and all real sidebar pages', function () {
+it('renders every page the student keeps in the sidebar, and no leaderboard link', function () {
     $this->get(route('student.dashboard'))
         ->assertSuccessful()
-        ->assertSee('المتصدرون')
+        ->assertSee('خططي القرآنية')
         ->assertSee('الاختبارات')
-        ->assertSee('التقويم')
-        ->assertSee('الرسائل');
+        ->assertSee('سجل الانضباط')
+        ->assertSee('التقارير')
+        ->assertSee('الرسائل')
+        ->assertDontSee('المتصدرون');
 });
 
 it('has no more coming-soon placeholders now that every page is real', function () {

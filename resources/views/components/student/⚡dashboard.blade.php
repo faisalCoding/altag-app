@@ -2223,7 +2223,7 @@ new class extends Component {
                                                                     <div class="pt-5 border-t border-zinc-100 dark:border-zinc-800">
                                                                         <flux:button variant="filled"
                                                                             class="w-full bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-600 text-white text-lg font-bold py-3 rounded-2xl border-none   duration-300"
-                                                                            icon="eye" href="{{ route('student.show-plan', $plan->id) }}">
+                                                                            icon="eye" href="{{ route('student.plan.print', ['kind' => 'quran', 'id' => $plan->id]) }}">
                                                                             {{ __('عرض التقدم') }}
                                                                         </flux:button>
                                                                     </div>
@@ -2282,7 +2282,7 @@ new class extends Component {
                                                                     <div class="pt-5 border-t border-zinc-100 dark:border-zinc-800">
                                                                         <flux:button variant="ghost"
                                                                             class="w-full text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 text-lg font-bold py-3 rounded-2xl border border-dashed border-amber-200 dark:border-amber-800/50   duration-300"
-                                                                            icon="eye" href="{{ route('student.show-plan', $plan->id) }}">
+                                                                            icon="eye" href="{{ route('student.plan.print', ['kind' => 'quran', 'id' => $plan->id]) }}">
                                                                             {{ __('معاينة الخطة') }}
                                                                         </flux:button>
                                                                     </div>

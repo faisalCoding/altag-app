@@ -151,8 +151,7 @@ class ProgramScheduleService
     }
 
     /**
-     * The students a signed-in reader follows: a guardian's children, or the
-     * student themself.
+     * The students a signed-in reader follows: a guardian's children.
      *
      * @return EloquentCollection<int, Student>
      */
@@ -163,7 +162,6 @@ class ProgramScheduleService
         return match (true) {
             $user === null => new EloquentCollection,
             $role === 'guardian' => $user->students()->get(['id', 'name', 'stage_id', 'circle_id']),
-            $role === 'student' => new EloquentCollection([$user]),
             default => new EloquentCollection,
         };
     }

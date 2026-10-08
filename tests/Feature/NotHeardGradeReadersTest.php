@@ -127,24 +127,6 @@ it('counts only recited days toward a recitation-days challenge', function () {
         ->and($item(['quality_required' => true, 'quality_req' => 'good_or_better'])->calculateProgress())->toBe(2);
 });
 
-it('labels a «لم يسمع» day on the student hifz page, apart from an ungraded one', function () {
-    $day = notHeardDay($this->plan, '2026-07-05', ['from_ayah_id' => 1, 'to_ayah_id' => 5]);
-
-    $this->actingAs($this->student, 'student');
-
-    $this->get(route('student.hifz'))
-        ->assertSuccessful()
-        ->assertSee('لم يُقيَّم بعد')
-        ->assertDontSee('لم يسمع');
-
-    $day->update(['hifz_achievement' => 0, 'hifz_graded_at' => '2026-07-05 09:00:00']);
-
-    $this->get(route('student.hifz'))
-        ->assertSuccessful()
-        ->assertSee('لم يسمع')
-        ->assertDontSee('لم يُقيَّم بعد');
-});
-
 it('shows the «لم يسمع» bucket on the student plans page', function () {
     notHeardDay($this->plan, '2026-07-05', ['hifz_achievement' => 3]);
     notHeardDay($this->plan, '2026-07-06', ['hifz_achievement' => 0]);

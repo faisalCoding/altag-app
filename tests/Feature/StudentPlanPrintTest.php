@@ -135,6 +135,25 @@ it('rejects a plan kind it does not serve', function () {
     $this->get('/student/plan/exams/'.$this->plan->id.'/print')->assertNotFound();
 });
 
+it('opens the plan with its grades from the plans page', function () {
+    $this->get(route('student.plan'))
+        ->assertSuccessful()
+        ->assertSee('عرض الجدول اليومي')
+        ->assertSee(route('student.plan.print', ['kind' => 'quran', 'id' => $this->plan->id]), false)
+        ->assertDontSee('/student/plan/show/', false);
+});
+
+it('goes back to the page the plan was opened from', function () {
+    $print = route('student.plan.print', ['kind' => 'quran', 'id' => $this->plan->id]);
+
+    $this->from(route('student.plan'))->get($print)
+        ->assertSee('href="'.route('student.plan').'"', false);
+
+    $this->from('https://example.com/elsewhere')->get($print)
+        ->assertSee('href="'.route('student.dashboard').'"', false)
+        ->assertDontSee('example.com', false);
+});
+
 it('links to each plan kind from the dashboard', function () {
     $ode = Ode::create(['name' => 'منظومة الرابط']);
     $path = OdePath::create(['ode_id' => $ode->id, 'name' => 'مسار', 'start_date' => '2026-07-01']);
