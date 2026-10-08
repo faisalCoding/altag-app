@@ -284,19 +284,18 @@ it('creates nothing on a dry run', function () {
 });
 
 it('rolls the created accounts back if a later step fails', function () {
-    // A status change that cannot be backdated past an earlier one makes the
-    // service throw part way through the transaction.
+    // A departure dated before the student's current period began cannot be
+    // recorded, so the service throws part way through the transaction.
     StudentStatusHistory::create([
         'student_id' => $this->leaving->id,
-        'status' => 'active',
+        'status' => 'registering',
         'start_date' => '2026-09-01',
     ]);
     StudentStatusHistory::create([
         'student_id' => $this->leaving->id,
-        'status' => 'left',
+        'status' => 'active',
         'start_date' => '2026-09-10',
     ]);
-    $this->leaving->update(['status' => 'left']);
 
     $this->artisan('circle:participants', [
         'circle' => 'جامعيين',

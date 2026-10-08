@@ -1,7 +1,6 @@
 <?php
 
 use App\Livewire\Teacher\Attendance as TeacherAttendance;
-use App\Models\AcademicCalendarEvent;
 use App\Models\Attendance;
 use App\Models\Circle;
 use App\Models\Manager;
@@ -49,15 +48,16 @@ it('backdates a status change to the chosen effective date', function () {
     expect($previous->end_date->format('Y-m-d'))->toBe('2026-06-05');
 });
 
-it('corrects the effective date when re-saving the same status with a new date', function () {
+it('changes nothing when the status chosen is the one the student has', function () {
     StudentStatusService::changeStatus($this->student, 'active', '2026-06-08');
-    StudentStatusService::changeStatus($this->student, 'active', '2026-06-03');
 
-    // No duplicate rows: the existing active row moved to the corrected date.
-    expect($this->student->statusHistories()->where('status', 'active')->count())->toBe(1);
-    expect(
-        $this->student->statusHistories()->where('status', 'active')->first()->start_date->format('Y-m-d')
-    )->toBe('2026-06-03');
+    // Re-saving a status used to move its period's start to the date given.
+    expect(StudentStatusService::changeStatus($this->student, 'active', '2026-06-03'))->toBeFalse()
+        ->and(StudentStatusService::changeStatus($this->student, 'active'))->toBeFalse();
+
+    expect($this->student->statusHistories()->where('status', 'active')->count())->toBe(1)
+        ->and($this->student->statusHistories()->where('status', 'active')->first()->start_date->format('Y-m-d'))->toBe('2026-06-08')
+        ->and($this->student->statusHistories()->where('status', 'registering')->first()->end_date->format('Y-m-d'))->toBe('2026-06-08');
 });
 
 it('reflects a backdated activation on the teacher attendance page', function () {
@@ -174,38 +174,61 @@ it('supersedes a scheduled return when a new manual decision is made', function 
     expect($this->student->statusHistories()->whereDate('start_date', '>', '2026-06-10')->count())->toBe(0);
 });
 
-it('marks school days in the status manager month grid', function () {
-    AcademicCalendarEvent::create([
-        'event_name' => 'فترة دوام الاختبار',
-        'start_date' => '2026-06-01',
-        'end_date' => '2026-06-30',
-        'is_attendance_period' => true,
-        'weekdays' => [], // all days
-        'is_visible' => true,
-    ]);
+it('opens with nothing chosen, so saving untouched writes nothing', function () {
+    StudentStatusService::changeStatus($this->student, 'active', '2026-06-03');
+    $this->actingAs(Manager::factory()->create(), 'manager');
 
-    $manager = Manager::factory()->create();
-    $this->actingAs($manager, 'manager');
+    Livewire::test('shared.⚡student-status-manager')
+        ->call('open', $this->student->id)
+        ->assertSet('newStatus', '')
+        ->assertSee('data-current-status="active"', false)
+        ->assertDontSee('data-action="active"', false)
+        ->assertSee('data-action="suspended"', false)
+        ->call('saveStatus')
+        ->assertHasErrors('newStatus');
 
-    $component = Livewire::test('shared.⚡student-status-manager')
-        ->call('open', $this->student->id);
-
-    $today = collect($component->viewData('monthDays'))
-        ->filter()
-        ->firstWhere('date', '2026-06-10');
-
-    expect($today)->not->toBeNull();
-    expect($today['isSchoolDay'])->toBeTrue();
-    expect($today['isToday'])->toBeTrue();
+    expect($this->student->statusHistories()->where('status', 'active')->first()->start_date->format('Y-m-d'))->toBe('2026-06-03')
+        ->and($this->student->statusHistories()->count())->toBe(2);
 });
 
-it('blocks teachers without the status permission from opening the manager', function () {
+it('says before saving what a backdated change does to the reports', function () {
+    StudentStatusService::changeStatus($this->student, 'active', '2026-06-02');
+
+    foreach (['2026-06-04', '2026-06-08', '2026-06-09'] as $date) {
+        Attendance::create([
+            'student_id' => $this->student->id, 'teacher_id' => $this->teacher->id,
+            'circle_id' => $this->circle->id, 'date' => $date, 'status' => 'present',
+        ]);
+    }
+
+    $this->actingAs(Manager::factory()->create(), 'manager');
+
+    Livewire::test('shared.⚡student-status-manager')
+        ->call('open', $this->student->id)
+        ->call('choose', 'suspended')
+        ->set('effectiveDate', '2026-06-07')
+        ->set('returnDate', '2026-06-21')
+        ->assertSee('يُوقف من ٢١ ذو الحجة ١٤٤٧، ويعود مشاركاً تلقائياً في ٦ محرم ١٤٤٨.')
+        // Two of the three records fall in the suspension and leave the reports.
+        ->assertSee('data-report-shift="2"', false)
+        ->assertSee('ما سُجّل له في يومين');
+});
+
+it('opens the record read-only for a teacher without the status permission', function () {
     $this->teacher->update(['permissions' => ['can_change_student_status' => false]]);
     $this->actingAs($this->teacher, 'teacher');
 
     Livewire::test('shared.⚡student-status-manager')
         ->call('open', $this->student->id)
-        ->assertSet('showModal', false);
+        ->assertSet('showModal', true)
+        ->assertSet('readOnly', true)
+        ->assertDontSee('data-action=', false)
+        ->call('choose', 'active')
+        ->assertSet('newStatus', '')
+        ->set('newStatus', 'active')
+        ->call('saveStatus');
+
+    expect($this->student->refresh()->status)->toBe('registering');
 });
 
 it('blocks a supervisor from managing students outside their stages', function () {
@@ -286,17 +309,21 @@ it('rejects a new status starting before the current period (append-only timelin
     expect($this->student->statusHistories()->count())->toBe(2);
 });
 
-it('rejects sliding a corrected date past the previous period start', function () {
+it('lets the period before run on when a wrong one is deleted', function () {
     StudentStatusService::changeStatus($this->student, 'active', '2026-06-05');
+    StudentStatusService::changeStatus($this->student, 'suspended', '2026-06-08');
 
-    // Correcting active back to 2026-06-01 would collide with registering (06-01).
-    expect(fn () => StudentStatusService::changeStatus($this->student, 'active', '2026-06-01'))
-        ->toThrow(InvalidArgumentException::class);
+    $wrong = $this->student->statusHistories()->where('status', 'suspended')->first();
+    StudentStatusService::deleteHistoryEntry($this->student, $wrong->id);
+
+    expect($this->student->statusHistories()->where('status', 'active')->first()->end_date)->toBeNull()
+        ->and($this->student->refresh()->status)->toBe('active');
 });
 
 it('keeps the previous period end date aligned when correcting the latest start date', function () {
     StudentStatusService::changeStatus($this->student, 'active', '2026-06-08');
-    StudentStatusService::changeStatus($this->student, 'active', '2026-06-04');
+    $active = $this->student->statusHistories()->where('status', 'active')->first();
+    StudentStatusService::editHistoryEntry($this->student, $active->id, 'active', '2026-06-04');
 
     $registering = $this->student->statusHistories()->where('status', 'registering')->first();
     expect($registering->end_date->format('Y-m-d'))->toBe('2026-06-04');
@@ -340,4 +367,40 @@ it('deletes a wrong history entry and re-syncs the current status', function () 
 
     expect($this->student->statusHistories()->count())->toBe(1);
     expect($this->student->refresh()->status)->toBe('registering');
+});
+
+it('cancels a scheduled return when the teacher removes the student from the circle', function () {
+    StudentStatusService::changeStatus($this->student, 'active', '2026-06-02');
+    StudentStatusService::suspendWithReturn($this->student, '2026-06-09', '2026-06-20');
+
+    $this->actingAs($this->teacher, 'teacher');
+
+    Livewire::test('teacher.student-manager')
+        ->call('viewStudent', $this->student->id)
+        ->call('removeFromCircle');
+
+    $student = $this->student->refresh();
+    $suspension = $student->statusHistories()->where('status', 'suspended')->first();
+
+    expect($student->circle_id)->toBeNull()
+        ->and($student->status)->toBe('left')
+        // The return is gone, so the daily sync cannot bring the student back.
+        ->and($student->statusHistories()->whereDate('start_date', '>', '2026-06-10')->count())->toBe(0)
+        ->and($suspension->end_date->format('Y-m-d'))->toBe('2026-06-10')
+        ->and($student->statusHistories()->where('status', 'left')->first()->changed_by_role)->toBe('teacher');
+
+    Carbon\Carbon::setTestNow('2026-06-20 00:20:00');
+    $this->artisan('students:sync-current-status')->assertSuccessful();
+    expect($student->refresh()->status)->toBe('left');
+});
+
+it('shows the status in Arabic in the student details, whatever the permission', function () {
+    $this->teacher->update(['permissions' => ['can_change_student_status' => false]]);
+    $this->actingAs($this->teacher, 'teacher');
+
+    Livewire::test('teacher.student-manager')
+        ->call('viewStudent', $this->student->id)
+        ->assertSee('تحت التسجيل')
+        ->assertSee('سجل الحالة')
+        ->assertDontSee('>registering<', false);
 });

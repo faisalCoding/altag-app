@@ -217,12 +217,15 @@ class Students extends Component
 
         $students = $this->selectedQuery()->get();
         $count = 0;
+        $unchanged = 0;
         $skipped = collect();
 
         foreach ($students as $student) {
             try {
-                StudentStatusService::changeStatus($student, $this->bulkStatus, $this->bulkStatusDate ?: null);
-                $count++;
+                // A student already in the chosen status is left as they are.
+                StudentStatusService::changeStatus($student, $this->bulkStatus, $this->bulkStatusDate ?: null)
+                    ? $count++
+                    : $unchanged++;
             } catch (\InvalidArgumentException $e) {
                 $skipped->push($student->name);
             }
@@ -256,7 +259,11 @@ class Students extends Component
         $this->bulkStatusDate = '';
 
         Flux::modal('bulk-status-modal')->close();
-        Flux::toast(__('تم تغيير حالة '.$count.' طالباً بنجاح'), variant: 'success');
+        Flux::toast(
+            __('تم تغيير حالة '.$count.' طالباً بنجاح')
+                .($unchanged > 0 ? __('، و'.$unchanged.' كانوا على هذه الحالة أصلاً') : ''),
+            variant: 'success',
+        );
     }
 
     public function applyBulkResetMagicLinks(): void

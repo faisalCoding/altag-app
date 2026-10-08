@@ -118,12 +118,11 @@ new class extends Component {
             abort(403);
         }
 
-        $this->viewingStudent->update(['circle_id' => null, 'status' => 'left']);
-        $this->viewingStudent->statusHistories()->create([
-            'status' => 'left',
-            'start_date' => now('Asia/Riyadh')->format('Y-m-d'),
-            'notes' => 'تمت إزالته من الحلقة عبر إدارة الطلاب',
-        ]);
+        // Through the service, like every other change: it closes the period
+        // before, cancels a scheduled return — left behind, the daily sync
+        // would bring the student back as active — and says who did it.
+        StudentStatusService::changeStatus($this->viewingStudent, 'left', now('Asia/Riyadh')->format('Y-m-d'), 'تمت إزالته من الحلقة عبر إدارة الطلاب');
+        $this->viewingStudent->update(['circle_id' => null]);
 
         $this->dispatch('student-list-updated');
         Flux::modal('student-details')->close();
@@ -274,7 +273,6 @@ new class extends Component {
             'odePlans.path.ode',
             'odePlans.path.days',
             'attendances',
-            'statusHistories',
         ])
             ->whereIn('circle_id', $circleIds)
             ->findOrFail($studentId);
@@ -378,12 +376,15 @@ new class extends Component {
         ]);
 
         $changed = 0;
+        $unchanged = 0;
         $skipped = collect();
 
         foreach ($this->selectedStudents() as $student) {
             try {
-                StudentStatusService::changeStatus($student, $this->bulkStatus, $this->bulkStatusDate ?: null);
-                $changed++;
+                // A student already in the chosen status is left as they are.
+                StudentStatusService::changeStatus($student, $this->bulkStatus, $this->bulkStatusDate ?: null)
+                    ? $changed++
+                    : $unchanged++;
             } catch (\InvalidArgumentException $e) {
                 $skipped->push($student->name);
             }
@@ -394,7 +395,7 @@ new class extends Component {
         if ($changed === 0) {
             Flux::toast(
                 $skipped->isEmpty()
-                    ? 'لم يُحدَّد أي طالب.'
+                    ? ($unchanged > 0 ? 'كل الطلاب المحددين على هذه الحالة أصلاً.' : 'لم يُحدَّد أي طالب.')
                     : 'لم تتغيّر أي حالة — التاريخ المختار يسبق آخر سجل حالة لهؤلاء: '
                         . $skipped->take(3)->implode('، ') . '. اختر تاريخاً أحدث.',
                 variant: 'danger',
@@ -407,6 +408,7 @@ new class extends Component {
 
         Flux::toast(
             'تغيّرت حالة ' . $changed . ' طالباً'
+                . ($unchanged > 0 ? '، و' . $unchanged . ' كانوا على هذه الحالة أصلاً' : '')
                 . ($skipped->isNotEmpty() ? '، وتُخطّي ' . $skipped->count() . ' لتعارض التاريخ مع سجلّهم' : '')
                 . '.',
             variant: 'success',
@@ -769,36 +771,28 @@ new class extends Component {
                     @endphp
 
                     <div class="grid grid-cols-2 gap-4">
-                        @if($canChangeStatus)
                         <div>
                             <div class="text-sm font-medium text-zinc-800 dark:text-white mb-1.5">{{ __('حالة الطالب') }}</div>
-                            @php
-                                $tStatusLabels = ['active' => 'مشارك', 'registering' => 'تحت التسجيل', 'suspended' => 'موقوف', 'left' => 'غادر الحلقات'];
-                                $tStatusColors = ['active' => 'green', 'registering' => 'blue', 'suspended' => 'amber', 'left' => 'red'];
-                            @endphp
-                            <div class="flex items-center gap-2">
-                                <flux:badge color="{{ $tStatusColors[$viewingStudent->status] ?? 'zinc' }}">
-                                    {{ $tStatusLabels[$viewingStudent->status] ?? $viewingStudent->status }}
+                            <div class="flex flex-wrap items-center gap-2">
+                                <flux:badge color="{{ \App\Support\StudentStatus::color($viewingStudent->status) }}">
+                                    {{ \App\Support\StudentStatus::label($viewingStudent->status) }}
                                 </flux:badge>
-                                <flux:button type="button" size="sm" variant="filled" icon="adjustments-horizontal"
+                                {{-- Without the permission the record still opens, to read. --}}
+                                <flux:button type="button" size="sm" variant="filled" :icon="$canChangeStatus ? 'adjustments-horizontal' : 'clock'"
                                     wire:click="$dispatch('open-status-manager', { studentId: {{ $viewingStudent->id }} })">
-                                    {{ __('إدارة الحالة') }}
+                                    {{ $canChangeStatus ? __('إدارة الحالة') : __('سجل الحالة') }}
                                 </flux:button>
                             </div>
                         </div>
-                        <livewire:shared.hijri-datepicker wire:model="editJoinedAt" label="{{ __('تاريخ الالتحاق') }}" />
+                        @if($canChangeStatus)
+                            <livewire:shared.hijri-datepicker wire:model="editJoinedAt" label="{{ __('تاريخ الالتحاق') }}" />
                         @else
-                        <div>
-                            <div class="text-xs text-zinc-500 mb-1">{{ __('حالة الطالب') }}</div>
-                            <flux:badge size="sm" class="mt-1">{{ $viewingStudent->status }}</flux:badge>
-                            <div class="text-[0.65rem] text-zinc-400 mt-1">لا تملك صلاحية التعديل</div>
-                        </div>
-                        <div>
-                            <div class="text-xs text-zinc-500 mb-1">{{ __('تاريخ الالتحاق') }}</div>
-                            <div class="text-sm font-medium text-zinc-700 dark:text-zinc-300 mt-1">
-                                {{ $viewingStudent->joined_at?->format('Y-m-d') ?? '—' }}
+                            <div>
+                                <div class="text-xs text-zinc-500 mb-1">{{ __('تاريخ الالتحاق') }}</div>
+                                <div class="text-sm font-medium text-zinc-700 dark:text-zinc-300 mt-1">
+                                    {{ $viewingStudent->joined_at ? \App\Support\HijriDate::full($viewingStudent->joined_at) : '—' }}
+                                </div>
                             </div>
-                        </div>
                         @endif
                     </div>
 
@@ -944,50 +938,6 @@ new class extends Component {
                     </div>
                 </div>
 
-                <flux:separator />
-
-                <!-- Status History -->
-                <div>
-                    <flux:heading size="sm" class="mb-3">{{ __('سجل الحالات') }}</flux:heading>
-                    <div class="space-y-2 max-h-48 overflow-y-auto pr-2">
-                        @forelse($viewingStudent->statusHistories as $history)
-                            <div class="flex items-center justify-between p-3 border border-zinc-200 dark:border-zinc-700/50 rounded-xl bg-zinc-50 dark:bg-zinc-800/50">
-                                <div class="flex flex-col">
-                                    <span class="text-sm font-medium">
-                                        @php
-                                            $hStatusLabels = [
-                                                'active' => 'مشارك',
-                                                'registering' => 'تحت التسجيل',
-                                                'suspended' => 'موقوف',
-                                                'left' => 'غادر الحلقات',
-                                            ];
-                                            $hColor = [
-                                                'active' => 'green',
-                                                'registering' => 'blue',
-                                                'suspended' => 'amber',
-                                                'left' => 'red',
-                                            ][$history->status] ?? 'zinc';
-                                        @endphp
-                                        <flux:badge color="{{ $hColor }}" size="sm">{{ $hStatusLabels[$history->status] ?? $history->status }}</flux:badge>
-                                    </span>
-                                    <span class="text-xs text-zinc-500 mt-1">
-                                        <x-hijri-date :date="$history->start_date" /> 
-                                        @if($history->end_date)
-                                            - <x-hijri-date :date="$history->end_date" />
-                                        @else
-                                            - {{ __('الآن') }}
-                                        @endif
-                                    </span>
-                                    @if($history->notes)
-                                        <span class="text-xs text-zinc-400 mt-1">{{ $history->notes }}</span>
-                                    @endif
-                                </div>
-                            </div>
-                        @empty
-                            <div class="text-sm text-zinc-500 text-center py-4">{{ __('لا يوجد سجل حالات.') }}</div>
-                        @endforelse
-                    </div>
-                </div>
             </div>
             <div class="flex justify-between pt-6">
                 @if(Auth::guard('teacher')->user()?->effectivePermissions()['can_manage_students'] ?? true)

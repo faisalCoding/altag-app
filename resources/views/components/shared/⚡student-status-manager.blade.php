@@ -1,33 +1,60 @@
 <?php
 
-use App\Models\AcademicCalendarEvent;
 use App\Models\Attendance;
 use App\Models\Student;
-use App\Models\StudentPlanDay;
 use App\Services\StudentStatusService;
+use App\Support\ArabicCount;
+use App\Support\HijriDate;
+use App\Support\StudentStatus;
 use Flux\Flux;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
 use Livewire\Component;
-use Livewire\Attributes\Locked;
 
-new class extends Component {
-    public $showModal = false;
+/*
+ * A student's standing, as a teacher, supervisor or manager reads and changes
+ * it: where the student stands now, the few things that can be done about it
+ * — each named for what it does, not picked from a list of statuses — and
+ * what has gone before. A change says in one sentence what it will do before
+ * it is made, the reports it reaches included. Correcting the past is kept
+ * apart, behind its own link.
+ */
+new class extends Component
+{
+    public bool $showModal = false;
 
     #[Locked]
-    public $studentId = null;
+    public ?int $studentId = null;
 
-    public $newStatus = 'active';
+    /** A teacher without the status permission reads the record and changes nothing. */
+    #[Locked]
+    public bool $readOnly = false;
 
-    public $effectiveDate = '';
+    /** The status chosen to move to; empty while choosing. */
+    public string $newStatus = '';
 
-    public $returnDate = '';
+    public string $effectiveDate = '';
 
-    public $reason = '';
+    /** Whether the start is being picked from the calendar rather than a quick choice. */
+    public bool $pickingDate = false;
 
-    public $pickerTarget = 'effective';
+    /** Empty: no automatic return. */
+    public string $returnDate = '';
 
-    public $monthOffset = 0;
+    public bool $pickingReturn = false;
+
+    public string $reason = '';
+
+    /** Correcting the recorded history, row by row. */
+    public bool $correcting = false;
+
+    /** @var array{status: string, start_date: string, notes: string}|null */
+    public ?array $editingHistory = null;
+
+    #[Locked]
+    public ?int $editingHistoryId = null;
 
     protected function actingRole(): ?string
     {
@@ -61,17 +88,14 @@ new class extends Component {
         };
     }
 
-    #[On('open-status-manager')]
-    public function open($studentId)
+    private function today(): string
     {
-        $role = $this->actingRole();
+        return now('Asia/Riyadh')->format('Y-m-d');
+    }
 
-        if ($role === 'teacher' && empty(Auth::guard('teacher')->user()->effectivePermissions()['can_change_student_status'])) {
-            Flux::toast('ليس لديك صلاحية تغيير حالة الطلاب', variant: 'danger');
-
-            return;
-        }
-
+    #[On('open-status-manager')]
+    public function open($studentId): void
+    {
         $student = $this->scopedStudent((int) $studentId);
 
         if (! $student) {
@@ -81,79 +105,86 @@ new class extends Component {
         }
 
         $this->studentId = $student->id;
-        $this->newStatus = $student->status ?: 'active';
-        $this->effectiveDate = now('Asia/Riyadh')->format('Y-m-d');
-        $this->returnDate = '';
-        $this->reason = '';
-        $this->pickerTarget = 'effective';
-        $this->monthOffset = 0;
-        $this->resetValidation();
+        $this->readOnly = $this->actingRole() === 'teacher'
+            && empty(Auth::guard('teacher')->user()->effectivePermissions()['can_change_student_status']);
+        $this->correcting = false;
+        $this->cancelHistoryEdit();
+        $this->back();
         $this->showModal = true;
     }
 
-    public function shiftMonth(int $direction)
+    /** Begin a change to the given status. */
+    public function choose(string $status): void
     {
-        $this->monthOffset += $direction;
+        if ($this->readOnly || ! array_key_exists($status, StudentStatus::LABELS)) {
+            return;
+        }
+
+        $this->newStatus = $status;
+        $this->effectiveDate = $this->today();
+        $this->pickingDate = false;
+        $this->returnDate = '';
+        $this->pickingReturn = false;
+        $this->reason = '';
+        $this->resetValidation();
     }
 
-    public function selectDay(string $date)
+    /** Back to choosing, nothing changed. */
+    public function back(): void
     {
-        $today = now('Asia/Riyadh')->format('Y-m-d');
+        $this->newStatus = '';
+        $this->effectiveDate = $this->today();
+        $this->pickingDate = false;
+        $this->returnDate = '';
+        $this->pickingReturn = false;
+        $this->reason = '';
+        $this->resetValidation();
+    }
 
-        if ($this->pickerTarget === 'return') {
-            if ($date <= ($this->effectiveDate ?: $today)) {
-                Flux::toast('تاريخ العودة يجب أن يكون بعد تاريخ بداية الإيقاف', variant: 'warning');
-
-                return;
-            }
-            $this->returnDate = $date;
-
-            return;
-        }
-
-        if ($date > $today) {
-            Flux::toast('تاريخ السريان لا يمكن أن يكون في المستقبل', variant: 'warning');
-
-            return;
-        }
-
-        $this->effectiveDate = $date;
-
-        if ($this->returnDate && $this->returnDate <= $date) {
+    public function updatedEffectiveDate(): void
+    {
+        // A return can only follow the start.
+        if ($this->returnDate !== '' && $this->returnDate <= $this->effectiveDate) {
             $this->returnDate = '';
         }
     }
 
-    public function saveStatus()
+    public function saveStatus(): void
     {
+        $student = $this->scopedStudent($this->studentId);
+
+        if ($this->readOnly || ! $student) {
+            return;
+        }
+
         $this->validate([
             'newStatus' => 'required|in:active,registering,suspended,left',
-            // Pinned to Riyadh, like the default above and the date picker. A bare
-            // "today" resolves against app.timezone (UTC), which is a day behind
-            // Riyadh from 21:00 UTC onward — so between midnight and 3am local the
-            // rule rejected the very date the form had just filled in.
-            'effectiveDate' => 'required|date|before_or_equal:'.now('Asia/Riyadh')->format('Y-m-d'),
-            'returnDate' => 'nullable|date',
-            // Optional: the change is recorded with who made it and when either
-            // way, and a mandatory box mostly collects the word "تحديث".
+            // Pinned to Riyadh, like the dates the form offers. A bare "today"
+            // resolves against app.timezone (UTC), a day behind Riyadh from
+            // 21:00 UTC onward.
+            'effectiveDate' => 'required|date|before_or_equal:'.$this->today(),
+            'returnDate' => 'nullable|date|after:effectiveDate',
             'reason' => 'nullable|string|max:500',
         ], [
-            'effectiveDate.before_or_equal' => 'تاريخ السريان لا يمكن أن يكون في المستقبل',
+            'newStatus.required' => 'اختر ما تريد فعله.',
+            'effectiveDate.before_or_equal' => 'تاريخ البداية لا يكون في المستقبل.',
+            'returnDate.after' => 'تاريخ العودة يأتي بعد تاريخ البداية.',
         ]);
 
-        $student = $this->scopedStudent($this->studentId);
-        if (! $student) {
+        if (StudentStatusService::statusOn($student, $this->today()) === $this->newStatus) {
+            $this->addError('newStatus', 'الطالب على هذه الحالة أصلاً.');
+
             return;
         }
 
         try {
-            if ($this->newStatus === 'suspended' && $this->returnDate) {
-                StudentStatusService::suspendWithReturn($student, $this->effectiveDate, $this->returnDate, $this->reason);
+            if ($this->newStatus === 'suspended' && $this->returnDate !== '') {
+                StudentStatusService::suspendWithReturn($student, $this->effectiveDate, $this->returnDate, $this->reason ?: null);
             } else {
-                StudentStatusService::changeStatus($student, $this->newStatus, $this->effectiveDate, $this->reason);
+                StudentStatusService::changeStatus($student, $this->newStatus, $this->effectiveDate, $this->reason ?: null);
             }
         } catch (\InvalidArgumentException $e) {
-            Flux::toast($e->getMessage(), variant: 'danger');
+            $this->addError('effectiveDate', $e->getMessage());
 
             return;
         }
@@ -161,20 +192,16 @@ new class extends Component {
         $this->showModal = false;
         $this->dispatch('student-list-updated');
         $this->dispatch('student-status-updated');
-        Flux::toast('تم تحديث حالة الطالب بنجاح', variant: 'success');
+        Flux::toast('تم تحديث حالة الطالب.', variant: 'success');
     }
-
-    /** @var array{status: string, start_date: string, notes: string}|null */
-    public ?array $editingHistory = null;
-
-    #[Locked]
-    public ?int $editingHistoryId = null;
 
     public function editHistory(int $historyId): void
     {
-        $student = $this->scopedStudent($this->studentId);
+        if ($this->readOnly) {
+            return;
+        }
 
-        $entry = $student?->statusHistories()->whereKey($historyId)->first();
+        $entry = $this->scopedStudent($this->studentId)?->statusHistories()->whereKey($historyId)->first();
 
         if (! $entry) {
             return;
@@ -186,7 +213,6 @@ new class extends Component {
             'start_date' => $entry->start_date->format('Y-m-d'),
             'notes' => $entry->notes ?? '',
         ];
-
     }
 
     public function cancelHistoryEdit(): void
@@ -197,12 +223,16 @@ new class extends Component {
 
     public function saveHistoryEdit(): void
     {
+        if ($this->readOnly) {
+            return;
+        }
+
         $this->validate([
             'editingHistory.status' => 'required|in:active,registering,suspended,left',
-            'editingHistory.start_date' => 'required|date|before_or_equal:'.now('Asia/Riyadh')->format('Y-m-d'),
+            'editingHistory.start_date' => 'required|date|before_or_equal:'.$this->today(),
             'editingHistory.notes' => 'nullable|string|max:500',
         ], [
-            'editingHistory.start_date.before_or_equal' => 'تاريخ السريان لا يمكن أن يكون في المستقبل',
+            'editingHistory.start_date.before_or_equal' => 'تاريخ البداية لا يكون في المستقبل.',
         ]);
 
         $student = $this->scopedStudent($this->studentId);
@@ -226,379 +256,362 @@ new class extends Component {
         }
 
         $this->cancelHistoryEdit();
-
         $this->dispatch('student-list-updated');
         $this->dispatch('student-status-updated');
-        Flux::toast('تم تعديل سجل الحالة', variant: 'success');
+        Flux::toast('صُحّح سجل الحالة.', variant: 'success');
     }
 
-    public function deleteHistoryEntry(int $historyId)
+    public function deleteHistoryEntry(int $historyId): void
     {
         $student = $this->scopedStudent($this->studentId);
-        if (! $student) {
+
+        if ($this->readOnly || ! $student) {
             return;
         }
 
         StudentStatusService::deleteHistoryEntry($student, $historyId);
         $this->dispatch('student-list-updated');
         $this->dispatch('student-status-updated');
-        Flux::toast('تم حذف سجل الحالة', variant: 'success');
+        Flux::toast('حُذف السجل.', variant: 'success');
     }
 
-    protected function isSchoolDay(string $date, $attendancePeriods): bool
+    /**
+     * Attendance records between the chosen start and today that the change
+     * moves into the reports or out of them: the reports count a record only
+     * on a day the student was active (Attendance::activeStatusOnDateSql).
+     *
+     * @param  \Illuminate\Support\Collection<int, \App\Models\StudentStatusHistory>  $rowsAscending
+     */
+    private function reportShift(Student $student, $rowsAscending): int
     {
-        $dayOfWeek = \Carbon\Carbon::parse($date)->dayOfWeek + 1; // 1=Sun .. 7=Sat
+        if ($this->newStatus === '' || $this->effectiveDate === '' || $this->effectiveDate > $this->today()) {
+            return 0;
+        }
 
-        return $attendancePeriods->some(function ($event) use ($date, $dayOfWeek) {
-            $inRange = $event->start_date->format('Y-m-d') <= $date
-                && (! $event->end_date || $event->end_date->format('Y-m-d') >= $date);
-            $weekdays = $event->weekdays ?? [];
+        $statusOn = function (string $day) use ($rowsAscending): string {
+            $row = $rowsAscending->filter(fn ($row) => $row->start_date->format('Y-m-d') <= $day)->last();
 
-            return $inRange && (empty($weekdays) || in_array($dayOfWeek, $weekdays));
-        });
+            return $row?->status ?? 'active';
+        };
+        $countedAfter = $this->newStatus === 'active';
+
+        return Attendance::where('student_id', $student->id)
+            ->whereDate('date', '>=', $this->effectiveDate)
+            ->whereDate('date', '<=', $this->today())
+            ->pluck('date')
+            ->filter(fn ($date) => ($statusOn($date->format('Y-m-d')) === 'active') !== $countedAfter)
+            ->count();
     }
 
-    public function with()
+    public function with(): array
     {
         $student = $this->scopedStudent($this->studentId);
 
         if (! $student) {
-            return ['student' => null, 'historyRows' => collect(), 'timeline' => [], 'monthDays' => [], 'monthName' => '', 'impact' => null];
+            return ['student' => null];
         }
 
-        $today = now('Asia/Riyadh')->format('Y-m-d');
+        $today = $this->today();
+        $rows = $student->statusHistories()->reorder('start_date')->orderBy('id')->get();
 
-        $historyRows = $student->statusHistories()
-            ->orderByDesc('start_date')
-            ->orderByDesc('id')
-            ->get();
+        $periods = $rows->values()->map(function ($row, int $index) use ($rows, $today) {
+            $from = $row->start_date->format('Y-m-d');
+            $next = $rows->values()[$index + 1] ?? null;
+            $to = $next?->start_date->format('Y-m-d');
 
-        // ── Timeline segments (oldest right in RTL) ──
-        $asc = $historyRows->sortBy([['start_date', 'asc'], ['id', 'asc']])->values();
-        $timeline = [];
-        if ($asc->isNotEmpty()) {
-            $spanStart = $asc->first()->start_date->format('Y-m-d');
-            $spanEnd = max($today, $asc->last()->start_date->format('Y-m-d'));
-            $totalDays = max(1, \Carbon\Carbon::parse($spanStart)->diffInDays(\Carbon\Carbon::parse($spanEnd)) + 1);
-
-            foreach ($asc as $i => $row) {
-                $segStart = $row->start_date->format('Y-m-d');
-                $segEnd = isset($asc[$i + 1]) ? $asc[$i + 1]->start_date->format('Y-m-d') : $spanEnd;
-                $days = max(1, \Carbon\Carbon::parse($segStart)->diffInDays(\Carbon\Carbon::parse($segEnd)) + ($i === $asc->count() - 1 ? 1 : 0));
-
-                $timeline[] = [
-                    'status' => $row->status,
-                    'start' => $segStart,
-                    'days' => $days,
-                    'width' => max(7, round($days / $totalDays * 100)),
-                    'scheduled' => $segStart > $today,
-                ];
-            }
-        }
-
-        // ── Hijri month grid with school days highlighted ──
-        $attendancePeriods = AcademicCalendarEvent::where('is_attendance_period', true)->get();
-
-        $cal = \IntlCalendar::createInstance('Asia/Riyadh', 'ar_SA@calendar=islamic-umalqura');
-        $cal->setTime(now('Asia/Riyadh')->getTimestampMs());
-        $cal->set(\IntlCalendar::FIELD_DAY_OF_MONTH, 1);
-        $cal->add(\IntlCalendar::FIELD_MONTH, $this->monthOffset);
-
-        $monthName = \App\Support\HijriDate::monthYear($cal->getTime() / 1000);
-
-        $monthLength = $cal->getActualMaximum(\IntlCalendar::FIELD_DAY_OF_MONTH);
-        $startDayOfWeek = $cal->get(\IntlCalendar::FIELD_DAY_OF_WEEK);
-
-        $monthDays = array_fill(0, $startDayOfWeek - 1, null);
-        for ($i = 1; $i <= $monthLength; $i++) {
-            $cal->set(\IntlCalendar::FIELD_DAY_OF_MONTH, $i);
-            $gregDate = date('Y-m-d', (int) ($cal->getTime() / 1000));
-
-            $monthDays[] = [
-                'hijriDay' => $i,
-                'date' => $gregDate,
-                'isSchoolDay' => $this->isSchoolDay($gregDate, $attendancePeriods),
-                'isToday' => $gregDate === $today,
-                'isFuture' => $gregDate > $today,
+            return [
+                'row' => $row,
+                'from' => $from,
+                'to' => $to,
+                'scheduled' => $from > $today,
+                'current' => $from <= $today && ($to === null || $to > $today),
+                'days' => $from > $today ? 0 : (int) Carbon::parse($from)->diffInDays(Carbon::parse(min($to ?? $today, $today))) + ($to === null || $to > $today ? 1 : 0),
             ];
-        }
+        })->reverse()->values();
 
-        // ── Impact preview for backdated changes ──
-        $impact = null;
-        if ($this->effectiveDate && $this->effectiveDate < $today) {
-            $attendanceCount = Attendance::where('student_id', $student->id)
-                ->whereDate('date', '>=', $this->effectiveDate)
-                ->whereDate('date', '<=', $today)
-                ->count();
-
-            $tasmeehCount = StudentPlanDay::whereHas('plan', fn ($q) => $q->where('student_id', $student->id))
-                ->whereDate('date', '>=', $this->effectiveDate)
-                ->whereDate('date', '<=', $today)
-                ->where(function ($q) {
-                    $q->where('hifz_achievement', '>=', 1)->orWhere('review_achievement', '>=', 1);
-                })
-                ->count();
-
-            if ($attendanceCount > 0 || $tasmeehCount > 0) {
-                $impact = [
-                    'attendance' => $attendanceCount,
-                    'tasmeeh' => $tasmeehCount,
-                    'excluding' => $this->newStatus !== 'active',
-                ];
-            }
-        }
+        $current = $periods->firstWhere('current', true);
+        $currentStatus = $current['row']->status ?? $student->status ?: 'active';
 
         return [
             'student' => $student,
-            'historyRows' => $historyRows,
-            'timeline' => $timeline,
-            'monthDays' => $monthDays,
-            'monthName' => $monthName,
-            'impact' => $impact,
             'today' => $today,
+            'yesterday' => Carbon::parse($today)->subDay()->format('Y-m-d'),
+            'currentStatus' => $currentStatus,
+            'currentSince' => $current['from'] ?? null,
+            'scheduled' => $periods->firstWhere('scheduled', true),
+            'periods' => $periods,
+            // A new period cannot begin before the current one did.
+            'earliest' => $current['from'] ?? null,
+            'shift' => $this->reportShift($student, $rows),
         ];
     }
 };
 ?>
 
 @php
-    $statusLabels = ['active' => 'مشارك', 'registering' => 'تحت التسجيل', 'suspended' => 'موقوف', 'left' => 'غادر الحلقات'];
-    $statusColors = ['active' => 'green', 'registering' => 'blue', 'suspended' => 'amber', 'left' => 'red'];
-    $timelineBg = [
-        'active' => 'bg-green-400 dark:bg-green-600',
-        'registering' => 'bg-blue-400 dark:bg-blue-600',
-        'suspended' => 'bg-amber-400 dark:bg-amber-600',
-        'left' => 'bg-red-400 dark:bg-red-600',
+    $labels = StudentStatus::LABELS;
+    // Spelled out for Tailwind.
+    $dots = ['active' => 'bg-green-500', 'registering' => 'bg-blue-500', 'suspended' => 'bg-amber-500', 'left' => 'bg-red-500'];
+    $panels = [
+        'active' => 'bg-green-50 text-green-800 dark:bg-green-900/20 dark:text-green-300',
+        'registering' => 'bg-blue-50 text-blue-800 dark:bg-blue-900/20 dark:text-blue-300',
+        'suspended' => 'bg-amber-50 text-amber-800 dark:bg-amber-900/20 dark:text-amber-300',
+        'left' => 'bg-red-50 text-red-800 dark:bg-red-900/20 dark:text-red-300',
     ];
     $roleLabels = ['manager' => 'المدير', 'supervisor' => 'المشرف', 'teacher' => 'المعلم'];
+    $ar = fn ($n) => HijriDate::arabicDigits($n);
 @endphp
 
-<flux:modal wire:model="showModal" class="md:w-[640px]" dir="rtl">
-    @if($student)
-        <div class="space-y-6">
-            <div class="flex items-center justify-between gap-3">
-                <div>
-                    <flux:heading size="lg">{{ __('إدارة حالة الطالب') }}</flux:heading>
-                    <flux:subheading>{{ $student->name }}</flux:subheading>
-                </div>
-                <flux:badge color="{{ $statusColors[$student->status] ?? 'zinc' }}">
-                    {{ $statusLabels[$student->status] ?? $student->status }}
-                </flux:badge>
-            </div>
+<flux:modal wire:model="showModal" class="w-full md:w-[520px]" dir="rtl">
+    @if ($student)
+        @php
+            $actions = [
+                'active' => [
+                    'title' => $currentStatus === 'registering' ? 'قبول وبدء المشاركة' : 'إعادة للمشاركة',
+                    'hint' => 'يظهر في التحضير والتسميع ويُحتسب في التقارير',
+                    'icon' => 'play-circle', 'tone' => 'text-green-600', 'confirm' => 'تأكيد المشاركة',
+                ],
+                'suspended' => [
+                    'title' => 'إيقاف مؤقت',
+                    'hint' => 'يغيب عن التحضير والتسميع حتى يعود',
+                    'icon' => 'pause-circle', 'tone' => 'text-amber-600', 'confirm' => 'تأكيد الإيقاف',
+                ],
+                'left' => [
+                    'title' => 'غادر الحلقات',
+                    'hint' => 'يتوقف احتسابه، ويبقى في حلقته حتى يُزال منها',
+                    'icon' => 'arrow-right-start-on-rectangle', 'tone' => 'text-red-600', 'confirm' => 'تأكيد المغادرة',
+                ],
+                'registering' => [
+                    'title' => 'إرجاع إلى «تحت التسجيل»',
+                    'hint' => 'لم يبدأ بعد؛ لا يظهر في التحضير',
+                    'icon' => 'clipboard-document-list', 'tone' => 'text-blue-600', 'confirm' => 'تأكيد',
+                ],
+            ];
+            $dayWord = fn (string $date) => match ($date) {
+                $today => 'اليوم',
+                $yesterday => 'أمس',
+                default => HijriDate::full($date),
+            };
+            $returnIn = fn (int $days) => Carbon::parse($effectiveDate ?: $today)->addDays($days)->format('Y-m-d');
+        @endphp
 
-            {{-- Visual timeline --}}
-            @if(count($timeline) > 0)
-                <div>
-                    <div class="text-xs font-bold text-zinc-500 mb-2">{{ __('الخط الزمني للحالات') }}</div>
-                    <div class="flex w-full h-8 rounded-xl overflow-hidden border border-zinc-200 dark:border-zinc-700">
-                        @foreach($timeline as $segment)
-                            <div wire:key="segment-{{ $loop->index }}"
-                                class="{{ $timelineBg[$segment['status']] ?? 'bg-zinc-300' }} {{ $segment['scheduled'] ? 'opacity-50' : '' }} flex items-center justify-center overflow-hidden"
-                                style="width: {{ $segment['width'] }}%"
-                                title="{{ $statusLabels[$segment['status']] ?? $segment['status'] }} — {{ $segment['days'] }} {{ __('يوم') }}">
-                                <span class="text-[0.6rem] font-bold text-white truncate px-1">
-                                    {{ $statusLabels[$segment['status']] ?? $segment['status'] }}
-                                    @if($segment['scheduled']) ({{ __('مجدول') }}) @endif
-                                </span>
-                            </div>
-                        @endforeach
-                    </div>
-                </div>
-            @endif
-
-            {{-- History rows --}}
+        <div class="space-y-5">
+            {{-- ─────────── الآن ─────────── --}}
             <div>
-                <div class="text-xs font-bold text-zinc-500 mb-2">{{ __('سجل الحالات') }}</div>
-                <div class="space-y-2 max-h-40 overflow-y-auto pr-1">
-                    @forelse($historyRows as $history)
-                        @if($editingHistoryId === $history->id)
-                            {{-- The row itself becomes the form: a second modal over this
-                                 one would sit behind it, and the record being corrected
-                                 should stay in view while it is corrected. --}}
-                            <div wire:key="history-edit-{{ $history->id }}"
-                                class="p-3 border border-maroon/40 dark:border-white/20 rounded-xl bg-white dark:bg-zinc-900 space-y-3">
-                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                    <flux:select wire:model="editingHistory.status" size="sm" label="{{ __('الحالة') }}">
-                                        @foreach($statusLabels as $value => $label)
-                                            <flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>
-                                        @endforeach
-                                    </flux:select>
-
-                                    <livewire:shared.hijri-datepicker wire:model="editingHistory.start_date"
-                                        :key="'edit-history-date-'.$history->id"
-                                        label="{{ __('تاريخ السريان') }}" />
-                                </div>
-
-                                <flux:input wire:model="editingHistory.notes" size="sm"
-                                    label="{{ __('ملاحظة (اختياري)') }}" />
-
-                                @error('editingHistory.start_date') <p class="text-xs text-red-600">{{ $message }}</p> @enderror
-                                @error('editingHistory.status') <p class="text-xs text-red-600">{{ $message }}</p> @enderror
-
-                                <div class="flex justify-end gap-2">
-                                    <flux:button size="sm" variant="ghost" wire:click="cancelHistoryEdit">{{ __('إلغاء') }}</flux:button>
-                                    <flux:button size="sm" variant="primary" wire:click="saveHistoryEdit">{{ __('حفظ') }}</flux:button>
-                                </div>
-                            </div>
-                        @else
-                        <div wire:key="history-{{ $history->id }}"
-                            class="flex items-center justify-between p-2.5 border border-zinc-200 dark:border-zinc-700/50 rounded-xl bg-zinc-50 dark:bg-zinc-800/50">
-                            <div class="flex flex-col gap-0.5">
-                                <div class="flex items-center gap-2">
-                                    <flux:badge color="{{ $statusColors[$history->status] ?? 'zinc' }}" size="sm">
-                                        {{ $statusLabels[$history->status] ?? $history->status }}
-                                    </flux:badge>
-                                    @if($history->start_date->format('Y-m-d') > $today)
-                                        <flux:badge color="zinc" size="sm">{{ __('مجدول') }}</flux:badge>
-                                    @endif
-                                    <span class="text-xs text-zinc-500">
-                                        <x-hijri-date :date="$history->start_date" />
-                                        @if($history->end_date) ← <x-hijri-date :date="$history->end_date" /> @endif
-                                    </span>
-                                </div>
-                                @if($history->notes)
-                                    <span class="text-xs text-zinc-400">{{ $history->notes }}</span>
-                                @endif
-                                @if($history->changed_by_name)
-                                    <span class="text-[0.65rem] text-zinc-400">
-                                        {{ __('بواسطة') }}: {{ $roleLabels[$history->changed_by_role] ?? $history->changed_by_role }} {{ $history->changed_by_name }}
-                                    </span>
-                                @endif
-                            </div>
-                            <div class="flex items-center gap-1 shrink-0">
-                                <flux:button size="xs" variant="ghost" icon="pencil-square"
-                                    class="text-zinc-400 hover:text-zinc-600"
-                                    wire:click="editHistory({{ $history->id }})" />
-                                <flux:button size="xs" variant="ghost" icon="trash"
-                                    class="text-red-400 hover:text-red-600"
-                                    wire:click="deleteHistoryEntry({{ $history->id }})"
-                                    wire:confirm="{{ __('حذف هذا السجل؟ سيُعاد احتساب حالة الطالب من السجلات المتبقية.') }}" />
-                            </div>
-                        </div>
-                        @endif
-                    @empty
-                        <div class="text-sm text-zinc-500 text-center py-3">{{ __('لا يوجد سجل حالات.') }}</div>
-                    @endforelse
+                <flux:heading size="lg">{{ $student->name }}</flux:heading>
+                <div class="mt-3 flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-bold {{ $panels[$currentStatus] ?? '' }}" data-current-status="{{ $currentStatus }}">
+                    <span class="size-2.5 shrink-0 rounded-full {{ $dots[$currentStatus] ?? 'bg-zinc-400' }}"></span>
+                    {{ $labels[$currentStatus] ?? $currentStatus }}
+                    @if ($currentSince)
+                        <span class="font-normal">منذ {{ HijriDate::full($currentSince) }}</span>
+                    @endif
                 </div>
+                @if ($scheduled)
+                    <p class="mt-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+                        يعود {{ $labels[$scheduled['row']->status] ?? '' }} تلقائياً في {{ HijriDate::full($scheduled['from']) }}.
+                    </p>
+                @endif
             </div>
 
-            <flux:separator />
+            @unless ($readOnly)
+                @if ($newStatus === '')
+                    {{-- ─────────── ماذا تريد؟ ─────────── --}}
+                    <div>
+                        <div class="text-sm font-bold text-zinc-600 dark:text-zinc-300 mb-2">ماذا تريد أن تفعل؟</div>
+                        <div class="space-y-2">
+                            @foreach ($actions as $status => $action)
+                                @continue($status === $currentStatus)
+                                <button type="button" wire:key="action-{{ $status }}" wire:click="choose('{{ $status }}')" data-action="{{ $status }}"
+                                    class="w-full flex items-center gap-3 rounded-xl border border-zinc-200 dark:border-zinc-700 px-3 py-2.5 text-right hover:border-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors">
+                                    <flux:icon :icon="$action['icon']" class="size-6 shrink-0 {{ $action['tone'] }}" />
+                                    <span class="min-w-0">
+                                        <span class="block text-sm font-bold text-zinc-800 dark:text-zinc-100">{{ $action['title'] }}</span>
+                                        <span class="block text-xs text-zinc-500 dark:text-zinc-400">{{ $action['hint'] }}</span>
+                                    </span>
+                                    <flux:icon icon="chevron-left" class="size-4 shrink-0 text-zinc-300 ms-auto" />
+                                </button>
+                            @endforeach
+                        </div>
+                    </div>
+                @else
+                    {{-- ─────────── التفاصيل ─────────── --}}
+                    @php
+                        $action = $actions[$newStatus];
+                        $when = $dayWord($effectiveDate ?: $today);
+                        $summary = match ($newStatus) {
+                            'active' => "يصبح مشاركاً من {$when}، ويظهر في التحضير والتسميع.",
+                            'suspended' => "يُوقف من {$when}، ".($returnDate !== '' ? 'ويعود مشاركاً تلقائياً في '.HijriDate::full($returnDate).'.' : 'ويبقى موقوفاً حتى يُعاد.'),
+                            'left' => "يُسجَّل مغادراً للحلقات من {$when}، ويغيب عن التحضير والتسميع.",
+                            default => "يعود «تحت التسجيل» من {$when}، ويغيب عن التحضير والتسميع.",
+                        };
+                    @endphp
+                    <div class="space-y-4 rounded-2xl border border-zinc-200 dark:border-zinc-700 p-4">
+                        <div class="flex items-center gap-2">
+                            <flux:button size="xs" variant="ghost" icon="arrow-right" wire:click="back" aria-label="رجوع" />
+                            <flux:icon :icon="$action['icon']" class="size-5 {{ $action['tone'] }}" />
+                            <span class="font-bold text-zinc-800 dark:text-zinc-100">{{ $action['title'] }}</span>
+                        </div>
 
-            {{-- Change form --}}
-            <div class="space-y-4">
-                <flux:heading size="sm">{{ __('تغيير الحالة') }}</flux:heading>
+                        <div>
+                            <div class="text-sm text-zinc-600 dark:text-zinc-300 mb-1.5">من متى؟</div>
+                            <div class="flex flex-wrap gap-2">
+                                @foreach (['today' => [$today, 'اليوم'], 'yesterday' => [$yesterday, 'أمس']] as $key => [$date, $word])
+                                    @if (! $earliest || $date >= $earliest)
+                                        <button type="button" wire:key="when-{{ $key }}" wire:click="$set('effectiveDate', '{{ $date }}'); $set('pickingDate', false)"
+                                            class="rounded-full px-3 py-1 text-sm border {{ ! $pickingDate && $effectiveDate === $date ? 'border-zinc-800 bg-zinc-800 text-white dark:border-white dark:bg-white dark:text-zinc-900' : 'border-zinc-300 dark:border-zinc-600 text-zinc-700 dark:text-zinc-200' }}">
+                                            {{ $word }}
+                                        </button>
+                                    @endif
+                                @endforeach
+                                <button type="button" wire:click="$set('pickingDate', true)"
+                                    class="rounded-full px-3 py-1 text-sm border {{ $pickingDate || ! in_array($effectiveDate, [$today, $yesterday], true) ? 'border-zinc-800 bg-zinc-800 text-white dark:border-white dark:bg-white dark:text-zinc-900' : 'border-zinc-300 dark:border-zinc-600 text-zinc-700 dark:text-zinc-200' }}">
+                                    تاريخ آخر
+                                </button>
+                            </div>
+                            @if ($pickingDate)
+                                <div class="mt-2">
+                                    <livewire:shared.hijri-datepicker wire:model.live="effectiveDate" label="" :max-date="$today" :min-date="$earliest"
+                                        :show-attendance-days="true" :key="'status-start-'.$student->id" />
+                                </div>
+                            @endif
+                            @error('effectiveDate') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                        </div>
 
-                <div class="grid grid-cols-2 gap-4">
-                    <flux:select wire:model.live="newStatus" label="{{ __('الحالة الجديدة') }}">
-                        <flux:select.option value="active">مشارك</flux:select.option>
-                        <flux:select.option value="registering">تحت التسجيل</flux:select.option>
-                        <flux:select.option value="suspended">موقوف</flux:select.option>
-                        <flux:select.option value="left">غادر الحلقات</flux:select.option>
-                    </flux:select>
+                        @if ($newStatus === 'suspended')
+                            <div>
+                                <div class="text-sm text-zinc-600 dark:text-zinc-300 mb-1.5">يعود متى؟</div>
+                                <div class="flex flex-wrap gap-2">
+                                    @foreach ([7 => 'بعد أسبوع', 14 => 'بعد أسبوعين', 30 => 'بعد شهر'] as $days => $word)
+                                        <button type="button" wire:key="return-{{ $days }}" wire:click="$set('returnDate', '{{ $returnIn($days) }}'); $set('pickingReturn', false)"
+                                            class="rounded-full px-3 py-1 text-sm border {{ ! $pickingReturn && $returnDate === $returnIn($days) ? 'border-zinc-800 bg-zinc-800 text-white dark:border-white dark:bg-white dark:text-zinc-900' : 'border-zinc-300 dark:border-zinc-600 text-zinc-700 dark:text-zinc-200' }}">
+                                            {{ $word }}
+                                        </button>
+                                    @endforeach
+                                    <button type="button" wire:click="$set('pickingReturn', true)"
+                                        class="rounded-full px-3 py-1 text-sm border {{ $pickingReturn ? 'border-zinc-800 bg-zinc-800 text-white dark:border-white dark:bg-white dark:text-zinc-900' : 'border-zinc-300 dark:border-zinc-600 text-zinc-700 dark:text-zinc-200' }}">
+                                        تاريخ آخر
+                                    </button>
+                                    <button type="button" wire:click="$set('returnDate', ''); $set('pickingReturn', false)"
+                                        class="rounded-full px-3 py-1 text-sm border {{ ! $pickingReturn && $returnDate === '' ? 'border-zinc-800 bg-zinc-800 text-white dark:border-white dark:bg-white dark:text-zinc-900' : 'border-zinc-300 dark:border-zinc-600 text-zinc-700 dark:text-zinc-200' }}">
+                                        لا أعرف
+                                    </button>
+                                </div>
+                                @if ($pickingReturn)
+                                    <div class="mt-2">
+                                        <livewire:shared.hijri-datepicker wire:model.live="returnDate" label="" :min-date="Carbon::parse($effectiveDate ?: $today)->addDay()->format('Y-m-d')"
+                                            :show-attendance-days="true" :key="'status-return-'.$student->id" />
+                                    </div>
+                                @endif
+                                @error('returnDate') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                            </div>
+                        @endif
 
-                    <flux:input wire:model="reason" label="{{ __('سبب التغيير (اختياري)') }}"
-                        placeholder="{{ __('مثال: انقطاع عن الحضور أسبوعين') }}" />
-                </div>
+                        <flux:input wire:model="reason" size="sm" label="السبب (اختياري)" placeholder="مثال: انقطع عن الحضور أسبوعين" />
 
-                {{-- Date targets --}}
-                <div class="grid {{ $newStatus === 'suspended' ? 'grid-cols-2' : 'grid-cols-1' }} gap-3">
-                    <button type="button" wire:click="$set('pickerTarget', 'effective')"
-                        class="text-right p-3 rounded-xl border transition-colors {{ $pickerTarget === 'effective' ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-900/20' : 'border-zinc-200 dark:border-zinc-700' }}">
-                        <div class="text-xs text-zinc-500">{{ __('تاريخ سريان الحالة') }}</div>
-                        <div class="font-bold text-sm mt-0.5">{{ $effectiveDate ?: __('اختر من التقويم') }}</div>
-                    </button>
+                        {{-- What the change will do, said before it is done. --}}
+                        <div class="rounded-xl px-3 py-2.5 text-sm leading-relaxed {{ $panels[$newStatus] ?? '' }}" data-status-summary>
+                            {{ $summary }}
+                            @if ($shift > 0)
+                                <span class="block mt-1 font-bold" data-report-shift="{{ $shift }}">
+                                    {{ $newStatus === 'active' ? 'ويدخل تقارير الحضور' : 'ويخرج من تقارير الحضور' }}
+                                    ما سُجّل له في {{ $ar(ArabicCount::of($shift, ArabicCount::DAYS_GEN)) }} منذ {{ $when }}.
+                                </span>
+                            @endif
+                        </div>
+                        @error('newStatus') <p class="text-xs text-red-600">{{ $message }}</p> @enderror
 
-                    @if($newStatus === 'suspended')
-                        <button type="button" wire:click="$set('pickerTarget', 'return')"
-                            class="text-right p-3 rounded-xl border transition-colors {{ $pickerTarget === 'return' ? 'border-amber-400 bg-amber-50 dark:bg-amber-900/20' : 'border-zinc-200 dark:border-zinc-700' }}">
-                            <div class="text-xs text-zinc-500">{{ __('العودة التلقائية (اختياري)') }}</div>
-                            <div class="font-bold text-sm mt-0.5">{{ $returnDate ?: __('بدون عودة تلقائية') }}</div>
+                        <div class="flex justify-end gap-2">
+                            <flux:button variant="ghost" wire:click="back">إلغاء</flux:button>
+                            <flux:button variant="primary" wire:click="saveStatus">{{ $action['confirm'] }}</flux:button>
+                        </div>
+                    </div>
+                @endif
+            @else
+                <p class="text-xs text-zinc-500">لا تملك صلاحية تغيير حالة الطلاب؛ هذا سجلّه للاطلاع.</p>
+            @endunless
+
+            {{-- ─────────── ما سبق ─────────── --}}
+            <div>
+                <div class="flex items-center justify-between gap-2 mb-2">
+                    <div class="text-sm font-bold text-zinc-600 dark:text-zinc-300">ما سبق</div>
+                    @if (! $readOnly && $periods->isNotEmpty())
+                        <button type="button" wire:click="$toggle('correcting')" class="text-xs font-bold text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 underline-offset-4 hover:underline">
+                            {{ $correcting ? 'إنهاء التصحيح' : 'تصحيح السجل' }}
                         </button>
                     @endif
                 </div>
 
-                {{-- Hijri month grid: school days in green --}}
-                <div class="border border-zinc-200 dark:border-zinc-700 rounded-xl p-3">
-                    <div class="flex items-center justify-between mb-2">
-                        <flux:button variant="ghost" size="xs" icon="chevron-right" wire:click="shiftMonth(-1)" />
-                        <div class="text-sm font-bold text-zinc-700 dark:text-zinc-200">{{ $monthName }}</div>
-                        <flux:button variant="ghost" size="xs" icon="chevron-left" wire:click="shiftMonth(1)" />
-                    </div>
-
-                    <div class="grid grid-cols-7 gap-1 text-center mb-1">
-                        @foreach(['أحد', 'إثنين', 'ثلاثاء', 'أربعاء', 'خميس', 'جمعة', 'سبت'] as $day)
-                            <div class="text-[0.55rem] font-bold text-zinc-400">{{ $day }}</div>
-                        @endforeach
-                    </div>
-
-                    <div class="grid grid-cols-7 gap-1">
-                        @foreach($monthDays as $day)
-                            @if($day === null)
-                                <div class="h-9"></div>
-                            @else
-                                @php
-                                    $isSelectedEffective = $day['date'] === $effectiveDate;
-                                    $isSelectedReturn = $day['date'] === $returnDate;
-                                    $disabled = $pickerTarget === 'effective'
-                                        ? $day['isFuture']
-                                        : $day['date'] <= ($effectiveDate ?: $today);
-                                @endphp
-                                <button type="button" wire:key="pick-{{ $day['date'] }}"
-                                    wire:click="selectDay('{{ $day['date'] }}')"
-                                    @if($disabled) disabled @endif
-                                    class="h-9 rounded-lg text-xs font-semibold border transition-colors
-                                        {{ $isSelectedEffective ? 'bg-indigo-600 text-white border-indigo-600' :
-                                           ($isSelectedReturn ? 'bg-amber-500 text-white border-amber-500' :
-                                           ($day['isSchoolDay'] ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800 text-green-800 dark:text-green-300 hover:bg-green-100' : 'bg-white dark:bg-zinc-800 border-zinc-100 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50')) }}
-                                        {{ $day['isToday'] ? 'ring-2 ring-indigo-400 ring-offset-1 dark:ring-offset-zinc-900' : '' }}
-                                        {{ $disabled ? 'opacity-30 cursor-not-allowed' : '' }}">
-                                    {{ $day['hijriDay'] }}
-                                </button>
-                            @endif
-                        @endforeach
-                    </div>
-
-                    <div class="flex items-center gap-3 mt-2 text-[0.6rem] text-zinc-500">
-                        <span class="flex items-center gap-1"><span class="size-2.5 rounded bg-green-100 border border-green-300 inline-block"></span> {{ __('يوم دوام') }}</span>
-                        <span class="flex items-center gap-1"><span class="size-2.5 rounded bg-indigo-600 inline-block"></span> {{ __('تاريخ السريان') }}</span>
-                        @if($newStatus === 'suspended')
-                            <span class="flex items-center gap-1"><span class="size-2.5 rounded bg-amber-500 inline-block"></span> {{ __('العودة التلقائية') }}</span>
-                        @endif
-                    </div>
-                </div>
-
-                @error('reason') <p class="text-xs text-red-600">{{ $message }}</p> @enderror
-                @error('effectiveDate') <p class="text-xs text-red-600">{{ $message }}</p> @enderror
-
-                {{-- Impact preview --}}
-                @if($impact)
-                    <div class="flex items-start gap-2 rounded-xl p-3 text-sm border
-                        {{ $impact['excluding'] ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-900/50 text-amber-700 dark:text-amber-400' : 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-900/50 text-emerald-700 dark:text-emerald-400' }}">
-                        <flux:icon icon="{{ $impact['excluding'] ? 'exclamation-triangle' : 'information-circle' }}" class="size-5 shrink-0" />
-                        <span>
-                            @if($impact['excluding'])
-                                {{ __('هذا التغيير الرجعي سيستبعد من الحسابات') }}
-                                @if($impact['attendance'] > 0) {{ $impact['attendance'] }} {{ __('سجل تحضير') }} @endif
-                                @if($impact['attendance'] > 0 && $impact['tasmeeh'] > 0) {{ __('و') }} @endif
-                                @if($impact['tasmeeh'] > 0) {{ $impact['tasmeeh'] }} {{ __('تسميع مقيّم') }} @endif
-                                {{ __('في الفترة المتأثرة (تبقى السجلات محفوظة ولا تُحذف).') }}
-                            @else
-                                {{ __('هذا التفعيل الرجعي سيعيد احتساب') }}
-                                @if($impact['attendance'] > 0) {{ $impact['attendance'] }} {{ __('سجل تحضير') }} @endif
-                                @if($impact['attendance'] > 0 && $impact['tasmeeh'] > 0) {{ __('و') }} @endif
-                                @if($impact['tasmeeh'] > 0) {{ $impact['tasmeeh'] }} {{ __('تسميع مقيّم') }} @endif
-                                {{ __('في الفترة المعنية.') }}
-                            @endif
-                        </span>
-                    </div>
+                @if ($correcting)
+                    <p class="mb-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
+                        التصحيح لما سُجّل خطأً، وهو يغيّر ماضي الطالب وتقارير حضوره. لتغيير حاله من الآن استعمل الأزرار أعلاه.
+                    </p>
                 @endif
 
-                <div class="flex gap-2">
-                    <flux:spacer />
-                    <flux:button wire:click="$set('showModal', false)">{{ __('إغلاق') }}</flux:button>
-                    <flux:button wire:click="saveStatus" variant="primary" icon="check">
-                        {{ __('حفظ التغيير') }}
-                    </flux:button>
+                <div class="divide-y divide-zinc-100 dark:divide-zinc-800" data-status-history>
+                    @forelse ($periods as $period)
+                        @php
+                            $row = $period['row'];
+                        @endphp
+                        @if ($editingHistoryId === $row->id)
+                            {{-- The row itself becomes the form, so the record being corrected stays in view. --}}
+                            <div wire:key="history-edit-{{ $row->id }}" class="py-3 space-y-3">
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <flux:select wire:model="editingHistory.status" size="sm" label="الحالة">
+                                        @foreach ($labels as $value => $label)
+                                            <flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>
+                                        @endforeach
+                                    </flux:select>
+                                    <livewire:shared.hijri-datepicker wire:model="editingHistory.start_date" :max-date="$today"
+                                        :key="'edit-history-date-'.$row->id" label="بدأت في" />
+                                </div>
+                                <flux:input wire:model="editingHistory.notes" size="sm" label="ملاحظة (اختياري)" />
+                                @error('editingHistory.start_date') <p class="text-xs text-red-600">{{ $message }}</p> @enderror
+                                <div class="flex justify-end gap-2">
+                                    <flux:button size="sm" variant="ghost" wire:click="cancelHistoryEdit">إلغاء</flux:button>
+                                    <flux:button size="sm" variant="primary" wire:click="saveHistoryEdit">حفظ التصحيح</flux:button>
+                                </div>
+                            </div>
+                        @else
+                            <div wire:key="history-{{ $row->id }}" class="flex items-start gap-3 py-2.5 {{ $period['scheduled'] ? 'opacity-60' : '' }}">
+                                <span class="mt-1.5 size-2.5 shrink-0 rounded-full {{ $dots[$row->status] ?? 'bg-zinc-400' }}"></span>
+                                <div class="min-w-0 flex-1">
+                                    <div class="text-sm">
+                                        <span class="font-bold text-zinc-800 dark:text-zinc-100">{{ $labels[$row->status] ?? $row->status }}</span>
+                                        <span class="text-zinc-500 dark:text-zinc-400">
+                                            @if ($period['scheduled'])
+                                                · مجدول في {{ HijriDate::full($period['from']) }}
+                                            @elseif ($period['current'])
+                                                · منذ {{ HijriDate::full($period['from']) }}
+                                            @else
+                                                · {{ HijriDate::dayMonth($period['from']) }} – {{ HijriDate::full($period['to']) }}
+                                            @endif
+                                        </span>
+                                        @if ($period['days'] > 0)
+                                            <span class="text-xs text-zinc-400">({{ $ar(ArabicCount::of($period['days'], ArabicCount::DAYS)) }})</span>
+                                        @endif
+                                    </div>
+                                    @if ($row->notes)
+                                        <div class="text-xs text-zinc-500 dark:text-zinc-400">{{ $row->notes }}</div>
+                                    @endif
+                                    @if ($row->changed_by_name)
+                                        <div class="text-[11px] text-zinc-400">{{ $roleLabels[$row->changed_by_role] ?? '' }} {{ $row->changed_by_name }}</div>
+                                    @endif
+                                </div>
+                                @if ($correcting)
+                                    <div class="flex shrink-0 items-center gap-1">
+                                        @unless ($period['scheduled'])
+                                            <flux:button size="xs" variant="ghost" icon="pencil-square" wire:click="editHistory({{ $row->id }})" aria-label="تصحيح" />
+                                        @endunless
+                                        <flux:button size="xs" variant="ghost" icon="trash" class="text-red-500" wire:click="deleteHistoryEntry({{ $row->id }})"
+                                            wire:confirm="{{ $period['scheduled'] ? 'إلغاء هذا الموعد؟' : 'حذف هذا السجل؟ تمتد الحالة التي قبله مكانه.' }}"
+                                            aria-label="{{ $period['scheduled'] ? 'إلغاء الموعد' : 'حذف' }}" />
+                                    </div>
+                                @endif
+                            </div>
+                        @endif
+                    @empty
+                        <p class="py-3 text-sm text-zinc-400">لا يوجد سجل حالات بعد.</p>
+                    @endforelse
                 </div>
             </div>
         </div>

@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Student;
+use App\Support\HijriDate;
 use Illuminate\Support\Facades\Auth;
 
 class StudentStatusService
@@ -10,70 +11,51 @@ class StudentStatusService
     /**
      * Change a student's status effective from a given date (defaults to today),
      * keeping the status history consistent:
-     * - a different status closes the previous open history row and opens a new
-     *   one starting at the effective date (backdating supported);
-     * - the same status with a different date corrects the start date of the
-     *   latest history row instead of stacking a duplicate entry;
-     * - scheduled future rows (e.g. a pending auto-return) are superseded by any
-     *   new manual decision and removed first.
+     * - the status the student already has changes nothing: no row is moved and
+     *   none is added. Re-saving it used to move the current period's start to
+     *   the chosen date — a form opened and saved untouched rewrote months of
+     *   history, and the attendance reports read with it. A wrong date is
+     *   corrected on its own row (editHistoryEntry);
+     * - a different status closes the current period and opens a new one at the
+     *   effective date (backdating supported, but never before the current
+     *   period began: the timeline is append-only);
+     * - scheduled future rows (a pending automatic return) are superseded by
+     *   any new decision and removed first.
+     *
+     * Returns whether anything changed.
      */
-    public static function changeStatus(Student $student, string $status, ?string $effectiveDate = null, ?string $notes = null): void
+    public static function changeStatus(Student $student, string $status, ?string $effectiveDate = null, ?string $notes = null): bool
     {
         $today = now('Asia/Riyadh')->format('Y-m-d');
         $effectiveDate = $effectiveDate ?: $today;
 
-        // A new decision supersedes any scheduled (future-dated) rows.
-        $student->statusHistories()->whereDate('start_date', '>', $today)->delete();
-
-        $lastHistory = $student->statusHistories()
-            ->orderByDesc('start_date')
+        $current = $student->statusHistories()
+            ->whereDate('start_date', '<=', $today)
+            ->reorder('start_date', 'desc')
             ->orderByDesc('id')
             ->first();
 
-        if ($lastHistory && $lastHistory->status === $status) {
-            // Correcting the effective date of the latest change: it may not slide
-            // back past the start of the period before it (timeline stays ordered).
-            $previous = $student->statusHistories()
-                ->whereKeyNot($lastHistory->id)
-                ->orderByDesc('start_date')
-                ->orderByDesc('id')
-                ->first();
-
-            if ($previous && $effectiveDate <= $previous->start_date->format('Y-m-d')) {
-                throw new \InvalidArgumentException(
-                    'التاريخ المختار يسبق بداية الحالة السابقة ('.$previous->start_date->format('Y-m-d').'). احذف السجلات الخاطئة من سجل الحالات أولاً.'
-                );
+        if (($current?->status ?? $student->status) === $status) {
+            if ($student->status !== $status) {
+                $student->update(['status' => $status]);
             }
 
-            $student->update(['status' => $status]);
-
-            if ($lastHistory->start_date->format('Y-m-d') !== $effectiveDate) {
-                $lastHistory->update(array_merge(
-                    ['start_date' => $effectiveDate],
-                    $notes ? ['notes' => $notes] : [],
-                    self::changedByMeta(),
-                ));
-
-                if ($previous) {
-                    $previous->update(['end_date' => $effectiveDate]);
-                }
-            }
-
-            return;
+            return false;
         }
 
-        // The timeline is append-only: a new status may not start before the
-        // latest recorded period. Wrong entries are fixed by deleting them.
-        if ($lastHistory && $effectiveDate < $lastHistory->start_date->format('Y-m-d')) {
+        if ($current && $effectiveDate < $current->start_date->format('Y-m-d')) {
             throw new \InvalidArgumentException(
-                'التاريخ المختار يسبق بداية الحالة الحالية ('.$lastHistory->start_date->format('Y-m-d').'). احذف السجلات الخاطئة من سجل الحالات أولاً.'
+                'التاريخ المختار يسبق بداية الحالة الحالية ('.HijriDate::full($current->start_date).'). لتاريخ أقدم صحّح سجل الحالات.'
             );
         }
 
+        // A new decision supersedes any scheduled (future-dated) rows.
+        $student->statusHistories()->whereDate('start_date', '>', $today)->delete();
+
         $student->update(['status' => $status]);
 
-        if ($lastHistory && ! $lastHistory->end_date) {
-            $lastHistory->update(['end_date' => $effectiveDate]);
+        if ($current) {
+            $current->update(['end_date' => $effectiveDate]);
         }
 
         $student->statusHistories()->create(array_merge([
@@ -81,6 +63,8 @@ class StudentStatusService
             'start_date' => $effectiveDate,
             'notes' => $notes,
         ], self::changedByMeta()));
+
+        return true;
     }
 
     /**
@@ -94,7 +78,11 @@ class StudentStatusService
             throw new \InvalidArgumentException('تاريخ العودة يجب أن يكون بعد تاريخ بداية الإيقاف.');
         }
 
-        self::changeStatus($student, 'suspended', $effectiveDate, $notes);
+        // Already suspended, this sets when the suspension ends: the return
+        // scheduled before gives way to this one.
+        if (! self::changeStatus($student, 'suspended', $effectiveDate, $notes)) {
+            $student->statusHistories()->whereDate('start_date', '>', now('Asia/Riyadh')->format('Y-m-d'))->delete();
+        }
 
         $suspension = $student->statusHistories()
             ->orderByDesc('start_date')
@@ -132,6 +120,8 @@ class StudentStatusService
     {
         $student->statusHistories()->whereKey($historyId)->delete();
 
+        // The period before it now runs on to whatever follows.
+        self::reseal($student);
         self::resyncCachedStatus($student);
     }
 
