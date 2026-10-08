@@ -21,7 +21,9 @@ use Illuminate\Support\Facades\DB;
  * Quantities are in mushaf pages (أوجه) of fifteen lines, measured from the
  * lines each recited range spans, so a long verse weighs what it weighs on
  * the page. Every recitation counts: each session of a plan day as the
- * teacher graded it (plan_day_attempts) and each free recitation.
+ * teacher graded it (plan_day_attempts) and each free recitation. What is
+ * memorised is counted once: a line recited again — graded twice, or a
+ * portion recited anew — adds nothing the second time.
  */
 final class StudentProgressReport
 {
@@ -83,9 +85,11 @@ final class StudentProgressReport
     }
 
     /**
-     * Pages memorised each week (Saturday to Friday) over the last weeks, this
-     * one last; and the weekly average since the student's first memorising
-     * week in the window, this unfinished week left out of it.
+     * New pages memorised each week (Saturday to Friday) over the last weeks,
+     * this one last — lines recited for the first time, never a line already
+     * recited, in the window or before it; and the weekly average since the
+     * student's first memorising week in the window, this unfinished week
+     * left out of it.
      *
      * @return array{weeks: array<int, array{start: string, label: string, pages: float}>, average: float}
      */
@@ -100,15 +104,11 @@ final class StudentProgressReport
             $buckets[$start->format('Y-m-d')] = ['start' => $start->format('Y-m-d'), 'label' => HijriDate::dayMonth($start), 'lines' => 0];
         }
 
-        $sessions = self::sessions($student, $from->format('Y-m-d'), self::today())
-            ->filter(fn (array $session) => $session['part'] === 'hifz' && $session['grade'] >= 1);
-        $lines = self::lines($sessions);
-
-        foreach ($sessions as $key => $session) {
-            $week = Carbon::parse($session['date'])->startOfWeek(Carbon::SATURDAY)->format('Y-m-d');
+        foreach (self::memorised($student) as $recitation) {
+            $week = Carbon::parse($recitation['date'])->startOfWeek(Carbon::SATURDAY)->format('Y-m-d');
 
             if (isset($buckets[$week])) {
-                $buckets[$week]['lines'] += $lines[$key] ?? 0;
+                $buckets[$week]['lines'] += $recitation['new'];
             }
         }
 
@@ -240,10 +240,12 @@ final class StudentProgressReport
 
         $measure = function (string $from, string $to) use ($student): array {
             $sessions = self::sessions($student, $from, $to);
-            $memorised = $sessions->filter(fn (array $session) => $session['part'] === 'hifz' && $session['grade'] >= 1);
+            $newLines = self::memorised($student)
+                ->filter(fn (array $recitation) => $recitation['date'] >= $from && $recitation['date'] <= $to)
+                ->sum('new');
 
             return [
-                'pages' => round(array_sum(self::lines($memorised)) / self::LINES_PER_PAGE, 1),
+                'pages' => round($newLines / self::LINES_PER_PAGE, 1),
                 'excellent' => $sessions->isEmpty() ? null : (int) round($sessions->where('grade', 3)->count() / $sessions->count() * 100),
                 'attended' => Attendance::where('student_id', $student->id)
                     ->whereIn('status', ['present', 'late'])
@@ -367,36 +369,82 @@ final class StudentProgressReport
     }
 
     /**
-     * The lines of the mushaf each session's range spans, keyed as the
-     * sessions are; a range with an unknown verse spans none.
+     * Every memorising recitation graded «مقبول» or better up to today, oldest
+     * first, with the lines of the mushaf it added: those of its range no
+     * earlier recitation had reached. Kept on the request, since the pace and
+     * the month's comparison both ask.
      *
-     * @param  Collection<int, array{from: ?int, to: ?int}>  $sessions
-     * @return array<int, int>
+     * @return Collection<int, array{date: string, new: int}>
      */
-    private static function lines(Collection $sessions): array
+    private static function memorised(Student $student): Collection
     {
+        $request = request();
+        $key = self::class."|memorised|{$student->id}|".self::today();
+
+        if ($request->attributes->has($key)) {
+            return $request->attributes->get($key);
+        }
+
+        $sessions = self::sessions($student, '2000-01-01', self::today())
+            ->filter(fn (array $session) => $session['part'] === 'hifz' && $session['grade'] >= 1)
+            ->values();
+
         $ayahs = Ayah::whereIn('id', $sessions->flatMap(fn (array $session) => [$session['from'], $session['to']])->filter()->unique()->values())
             ->get(['id', 'page_number', 'line_number_start', 'line_number_end'])
             ->keyBy('id');
 
-        return $sessions->map(function (array $session) use ($ayahs) {
-            $first = $ayahs->get(min($session['from'] ?? 0, $session['to'] ?? 0));
-            $last = $ayahs->get(max($session['from'] ?? 0, $session['to'] ?? 0));
+        // Every line of the mushaf reached so far, by its place in the whole.
+        $reached = [];
 
-            if (! $first || ! $last) {
-                return 0;
+        $memorised = $sessions->map(function (array $session) use ($ayahs, &$reached) {
+            $new = 0;
+
+            if ($span = self::span($session, $ayahs)) {
+                for ($line = $span[0]; $line <= $span[1]; $line++) {
+                    if (! isset($reached[$line])) {
+                        $reached[$line] = true;
+                        $new++;
+                    }
+                }
             }
 
-            // Without line numbers, a range is counted by its pages.
-            if ($first->line_number_start === null || $last->line_number_end === null) {
-                return ($last->page_number - $first->page_number + 1) * self::LINES_PER_PAGE;
-            }
+            return ['date' => $session['date'], 'new' => $new];
+        });
 
-            $start = ($first->page_number - 1) * self::LINES_PER_PAGE + $first->line_number_start;
-            $end = ($last->page_number - 1) * self::LINES_PER_PAGE + $last->line_number_end;
+        $request->attributes->set($key, $memorised);
 
-            return max(1, $end - $start + 1);
-        })->all();
+        return $memorised;
+    }
+
+    /**
+     * The lines of the mushaf a session's range spans, first and last, each
+     * by its place in the whole mushaf; null for a range with an unknown
+     * verse. Without line numbers a range covers its pages whole.
+     *
+     * @param  array{from: ?int, to: ?int}  $session
+     * @param  Collection<int, Ayah>  $ayahs
+     * @return array{0: int, 1: int}|null
+     */
+    private static function span(array $session, Collection $ayahs): ?array
+    {
+        $first = $ayahs->get(min($session['from'] ?? 0, $session['to'] ?? 0));
+        $last = $ayahs->get(max($session['from'] ?? 0, $session['to'] ?? 0));
+
+        if (! $first || ! $last) {
+            return null;
+        }
+
+        if ($first->line_number_start === null || $last->line_number_end === null) {
+            return [
+                ($first->page_number - 1) * self::LINES_PER_PAGE + 1,
+                $last->page_number * self::LINES_PER_PAGE,
+            ];
+        }
+
+        return [
+            ($first->page_number - 1) * self::LINES_PER_PAGE + $first->line_number_start,
+            ($last->page_number - 1) * self::LINES_PER_PAGE + $last->line_number_end,
+        ];
     }
 
     private static function today(): string

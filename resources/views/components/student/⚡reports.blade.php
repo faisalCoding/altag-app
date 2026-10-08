@@ -116,10 +116,10 @@ new class extends Component
         <section class="rounded-2xl border border-zinc-100 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5" aria-label="وتيرة الحفظ">
             <div class="flex items-baseline justify-between gap-2">
                 <div class="font-bold text-zinc-800 dark:text-zinc-100">وتيرة الحفظ</div>
-                <div class="text-xs text-zinc-400">أوجه في الأسبوع</div>
+                <div class="text-xs text-zinc-400">أوجه جديدة في الأسبوع</div>
             </div>
 
-            <div class="relative mt-4 flex h-28 items-end gap-1.5" role="img" aria-label="الأوجه المحفوظة في كل أسبوع">
+            <div class="relative mt-4 flex h-28 items-end gap-1.5" role="img" aria-label="الأوجه الجديدة المحفوظة في كل أسبوع">
                 @if ($pace['average'] > 0)
                     <div class="pointer-events-none absolute inset-x-0 border-t border-dashed border-zinc-400 dark:border-zinc-500" style="bottom: {{ round($pace['average'] / $paceTop * 100) }}%"></div>
                 @endif
@@ -154,7 +154,7 @@ new class extends Component
 
             @php
                 $metrics = [
-                    ['label' => 'حفظ', 'now' => $comparison['pages']['now'], 'before' => $comparison['pages']['before'], 'show' => $pages],
+                    ['label' => 'حفظ جديد', 'now' => $comparison['pages']['now'], 'before' => $comparison['pages']['before'], 'show' => $pages],
                     ['label' => 'تقدير ممتاز', 'now' => $comparison['excellent']['now'], 'before' => $comparison['excellent']['before'], 'show' => fn ($n) => $ar($n).'٪'],
                     ['label' => 'أيام حضور', 'now' => $comparison['attended']['now'], 'before' => $comparison['attended']['before'], 'show' => fn ($n) => $ar($n)],
                 ];

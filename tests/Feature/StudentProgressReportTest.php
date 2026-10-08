@@ -113,6 +113,31 @@ it('measures the pages memorised each week by the lines recited, and forecasts t
         ->and(StudentProgressReport::forecast(StudentProgressReport::mushaf($this->student), $pace))->toBe(['juz' => 2, 'weeks' => 2]);
 });
 
+it('counts a line once, the first time it is recited', function () {
+    reciteForReport($this->plan, $this->student);
+
+    // Before the twelve weeks: the first page was already reached in April.
+    FreeRecitation::create([
+        'student_id' => $this->student->id, 'type' => 'hifz', 'recited_on' => '2026-04-05',
+        'from_ayah_id' => 1, 'to_ayah_id' => 15, 'achievement' => 3, 'graded_at' => '2026-04-05 09:00:00',
+    ]);
+    // This week: the short portion recited whole — five new lines, 26 to 30 —
+    // and the free page again, which adds nothing.
+    $second = StudentPlanDay::where('student_plan_id', $this->plan->id)->whereDate('date', '2026-07-01')->first();
+    reportSession($second, 'hifz', '2026-07-07', 3, 16, 30);
+    FreeRecitation::create([
+        'student_id' => $this->student->id, 'type' => 'hifz', 'recited_on' => '2026-07-07',
+        'from_ayah_id' => 31, 'to_ayah_id' => 45, 'achievement' => 3, 'graded_at' => '2026-07-07 09:00:00',
+    ]);
+
+    $weeks = collect(StudentProgressReport::pace($this->student)['weeks'])->keyBy('start');
+
+    expect($weeks->has('2026-04-04'))->toBeFalse()
+        ->and($weeks['2026-06-27']['pages'])->toBe(0.7)                 // Ten new lines; the first page was old.
+        ->and($weeks['2026-07-04']['pages'])->toBe(1.3)                 // Fifteen new lines and five.
+        ->and(StudentProgressReport::comparison($this->student)['pages']['now'])->toBe(2.0);
+});
+
 it('reads the grades and the keeping to the plan over the chosen period', function () {
     reciteForReport($this->plan, $this->student);
     $month = StudentProgressReport::period($this->student, 'month');
