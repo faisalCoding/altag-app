@@ -25,8 +25,20 @@ class StudentAttendanceList extends Component
 
     public bool $isComplete = false;
 
+    /**
+     * Where «عودة» leads: the page this one was opened from — the yearly
+     * sheet or the attendance report — when it is one of the manager's own.
+     */
+    #[Locked]
+    public string $backUrl = '';
+
     public function mount($circleId, $date)
     {
+        $previous = url()->previous();
+        $this->backUrl = str_starts_with($previous, url('/manager/')) && $previous !== url()->current()
+            ? $previous
+            : route('manager.yearly-attendance');
+
         $this->circleId = $circleId;
         $this->date = $date;
         $this->circle = Circle::with('teachers')->findOrFail($circleId);

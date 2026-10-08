@@ -4,6 +4,7 @@ use App\Livewire\Manager\AttendanceReports;
 use App\Models\Circle;
 use App\Models\Manager;
 use App\Models\Stage;
+use App\Services\AttendanceReportGrid;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
 
@@ -113,9 +114,7 @@ it('spreads the printed header across the page instead of bunching it right', fu
     // page that piles the logo, the title and the dates against the right edge
     // with the rest of the line empty. Invisible without rendering the sheet.
     $html = view('pdf.attendance-report', [
-        'dates' => ['2026-09-24'],
-        'groupedCircles' => collect(),
-        'attendanceData' => [],
+        'grid' => AttendanceReportGrid::build('2026-09-24', '2026-09-24'),
         'fromDate' => '2026-09-24',
         'toDate' => '2026-09-24',
         'stageNames' => 'كل المراحل',
@@ -127,9 +126,7 @@ it('spreads the printed header across the page instead of bunching it right', fu
 it('sizes the printed logo with the attribute mPDF actually reads', function () {
     // A CSS height on the image is ignored, and the logo filled the page.
     $html = view('pdf.attendance-report', [
-        'dates' => ['2026-09-24'],
-        'groupedCircles' => collect(),
-        'attendanceData' => [],
+        'grid' => AttendanceReportGrid::build('2026-09-24', '2026-09-24'),
         'fromDate' => '2026-09-24',
         'toDate' => '2026-09-24',
         'stageNames' => 'كل المراحل',

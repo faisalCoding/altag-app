@@ -143,7 +143,9 @@ class Attendance extends Component
             ->with([
                 'circle',
                 'statusHistories' => function ($query) {
-                    $query->where('start_date', '<=', $this->date)->orderBy('start_date', 'desc')->orderByDesc('id');
+                    // whereDate, like joined_at above: a change made today
+                    // starts at midnight and must already count today.
+                    $query->whereDate('start_date', '<=', $this->date)->orderBy('start_date', 'desc')->orderByDesc('id');
                 },
             ])
             ->orderBy('name')

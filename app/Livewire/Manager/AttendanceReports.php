@@ -2,28 +2,28 @@
 
 namespace App\Livewire\Manager;
 
-use App\Models\Attendance;
-use App\Models\Circle;
 use App\Models\Stage;
+use App\Services\AttendanceReportGrid;
 use App\Support\HijriDate;
 use Carbon\Carbon;
-use Illuminate\Database\Eloquent\Collection;
-use Illuminate\Support\Facades\DB;
+use Flux\Flux;
 use Livewire\Component;
 use Mccarlosen\LaravelMpdf\Facades\LaravelMpdf;
 
+/**
+ * The academy's attendance, circle by circle and day by day, on screen and on
+ * a printed sheet alike: each day coloured by its rate, a working day nobody
+ * took the roll on set apart from a day the stage does not meet, and every
+ * day open to the names behind it. See AttendanceReportGrid.
+ */
 class AttendanceReports extends Component
 {
+    /** The most days the screen draws; the printed sheet takes any range. */
+    public const SCREEN_DAYS = 30;
+
     public $fromDate;
 
     public $toDate;
-
-    // PDF Print properties
-    public $printFrom;
-
-    public $printTo;
-
-    public $showPrintModal = false;
 
     /**
      * The stages the manager wants to see. Empty means all of them, so the
@@ -33,10 +33,17 @@ class AttendanceReports extends Component
      */
     public array $stageIds = [];
 
-    public function mount()
+    public function mount(): void
     {
-        $this->fromDate = Carbon::now()->subDays(6)->toDateString();
-        $this->toDate = Carbon::now()->toDateString();
+        $this->resetDates();
+    }
+
+    /** The last seven days, today included — today in Riyadh, not in UTC. */
+    private function resetDates(): void
+    {
+        $today = now('Asia/Riyadh');
+        $this->fromDate = $today->copy()->subDays(6)->toDateString();
+        $this->toDate = $today->toDateString();
     }
 
     public function clearStages(): void
@@ -44,12 +51,14 @@ class AttendanceReports extends Component
         $this->stageIds = [];
     }
 
+    public function clearFilters(): void
+    {
+        $this->resetDates();
+    }
+
     /**
      * The day of the month on its own — the month and the year are already
      * spelled out in the row above, which spans every day that shares them.
-     *
-     * All three of these used to return 'MMM yyyy', so the day row printed the
-     * month twice and the reader had nothing to count the days by.
      */
     public function formatHijriDayNum($gregorianDate): string
     {
@@ -68,31 +77,13 @@ class AttendanceReports extends Component
         return $this->hijri($gregorianDate, 'MMMM yyyy');
     }
 
-    /**
-     * The circles, stage by stage, in the order the academy arranged its stages.
-     *
-     * This used to order by stage_id, which is the order the stages happened to
-     * be created in — so arranging them on the stages page moved them
-     * everywhere except the one report that lists them all.
-     *
-     * The join is what makes it work: the stage model's own ordering never
-     * reaches a query that starts from circles.
-     *
-     * @return Collection<int, Circle>
-     */
-    private function circlesInAcademyOrder()
+    private function hijri($gregorianDate, string $pattern): string
     {
-        return Circle::with('stage')
-            ->withCount(['students' => fn ($q) => $q->where('status', 'active')])
-            ->leftJoin('stages', 'stages.id', '=', 'circles.stage_id')
-            ->when($this->stageIds !== [], fn ($q) => $q->whereIn('circles.stage_id', $this->stageIds))
-            ->select('circles.*')
-            // Circles with no stage at all sit at the end rather than the front,
-            // where a null position would otherwise put them.
-            ->orderByRaw('stages.position is null, stages.position')
-            ->orderBy('stages.name')
-            ->orderBy('circles.name')
-            ->get();
+        if (! $gregorianDate) {
+            return '';
+        }
+
+        return HijriDate::format(is_string($gregorianDate) ? strtotime($gregorianDate) : $gregorianDate, $pattern);
     }
 
     /**
@@ -107,70 +98,30 @@ class AttendanceReports extends Component
         return Stage::whereIn('id', $this->stageIds)->pluck('name')->implode(' · ');
     }
 
-    private function hijri($gregorianDate, string $pattern): string
+    /** What is wrong with the chosen range, if anything. */
+    private function rangeProblem(): ?string
     {
-        if (! $gregorianDate) {
-            return '';
+        if (! $this->fromDate || ! $this->toDate) {
+            return 'حدد نطاق التاريخ لعرض تقرير الحضور.';
         }
 
-        return HijriDate::format(is_string($gregorianDate) ? strtotime($gregorianDate) : $gregorianDate, $pattern);
-    }
+        if ($this->fromDate > $this->toDate) {
+            return 'تاريخ البداية بعد تاريخ النهاية؛ بدّل بينهما.';
+        }
 
-    public function clearFilters()
-    {
-        $this->fromDate = Carbon::now()->subDays(6)->toDateString();
-        $this->toDate = Carbon::now()->toDateString();
+        return null;
     }
 
     public function downloadPDF()
     {
-        if (! $this->fromDate || ! $this->toDate) {
-            return;
-        }
+        if ($problem = $this->rangeProblem()) {
+            Flux::toast($problem, variant: 'warning');
 
-        $dates = [];
-        $d = Carbon::parse($this->fromDate);
-        $end = Carbon::parse($this->toDate);
-        while ($d->lte($end)) {
-            $dates[] = $d->format('Y-m-d');
-            $d->addDay();
-        }
-
-        $circles = $this->circlesInAcademyOrder();
-        $groupedCircles = $circles->groupBy(fn ($c) => $c->stage->name ?? 'بدون مرحلة');
-
-        $records = Attendance::query()
-            ->join('users as students', 'attendances.student_id', '=', 'students.id')
-            ->where(function ($q) {
-                $q->whereNull('students.joined_at')
-                    ->orWhereColumn('students.joined_at', '<=', 'attendances.date');
-            })
-            ->whereRaw(Attendance::activeStatusOnDateSql())
-            ->whereDate('attendances.date', '>=', $this->fromDate)
-            ->whereDate('attendances.date', '<=', $this->toDate)
-            ->select(
-                'attendances.circle_id',
-                DB::raw('DATE(attendances.date) as day'),
-                DB::raw('COUNT(attendances.id) as total'),
-                DB::raw("SUM(CASE WHEN attendances.status IN ('present', 'late') THEN 1 ELSE 0 END) as present_count"),
-                DB::raw("SUM(CASE WHEN attendances.status = 'absent' THEN 1 ELSE 0 END) as absent_count")
-            )
-            ->groupBy('attendances.circle_id', DB::raw('DATE(attendances.date)'))
-            ->get();
-
-        $attendanceData = [];
-        foreach ($records as $row) {
-            $attendanceData[$row->circle_id][$row->day] = [
-                'total' => $row->total,
-                'present' => $row->present_count,
-                'absent' => $row->absent_count,
-            ];
+            return null;
         }
 
         $pdf = LaravelMpdf::loadView('pdf.attendance-report', [
-            'dates' => $dates,
-            'groupedCircles' => $groupedCircles,
-            'attendanceData' => $attendanceData,
+            'grid' => AttendanceReportGrid::build($this->fromDate, $this->toDate, $this->stageIds),
             'fromDate' => $this->fromDate,
             'toDate' => $this->toDate,
             'stageNames' => $this->chosenStageNames(),
@@ -191,57 +142,15 @@ class AttendanceReports extends Component
 
     public function render()
     {
-        // Build the list of dates in range
-        $dates = [];
-        if ($this->fromDate && $this->toDate) {
-            $d = Carbon::parse($this->fromDate);
-            $end = Carbon::parse($this->toDate);
-            while ($d->lte($end)) {
-                $dates[] = $d->format('Y-m-d');
-                $d->addDay();
-            }
-        }
-
-        // Fetch all circles grouped by stage (with student count, excluding
-        // students still under registration)
-        $circles = $this->circlesInAcademyOrder();
-        $groupedCircles = $circles->groupBy(fn ($c) => $c->stage->name ?? 'بدون مرحلة');
-
-        // Fetch aggregated attendance per circle per day
-        $attendanceData = [];
-        if ($this->fromDate && $this->toDate) {
-            $records = Attendance::query()
-                ->join('users as students', 'attendances.student_id', '=', 'students.id')
-                ->where(function ($q) {
-                    $q->whereNull('students.joined_at')
-                        ->orWhereColumn('students.joined_at', '<=', 'attendances.date');
-                })
-                ->whereRaw(Attendance::activeStatusOnDateSql())
-                ->whereDate('attendances.date', '>=', $this->fromDate)
-                ->whereDate('attendances.date', '<=', $this->toDate)
-                ->select(
-                    'attendances.circle_id',
-                    DB::raw('DATE(attendances.date) as day'),
-                    DB::raw('COUNT(attendances.id) as total'),
-                    DB::raw("SUM(CASE WHEN attendances.status IN ('present', 'late') THEN 1 ELSE 0 END) as present_count"),
-                    DB::raw("SUM(CASE WHEN attendances.status = 'absent' THEN 1 ELSE 0 END) as absent_count")
-                )
-                ->groupBy('attendances.circle_id', DB::raw('DATE(attendances.date)'))
-                ->get();
-
-            foreach ($records as $row) {
-                $attendanceData[$row->circle_id][$row->day] = [
-                    'total' => $row->total,
-                    'present' => $row->present_count,
-                    'absent' => $row->absent_count,
-                ];
-            }
-        }
+        $problem = $this->rangeProblem();
+        $days = $problem ? 0 : (int) Carbon::parse($this->fromDate)->diffInDays(Carbon::parse($this->toDate)) + 1;
 
         return view('livewire.manager.attendance-reports', [
-            'dates' => $dates,
-            'groupedCircles' => $groupedCircles,
-            'attendanceData' => $attendanceData,
+            'problem' => $problem,
+            'dayCount' => $days,
+            'grid' => ! $problem && $days <= self::SCREEN_DAYS
+                ? AttendanceReportGrid::build($this->fromDate, $this->toDate, $this->stageIds)
+                : null,
             'stages' => Stage::get(['id', 'name']),
         ]);
     }

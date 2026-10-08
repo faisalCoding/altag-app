@@ -2,7 +2,7 @@
     {{-- Header --}}
     <div class="flex items-center justify-between">
         <div class="flex items-center gap-3">
-            <flux:button variant="ghost" icon="chevron-right" href="{{ route('manager.yearly-attendance') }}"
+            <flux:button variant="ghost" icon="chevron-right" href="{{ $backUrl }}"
                 wire:navigate>عودة</flux:button>
             <div class="p-2 rounded-lg bg-zinc-50 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
                 <flux:icon icon="clipboard-document-check" />

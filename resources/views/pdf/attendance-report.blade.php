@@ -12,6 +12,19 @@
         ->map(fn ($pair) => str_pad(dechex((int) round(hexdec($pair) * 0.12 + 255 * 0.88)), 2, '0', STR_PAD_LEFT))
         ->implode('');
 
+    $dates = array_column($grid['dates'], 'date');
+    $summary = $grid['summary'];
+
+    // The screen's colour bands, as mPDF takes them: solid hex, no alpha.
+    $band = fn (?int $rate) => match (true) {
+        $rate === null => 'background-color: #f4f4f5; color: #71717a;',
+        $rate >= 90 => 'background-color: #bbf7d0; color: #14532d;',
+        $rate >= 75 => 'background-color: #ecfccb; color: #365314;',
+        $rate >= 60 => 'background-color: #fde68a; color: #451a03;',
+        default => 'background-color: #fecdd3; color: #4c0519;',
+    };
+    $percent = fn (?int $rate) => $rate === null ? '—' : $ar($rate).'٪';
+
     // Grouped here rather than in the table, so the header markup stays readable.
     $monthGroups = [];
     foreach ($dates as $d) {
@@ -75,6 +88,15 @@
         .of { color: #a1a1aa; }
         .none { color: #d4d4d8; }
 
+        .off { background-color: #f4f4f5; }
+        .missing { color: #e11d48; font-weight: bold; font-size: 7px; border: 1px dashed #fb7185; }
+        .pending { color: #a1a1aa; font-size: 7px; }
+        .unmarked { font-size: 6.5px; }
+
+        .summary { width: 100%; margin-bottom: 6px; }
+        .summary td { border: none; padding: 0 0 0 14px; font-size: 9px; color: #52525b; }
+        .summary b { font-size: 11px; color: #27272a; }
+
         .totalcol { background-color: #fafafa; width: 9%; }
         .totalcol .big { font-weight: bold; font-size: 11px; color: {{ $brandDark }}; }
         .totalcol .sub { font-size: 7px; color: #71717a; }
@@ -109,6 +131,15 @@
     </tr>
 </table>
 
+<table class="summary">
+    <tr>
+        <td>نسبة الحضور: <b>{{ $percent($summary['rate']) }}</b></td>
+        <td>أيام دوام بلا تحضير: <b>{{ $ar($summary['missing']) }}</b></td>
+        <td>طلاب لم يُسجَّلوا: <b>{{ $ar($summary['unmarked']) }}</b></td>
+        <td>أكثر حلقة غياباً: <b>{{ $summary['worst'] ? $summary['worst']['name'].' ('.$percent($summary['worst']['rate']).')' : '—' }}</b></td>
+    </tr>
+</table>
+
 <table class="grid">
     <thead>
         <tr>
@@ -116,7 +147,7 @@
             @foreach ($monthGroups as $group)
                 <th colspan="{{ $group['span'] }}" class="monthcell">{{ $group['label'] }}</th>
             @endforeach
-            <th rowspan="2" class="totalcol">الإجمالي</th>
+            <th rowspan="2" class="totalcol">النسبة</th>
         </tr>
         <tr>
             @foreach ($dates as $date)
@@ -130,53 +161,45 @@
     </thead>
 
     <tbody>
-        @php
-            $grandPresent = 0;
-            $grandParticipants = 0;
-            $perDay = array_fill_keys($dates, ['present' => 0, 'total' => 0]);
-        @endphp
-
-        @forelse ($groupedCircles as $stageName => $circles)
+        @forelse ($grid['groups'] as $group)
             <tr class="stagerow">
-                <td colspan="{{ count($dates) + 2 }}">{{ $stageName }}</td>
+                <td colspan="{{ count($dates) + 2 }}">{{ $group['stage'] }}</td>
             </tr>
 
-            @foreach ($circles as $circle)
-                @php
-                    $present = 0;
-                    $participants = 0;
-                    $daysWithData = 0;
-                @endphp
+            @foreach ($group['circles'] as $row)
                 <tr>
-                    <td class="namecol">{{ $circle->name }}</td>
+                    <td class="namecol">{{ $row['circle']->name }}</td>
 
                     @foreach ($dates as $date)
                         @php
-                            $cell = $attendanceData[$circle->id][$date] ?? null;
-                            if ($cell) {
-                                $present += $cell['present'];
-                                $participants += $cell['total'];
-                                $perDay[$date]['present'] += $cell['present'];
-                                $perDay[$date]['total'] += $cell['total'];
-                                $daysWithData++;
-                            }
+                            $cell = $row['cells'][$date];
                         @endphp
-                        <td>
-                            @if ($cell)
-                                <span class="present">{{ $ar($cell['present']) }}</span><span class="of">/{{ $ar($cell['total']) }}</span>
-                            @else
-                                <span class="none">—</span>
-                            @endif
-                        </td>
+                        @switch ($cell['state'])
+                            @case('data')
+                                <td style="{{ $band($cell['rate']) }}">
+                                    <span class="present">{{ $ar($cell['present']) }}</span>/{{ $ar($cell['expected'] - $cell['excused']) }}
+                                    @if ($cell['unmarked'] > 0)
+                                        <br><span class="unmarked">{{ $ar($cell['unmarked']) }} لم يُسجَّل</span>
+                                    @endif
+                                </td>
+                                @break
+                            @case('missing')
+                                <td class="missing">لم يُحضَّر</td>
+                                @break
+                            @case('pending')
+                                <td class="pending">لم يُحضَّر بعد</td>
+                                @break
+                            @case('off')
+                                <td class="off"></td>
+                                @break
+                            @default
+                                <td><span class="none">—</span></td>
+                        @endswitch
                     @endforeach
 
-                    @php
-                        $grandPresent += $present;
-                        $grandParticipants += $participants;
-                    @endphp
                     <td class="totalcol">
-                        <span class="big">{{ $ar($present) }}</span><span class="of">/{{ $ar($participants) }}</span><br>
-                        <span class="sub">متوسط {{ $ar($daysWithData > 0 ? round($participants / $daysWithData) : 0) }}</span>
+                        <span class="big">{{ $percent($row['totals']['rate']) }}</span><br>
+                        <span class="sub">غياب {{ $ar($row['totals']['absent']) }} · تأخر {{ $ar($row['totals']['late']) }}@if ($row['totals']['missing'] > 0) · {{ $ar($row['totals']['missing']) }} بلا تحضير@endif</span>
                     </td>
                 </tr>
             @endforeach
@@ -189,28 +212,20 @@
         @endforelse
     </tbody>
 
-    @if (count($groupedCircles) > 0)
+    @if (count($grid['groups']) > 0)
         <tfoot>
             <tr>
-                <td class="namecol">الإجمالي الكلي</td>
+                <td class="namecol">المجمع</td>
                 @foreach ($dates as $date)
-                    <td>
-                        @if ($perDay[$date]['total'] > 0)
-                            <span class="present">{{ $ar($perDay[$date]['present']) }}</span><span class="of">/{{ $ar($perDay[$date]['total']) }}</span>
-                        @else
-                            <span class="none">—</span>
-                        @endif
-                    </td>
+                    <td>{{ $percent($grid['days'][$date]['rate']) }}</td>
                 @endforeach
-                <td class="totalcol">
-                    <span class="big">{{ $ar($grandPresent) }}</span><span class="of">/{{ $ar($grandParticipants) }}</span>
-                </td>
+                <td class="totalcol"><span class="big">{{ $percent($summary['rate']) }}</span></td>
             </tr>
         </tfoot>
     @endif
 </table>
 
-<p class="foot">طُبع في {{ HijriDate::full(now('Asia/Riyadh')) }} · الرقم الأول حضور والثاني عدد المشاركين</p>
+<p class="foot">طُبع في {{ HijriDate::full(now('Asia/Riyadh')) }} · الخلية: الحاضرون (والمتأخرون) من الطلاب المشاركين، والمستأذن خارجها · الرمادي ليس يوم دوام</p>
 
 </body>
 
