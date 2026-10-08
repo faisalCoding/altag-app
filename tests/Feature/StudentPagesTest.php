@@ -48,7 +48,8 @@ it('renders the reports page with real aggregate stats', function () {
     $this->get(route('student.reports'))
         ->assertSuccessful()
         ->assertSee('التقارير')
-        ->assertSee('آيات محفوظة');
+        ->assertSee('محفوظك من المصحف')
+        ->assertSee('data-mushaf-map', false);
 });
 
 it('links the pages a student keeps from the sidebar, and none of the removed ones', function () {

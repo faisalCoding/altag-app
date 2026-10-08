@@ -41,6 +41,21 @@ class ArabicCount
     /** Awards, accusative: «استلمت جائزتين». */
     public const AWARDS_ACC = ['جائزة واحدة', 'جائزتين', 'جوائز', 'جائزة', 'جائزة'];
 
+    /** Absences, nominative: «يتبقى غيابان». */
+    public const ABSENCES = ['غياب واحد', 'غيابان', 'غيابات', 'غياباً', 'غياب'];
+
+    /** Late arrivals, nominative: «يتبقى تأخران». */
+    public const LATENESSES = ['تأخر واحد', 'تأخران', 'تأخرات', 'تأخراً', 'تأخر'];
+
+    /** Mushaf pages, nominative: «حفظت وجهان». */
+    public const PAGES = ['وجه واحد', 'وجهان', 'أوجه', 'وجهاً', 'وجه'];
+
+    /** Weeks, genitive: «بعد نحو أسبوعين». */
+    public const WEEKS_GEN = ['أسبوع واحد', 'أسبوعين', 'أسابيع', 'أسبوعاً', 'أسبوع'];
+
+    /** Sessions, genitive: «من جلستين». */
+    public const SESSIONS_GEN = ['جلسة واحدة', 'جلستين', 'جلسات', 'جلسة', 'جلسة'];
+
     /**
      * The count said with its noun: one and two by the noun alone, any other
      * number in Western digits before the form its last two digits call for.

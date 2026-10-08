@@ -8,6 +8,6 @@
     </x-slot:sidebar>
 
     <div class="md:p-8">
-        <livewire:student.attendance />
+        <livewire:shared.discipline-record role="student" />
     </div>
 </x-layouts.role-shell>
