@@ -4,6 +4,7 @@ namespace App\Livewire\Shared;
 
 use App\Models\Setting;
 use App\Models\Student;
+use App\Support\DisciplineWindow;
 use Livewire\Component;
 
 class ExceededLimits extends Component
@@ -12,19 +13,18 @@ class ExceededLimits extends Component
     {
         $absenceLimit = (int) Setting::getVal('absence_limit', 3);
         $latenessLimit = (int) Setting::getVal('lateness_limit', 5);
-        $days = (int) Setting::getVal('calculation_period_days', 30);
-
-        $cutoffDate = now()->subDays($days)->format('Y-m-d');
+        $days = DisciplineWindow::days();
+        $window = DisciplineWindow::for();
 
         $query = Student::query()
             ->with(['circle.stage', 'guardian'])
             ->whereRoleState(fn ($q) => $q->where('is_approved', true))
             ->withCount([
-                'attendances as recent_absences_count' => function ($query) use ($cutoffDate) {
-                    $query->where('status', 'absent')->where('date', '>=', $cutoffDate);
+                'attendances as recent_absences_count' => function ($query) use ($window) {
+                    $query->where('status', 'absent')->whereDate('date', '>=', $window['from'])->whereDate('date', '<=', $window['to']);
                 },
-                'attendances as recent_lateness_count' => function ($query) use ($cutoffDate) {
-                    $query->where('status', 'late')->where('date', '>=', $cutoffDate);
+                'attendances as recent_lateness_count' => function ($query) use ($window) {
+                    $query->where('status', 'late')->whereDate('date', '>=', $window['from'])->whereDate('date', '<=', $window['to']);
                 },
             ]);
 

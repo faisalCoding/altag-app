@@ -126,6 +126,22 @@
 
                 <flux:input type="number" label="فترة الحساب (بالأيام)" wire:model="calculationPeriodDays" min="1"
                     description="يحدد الإطار الزمني الذي يتم حساب الغياب والتأخير خلاله (مثلاً: آخر 30 يوماً)." />
+
+                {{-- A clean slate for a new term: nothing before this day counts,
+                     even inside the period above. --}}
+                <div data-count-from>
+                    <livewire:shared.hijri-datepicker wire:model.live="countFrom" label="بداية الحساب (اختياري)"
+                        placeholder="بلا تاريخ: تُحسب الفترة كاملة" :key="'discipline-count-from'" />
+                    <div class="mt-1.5 flex flex-wrap items-center justify-between gap-2">
+                        <p class="text-sm text-zinc-500 dark:text-zinc-400">
+                            لا يُحسب غياب ولا تأخر قبل هذا التاريخ ولو وقع داخل فترة الحساب، كبداية فصل جديد. اتركه فارغاً لتُحسب الفترة كاملة.
+                        </p>
+                        @if ($countFrom !== '')
+                            <flux:button size="xs" variant="ghost" wire:click="$set('countFrom', '')">إزالة التاريخ</flux:button>
+                        @endif
+                    </div>
+                    @error('countFrom') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                </div>
             </div>
 
             <div class="pt-4 border-t border-zinc-100 dark:border-zinc-800 flex justify-end">

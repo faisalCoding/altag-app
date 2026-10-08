@@ -7,8 +7,8 @@ use App\Models\AcademicCalendarEvent;
 use App\Models\Attendance;
 use App\Models\GuardianNotification;
 use App\Models\Leaderboard;
-use App\Models\Setting;
 use App\Models\Student;
+use App\Support\DisciplineWindow;
 use App\Support\HijriDate;
 use Carbon\Carbon;
 
@@ -127,7 +127,10 @@ class GuardianNotificationService
 
         $periodStart = $period
             ? $period->start_date->format('Y-m-d')
-            : Carbon::parse($date)->subDays((int) Setting::getVal('calculation_period_days', 30))->format('Y-m-d');
+            : DisciplineWindow::for($date)['from'];
+
+        // Nothing before the day the manager set counting to start from.
+        $periodStart = max($periodStart, DisciplineWindow::countsFrom() ?? $periodStart);
 
         $count = Attendance::where('student_id', $student->id)
             ->where('status', $status === 'late' ? 'late' : 'absent')

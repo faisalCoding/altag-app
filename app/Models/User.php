@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Concerns\HasProfile;
+use App\Support\DisciplineWindow;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -347,23 +348,26 @@ class User extends Authenticatable
 
     public function getAbsencesInPeriodCount($date = null): int
     {
-        $date = $date ? Carbon::parse($date) : now();
-        $days = (int) Setting::getVal('calculation_period_days', 30);
-
-        return $this->attendances()
-            ->where('status', 'absent')
-            ->whereBetween('date', [$date->copy()->subDays($days), $date])
-            ->count();
+        return $this->countInDisciplineWindow('absent', $date);
     }
 
     public function getLatenessInPeriodCount($date = null): int
     {
-        $date = $date ? Carbon::parse($date) : now();
-        $days = (int) Setting::getVal('calculation_period_days', 30);
+        return $this->countInDisciplineWindow('late', $date);
+    }
+
+    /**
+     * Records of one status in the window the limits are counted over, up to
+     * the given day (today by default).
+     */
+    private function countInDisciplineWindow(string $status, $date): int
+    {
+        $window = DisciplineWindow::for($date);
 
         return $this->attendances()
-            ->where('status', 'late')
-            ->whereBetween('date', [$date->copy()->subDays($days), $date])
+            ->where('status', $status)
+            ->whereDate('date', '>=', $window['from'])
+            ->whereDate('date', '<=', $window['to'])
             ->count();
     }
 

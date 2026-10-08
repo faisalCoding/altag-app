@@ -4,6 +4,7 @@ namespace App\Livewire\Manager;
 
 use App\Models\Setting;
 use App\Support\Branding;
+use App\Support\DisciplineWindow;
 use App\Support\SqliteSnapshot;
 use App\Support\TeacherAttendanceSettings;
 use Flux\Flux;
@@ -23,6 +24,9 @@ class Settings extends Component
     public $latenessLimit;
 
     public $calculationPeriodDays;
+
+    /** The day absences and late arrivals start to count from; empty for the whole window. */
+    public string $countFrom = '';
 
     /** How many days back a supervisor may still change the teachers' roll call; 0 leaves every day open. */
     public int $teacherLockDays = 7;
@@ -44,6 +48,7 @@ class Settings extends Component
         $this->absenceLimit = Setting::getVal('absence_limit', 3);
         $this->latenessLimit = Setting::getVal('lateness_limit', 5);
         $this->calculationPeriodDays = Setting::getVal('calculation_period_days', 30);
+        $this->countFrom = DisciplineWindow::countsFrom() ?? '';
         $this->teacherLockDays = TeacherAttendanceSettings::lockDays();
         $this->teacherWhatsapp = TeacherAttendanceSettings::notifiesTeachers();
         $this->primaryColor = Branding::color();
@@ -126,11 +131,13 @@ class Settings extends Component
             'absenceLimit' => 'required|integer|min:1',
             'latenessLimit' => 'required|integer|min:1',
             'calculationPeriodDays' => 'required|integer|min:1',
+            'countFrom' => 'nullable|date_format:Y-m-d',
         ]);
 
         Setting::setVal('absence_limit', $this->absenceLimit);
         Setting::setVal('lateness_limit', $this->latenessLimit);
         Setting::setVal('calculation_period_days', $this->calculationPeriodDays);
+        Setting::setVal(DisciplineWindow::START_SETTING, $this->countFrom);
 
         Flux::toast('تم حفظ الإعدادات بنجاح', variant: 'success');
     }

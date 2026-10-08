@@ -29,17 +29,21 @@ final class StudentDisciplineRecord
      * same rolling window; `frees_on` is the day the oldest of them leaves the
      * window, which is when the count next goes down.
      *
-     * @return array{window: int, absence: array{used: int, limit: int, frees_on: ?string}, lateness: array{used: int, limit: int, frees_on: ?string}, state: string}
+     * `counts_from` is the day the manager set counting to start from, while
+     * it still cuts the window short.
+     *
+     * @return array{window: int, counts_from: ?string, absence: array{used: int, limit: int, frees_on: ?string}, lateness: array{used: int, limit: int, frees_on: ?string}, state: string}
      */
     public static function limits(Student $student): array
     {
-        $window = (int) Setting::getVal('calculation_period_days', 30);
-        $now = now();
+        $window = DisciplineWindow::days();
+        $span = DisciplineWindow::for();
 
-        $standing = function (string $status, string $setting, int $default) use ($student, $window, $now): array {
+        $standing = function (string $status, string $setting, int $default) use ($student, $window, $span): array {
             $dates = $student->attendances()
                 ->where('status', $status)
-                ->whereBetween('date', [$now->copy()->subDays($window), $now])
+                ->whereDate('date', '>=', $span['from'])
+                ->whereDate('date', '<=', $span['to'])
                 ->orderBy('date')
                 ->pluck('date');
 
@@ -57,6 +61,7 @@ final class StudentDisciplineRecord
 
         return [
             'window' => $window,
+            'counts_from' => $span['from'] === DisciplineWindow::countsFrom() ? $span['from'] : null,
             'absence' => $absence,
             'lateness' => $lateness,
             'state' => match (true) {

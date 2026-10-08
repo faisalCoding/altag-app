@@ -142,15 +142,12 @@ new class extends Component {
         }
 
         // Discipline Stats
-        $calcPeriod = (int) \App\Models\Setting::getVal('calculation_period_days', 30);
         $absenceLimit = (int) \App\Models\Setting::getVal('absence_limit', 3);
         $latenessLimit = (int) \App\Models\Setting::getVal('lateness_limit', 5);
 
-        $periodStart = Carbon::now()->subDays($calcPeriod)->format('Y-m-d');
-
-        $absences = \App\Models\Attendance::where('student_id', $student->id)->where('date', '>=', $periodStart)->where('status', 'absent')->count();
-
-        $lateness = \App\Models\Attendance::where('student_id', $student->id)->where('date', '>=', $periodStart)->where('status', 'late')->count();
+        // Counted as the roll call counts them; see DisciplineWindow.
+        $absences = $student->getAbsencesInPeriodCount();
+        $lateness = $student->getLatenessInPeriodCount();
 
         // The competition was resolved at the top; a themed one has returned already.
         $leaderboardStandings = [];
@@ -368,7 +365,6 @@ new class extends Component {
             'excellent' => $excellent,
             'good' => $good,
             'acceptable' => $acceptable,
-            'calcPeriod' => $calcPeriod,
             'absenceLimit' => $absenceLimit,
             'latenessLimit' => $latenessLimit,
             'absences' => $absences,

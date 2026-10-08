@@ -171,7 +171,7 @@ new class extends Component
             @endforeach
 
             <p class="border-t border-zinc-100 dark:border-zinc-800 pt-3 text-xs text-zinc-400">
-                يُحسب الغياب والتأخر في آخر {{ $window }}، وما قبلها لا يُعد.
+                يُحسب الغياب والتأخر في آخر {{ $window }}@if ($limits['counts_from'])، بدءاً من {{ HijriDate::full($limits['counts_from']) }}@endif، وما قبلها لا يُعد.
             </p>
         </section>
 
