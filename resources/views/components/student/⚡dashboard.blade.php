@@ -426,6 +426,15 @@ new class extends Component {
 <div>
     <x-shared.pending-surveys />
 
+    {{-- What is due and what was done: atop the plain dashboard; the
+         competition dashboard places it under the student's own card. --}}
+    @unless($activeGamification)
+        <div class="mb-6">
+            {{-- Keyed by name: a card appearing above it must not remount it. --}}
+            <livewire:student.wird-card :key="'wird-card'" />
+        </div>
+    @endunless
+
     {{-- The whole "everyday" dashboard is hidden while a competition is
     active — the page should show only the competition widget, not both. --}}
     @unless($leaderboard)

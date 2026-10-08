@@ -63,7 +63,7 @@ new class extends Component
     ];
 @endphp
 
-<div class="space-y-3 mb-6" dir="rtl" data-wird-card>
+<div class="space-y-3" dir="rtl" data-wird-card>
     <div class="rounded-2xl border border-emerald-100 dark:border-emerald-900/40 bg-white dark:bg-zinc-900 shadow-xs overflow-hidden">
 
         {{-- ─────────── ما عليك ─────────── --}}

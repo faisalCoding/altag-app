@@ -130,3 +130,9 @@ it('says so when the plan is done and nothing was ever graded elsewhere', functi
 
     Livewire::test('student.wird-card')->assertSee('لا واجب عليك الآن.');
 });
+
+it('shows the card once, at the top of the plain dashboard', function () {
+    $html = $this->get(route('student.dashboard'))->assertSuccessful()->getContent();
+
+    expect(substr_count($html, 'data-wird-card'))->toBe(1);
+});

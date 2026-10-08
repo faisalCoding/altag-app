@@ -2033,6 +2033,12 @@ new class extends Component {
         </div>       
     </div>
 
+    <!-- What is due and what was done, under the student's own card -->
+    <div class="relative z-10">
+        {{-- Keyed by name: a card appearing above it must not remount it. --}}
+        <livewire:student.wird-card :key="'wird-card'" />
+    </div>
+
     <!-- Streak Milestones (Enthusiasm) Card -->
     <div class="relative z-10 {{ $style['card'] }}">
         <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -3929,7 +3935,8 @@ new class extends Component {
 
             <flux:field>
                 <flux:label>تاريخ التفعيل (التاريخ الهجري)</flux:label>
-                <livewire:shared.hijri-datepicker wire:model="doublePointsDate" :show-attendance-days="true" label="" />
+                {{-- Keyed by name: keyed by place, it mounted again whenever a card above it came or went. --}}
+                <livewire:shared.hijri-datepicker wire:model="doublePointsDate" :show-attendance-days="true" label="" :key="'double-points-date'" />
             </flux:field>
 
             <div class="bg-slate-50 p-4 rounded-xl border border-slate-100 flex items-center justify-between">

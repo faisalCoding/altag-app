@@ -13,8 +13,6 @@
 
     <div class="md:p-8">
         <livewire:student.guardian-notice />
-        {{-- Above both the plain and the competition dashboard: what is due, and what was done. --}}
-        <livewire:student.wird-card />
         <livewire:student.dashboard />
     </div>
 </x-layouts.role-shell>

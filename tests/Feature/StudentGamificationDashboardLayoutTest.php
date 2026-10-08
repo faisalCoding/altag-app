@@ -821,3 +821,15 @@ it('fills the open tab’s icon on the bottom bar and the wide-screen strip', fu
         }
     }
 });
+
+it('places what is due under the student\'s own card and above the enthusiasm card, once', function () {
+    $html = $this->get(route('student.dashboard'))->assertSuccessful()->getContent();
+
+    $profile = strpos($html, '<!-- Student Profile & Level Card -->');
+    $card = strpos($html, 'data-wird-card');
+    $enthusiasm = strpos($html, 'أيام الحماسة المتتالية');
+
+    expect(substr_count($html, 'data-wird-card'))->toBe(1)
+        ->and($profile)->toBeLessThan($card)
+        ->and($card)->toBeLessThan($enthusiasm);
+});
