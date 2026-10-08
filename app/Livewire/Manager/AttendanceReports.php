@@ -95,7 +95,7 @@ class AttendanceReports extends Component
             return 'كل المراحل';
         }
 
-        return Stage::whereIn('id', $this->stageIds)->pluck('name')->implode(' · ');
+        return Stage::whereIn('id', $this->stageIds)->pluck('name')->implode('، ');
     }
 
     /** What is wrong with the chosen range, if anything. */
@@ -145,12 +145,29 @@ class AttendanceReports extends Component
         $problem = $this->rangeProblem();
         $days = $problem ? 0 : (int) Carbon::parse($this->fromDate)->diffInDays(Carbon::parse($this->toDate)) + 1;
 
+        // Every stage is read at once, for the range: picking stages then
+        // only shows and hides rows in the browser, with no request at all.
+        $grid = ! $problem && $days <= self::SCREEN_DAYS
+            ? AttendanceReportGrid::build($this->fromDate, $this->toDate)
+            : null;
+
         return view('livewire.manager.attendance-reports', [
             'problem' => $problem,
             'dayCount' => $days,
-            'grid' => ! $problem && $days <= self::SCREEN_DAYS
-                ? AttendanceReportGrid::build($this->fromDate, $this->toDate, $this->stageIds)
-                : null,
+            'grid' => $grid,
+            // What the page shows first, for the stages already picked; the
+            // browser works the same out from `circleTotals` as picks change.
+            'selection' => $grid ? AttendanceReportGrid::select($grid, $this->stageIds) : null,
+            'circleTotals' => $grid ? collect($grid['groups'])->flatMap(fn (array $group) => $group['circles'])
+                ->map(fn (array $row) => [
+                    'stage' => $row['stage_id'],
+                    'name' => $row['circle']->name,
+                    'present' => $row['totals']['present'],
+                    'counted' => $row['totals']['counted'],
+                    'missing' => $row['totals']['missing'],
+                    'unmarked' => $row['totals']['unmarked'],
+                    'rate' => $row['totals']['rate'],
+                ])->values()->all() : [],
             'stages' => Stage::get(['id', 'name']),
         ]);
     }

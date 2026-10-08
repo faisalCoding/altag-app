@@ -155,7 +155,7 @@
     </table>
 @endif
 
-<p class="foot">طُبع في {{ HijriDate::full(now('Asia/Riyadh')) }} · نسبة الحضور = الحاضر والمتأخر من الأيام المسجّلة دون أيام الاستئذان</p>
+<p class="foot">طُبع في {{ HijriDate::full(now('Asia/Riyadh')) }} — نسبة الحضور = الحاضر والمتأخر من الأيام المسجّلة دون أيام الاستئذان</p>
 
 </body>
 

@@ -51,6 +51,49 @@
         </div>
     </div>
 
+    @php
+        $picked = array_map('intval', $stageIds);
+        $isShown = fn (int $stageKey) => $picked === [] || in_array($stageKey, $picked, true);
+        $chipOn = 'border-maroon bg-maroon/10 text-maroon dark:text-red-secondary font-bold';
+        $chipOff = 'border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-white dark:hover:bg-zinc-800';
+    @endphp
+
+    {{-- Every stage of the range is on the page already: picking stages only
+         shows and hides rows, and the totals are worked out here, so a pick
+         sends no request. The picks reach the server with the next request
+         (a print or a new range), deferred. The key follows the range, so a
+         new range brings new figures rather than keeping the old ones. --}}
+    <div wire:key="report-{{ $fromDate }}-{{ $toDate }}"
+        x-data="{
+            stages: $wire.entangle('stageIds'),
+            circles: @js($circleTotals),
+            days: @js($grid['days_by_stage'] ?? []),
+            shown(stage) { return this.stages.length === 0 || this.stages.map(String).includes(String(stage)) },
+            ar(n) { return String(n).replace(/[0-9]/g, (d) => '٠١٢٣٤٥٦٧٨٩'[d]) },
+            rate(present, counted) { return counted > 0 ? Math.round(present / counted * 100) : null },
+            pct(rate) { return rate === null ? '—' : this.ar(rate) + '٪' },
+            tone(rate) {
+                if (rate === null) return 'text-zinc-400'
+                if (rate >= 90) return 'text-emerald-700 dark:text-emerald-400'
+                if (rate >= 75) return 'text-lime-700 dark:text-lime-400'
+                if (rate >= 60) return 'text-amber-700 dark:text-amber-400'
+                return 'text-rose-700 dark:text-rose-400'
+            },
+            get summary() {
+                const rows = this.circles.filter((c) => this.shown(c.stage))
+                const sum = (key) => rows.reduce((total, c) => total + c[key], 0)
+                const worst = rows.filter((c) => c.rate !== null && c.rate < 100 && c.counted >= 5).sort((a, b) => a.rate - b.rate)[0] ?? null
+                return { rate: this.rate(sum('present'), sum('counted')), missing: sum('missing'), missingCircles: rows.filter((c) => c.missing > 0).length, unmarked: sum('unmarked'), worst }
+            },
+            day(date) {
+                let present = 0, counted = 0, missing = 0
+                for (const [stage, dates] of Object.entries(this.days)) {
+                    if (this.shown(stage)) { present += dates[date].present; counted += dates[date].counted; missing += dates[date].missing }
+                }
+                return { rate: this.rate(present, counted), missing }
+            },
+        }">
+
     {{-- ─────────── تصفية المراحل ─────────── --}}
     {{-- Nothing ticked means the whole academy, so the report opens complete
          and narrows only when the manager asks it to. --}}
@@ -59,21 +102,17 @@
             <span class="text-xs font-medium text-zinc-500 me-1">المراحل:</span>
 
             @foreach ($stages as $stage)
-                <label wire:key="stage-filter-{{ $stage->id }}"
-                    class="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs transition-colors
-                        {{ in_array((string) $stage->id, array_map('strval', $stageIds), true)
-                            ? 'border-maroon bg-maroon/10 text-maroon dark:text-red-secondary font-bold'
-                            : 'border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-white dark:hover:bg-zinc-800' }}">
-                    <input type="checkbox" wire:model.live="stageIds" value="{{ $stage->id }}" class="sr-only">
+                <label wire:key="stage-filter-{{ $stage->id }}" data-stage-chip="{{ $stage->id }}"
+                    class="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs transition-colors {{ in_array($stage->id, $picked, true) ? $chipOn : $chipOff }}"
+                    x-bind:class="stages.map(String).includes('{{ $stage->id }}') ? '{{ $chipOn }}' : '{{ $chipOff }}'">
+                    <input type="checkbox" x-model="stages" value="{{ $stage->id }}" class="sr-only">
                     {{ $stage->name }}
                 </label>
             @endforeach
 
-            @if (count($stageIds) > 0)
-                <flux:button size="xs" variant="ghost" wire:click="clearStages">كل المراحل</flux:button>
-            @else
-                <span class="text-xs text-zinc-400">— الكل</span>
-            @endif
+            <button type="button" class="rounded-lg px-2 py-1 text-xs font-medium text-zinc-600 hover:bg-white dark:text-zinc-300 dark:hover:bg-zinc-800"
+                x-show="stages.length > 0" x-on:click="stages = []" @if ($picked === []) style="display: none" @endif>كل المراحل</button>
+            <span class="text-xs text-zinc-400" x-show="stages.length === 0" @if ($picked !== []) style="display: none" @endif>— الكل</span>
         </div>
     </div>
 
@@ -91,7 +130,7 @@
             </div>
         @else
             @php
-                $summary = $grid['summary'];
+                $summary = $selection['summary'];
                 $dates = $grid['dates'];
             @endphp
 
@@ -99,28 +138,28 @@
             <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4" data-report-summary>
                 <div class="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4">
                     <div class="text-xs text-zinc-500">نسبة الحضور</div>
-                    <div class="mt-1 text-2xl font-black {{ $rateText($summary['rate']) }}">{{ $summary['rate'] === null ? '—' : $ar($summary['rate']).'٪' }}</div>
+                    <div class="mt-1 text-2xl font-black {{ $rateText($summary['rate']) }}" x-bind:class="tone(summary.rate)" x-text="pct(summary.rate)">{{ $summary['rate'] === null ? '—' : $ar($summary['rate']).'٪' }}</div>
                 </div>
                 <div class="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4" data-summary-missing="{{ $summary['missing'] }}">
                     <div class="text-xs text-zinc-500">أيام دوام بلا تحضير</div>
-                    <div class="mt-1 text-2xl font-black {{ $summary['missing'] > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-zinc-800 dark:text-zinc-100' }}">{{ $ar($summary['missing']) }}</div>
-                    @if ($summary['missing'] > 0)
-                        <div class="text-xs text-zinc-400">في {{ $ar($summary['missing_circles']) }} {{ $summary['missing_circles'] === 1 ? 'حلقة' : 'حلقات' }}</div>
-                    @endif
+                    <div class="mt-1 text-2xl font-black {{ $summary['missing'] > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-zinc-800 dark:text-zinc-100' }}"
+                        x-bind:class="summary.missing > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-zinc-800 dark:text-zinc-100'" x-text="ar(summary.missing)">{{ $ar($summary['missing']) }}</div>
+                    <div class="text-xs text-zinc-400" x-show="summary.missing > 0" @if ($summary['missing'] === 0) style="display: none" @endif>
+                        في <span x-text="ar(summary.missingCircles)">{{ $ar($summary['missing_circles']) }}</span> <span x-text="summary.missingCircles === 1 ? 'حلقة' : 'حلقات'">{{ $summary['missing_circles'] === 1 ? 'حلقة' : 'حلقات' }}</span>
+                    </div>
                 </div>
                 <div class="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4" data-summary-unmarked="{{ $summary['unmarked'] }}">
                     <div class="text-xs text-zinc-500">طلاب لم يُسجَّلوا</div>
-                    <div class="mt-1 text-2xl font-black {{ $summary['unmarked'] > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-zinc-800 dark:text-zinc-100' }}">{{ $ar($summary['unmarked']) }}</div>
+                    <div class="mt-1 text-2xl font-black {{ $summary['unmarked'] > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-zinc-800 dark:text-zinc-100' }}"
+                        x-bind:class="summary.unmarked > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-zinc-800 dark:text-zinc-100'" x-text="ar(summary.unmarked)">{{ $ar($summary['unmarked']) }}</div>
                     <div class="text-xs text-zinc-400">في أيام حُضّرت فيها حلقاتهم</div>
                 </div>
                 <div class="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4">
                     <div class="text-xs text-zinc-500">أكثر حلقة غياباً</div>
-                    @if ($summary['worst'])
-                        <div class="mt-1 font-bold text-zinc-800 dark:text-zinc-100 truncate">{{ $summary['worst']['name'] }}</div>
-                        <div class="text-xs {{ $rateText($summary['worst']['rate']) }}">نسبة الحضور {{ $ar($summary['worst']['rate']) }}٪</div>
-                    @else
-                        <div class="mt-1 text-zinc-400">—</div>
-                    @endif
+                    <div class="mt-1 font-bold text-zinc-800 dark:text-zinc-100 truncate" x-text="summary.worst ? summary.worst.name : '—'">{{ $summary['worst']['name'] ?? '—' }}</div>
+                    <div class="text-xs {{ $rateText($summary['worst']['rate'] ?? null) }}" x-bind:class="tone(summary.worst ? summary.worst.rate : null)" x-show="summary.worst" @if (! $summary['worst']) style="display: none" @endif>
+                        نسبة الحضور <span x-text="summary.worst ? pct(summary.worst.rate) : ''">{{ $summary['worst'] ? $ar($summary['worst']['rate']).'٪' : '' }}</span>
+                    </div>
                 </div>
             </div>
 
@@ -164,7 +203,8 @@
                     </thead>
                     <tbody>
                         @forelse ($grid['groups'] as $group)
-                            <tr wire:key="stage-{{ $loop->index }}">
+                            <tr wire:key="stage-{{ $group['stage_id'] }}" data-stage-row="{{ $group['stage_id'] }}"
+                                x-show="shown({{ $group['stage_id'] }})" @unless ($isShown($group['stage_id'])) style="display: none" @endunless>
                                 <td colspan="{{ count($dates) + 2 }}"
                                     class="sticky right-0 bg-zinc-200 dark:bg-zinc-700 px-4 py-1.5 font-bold text-zinc-800 dark:text-zinc-100 text-sm">
                                     {{ $group['stage'] }}
@@ -175,7 +215,8 @@
                                     $circle = $row['circle'];
                                     $totals = $row['totals'];
                                 @endphp
-                                <tr wire:key="circle-{{ $circle->id }}">
+                                <tr wire:key="circle-{{ $circle->id }}" data-circle-row="{{ $circle->id }}"
+                                    x-show="shown({{ $group['stage_id'] }})" @unless ($isShown($group['stage_id'])) style="display: none" @endunless>
                                     <td class="sticky right-0 z-[1] bg-white dark:bg-zinc-900 px-3 py-1.5 font-medium text-zinc-700 dark:text-zinc-300">
                                         {{ $circle->name }}
                                     </td>
@@ -237,17 +278,17 @@
                             <td class="sticky right-0 z-[1] bg-zinc-100 dark:bg-zinc-800 px-3 py-2 text-zinc-800 dark:text-zinc-100 text-sm">المجمع</td>
                             @foreach ($dates as $day)
                                 @php
-                                    $total = $grid['days'][$day['date']];
+                                    $total = $selection['days'][$day['date']];
                                 @endphp
-                                <td class="bg-zinc-100 dark:bg-zinc-800 px-1 py-1.5 text-center">
-                                    <div class="text-[13px] {{ $rateText($total['rate']) }}">{{ $total['rate'] === null ? '—' : $ar($total['rate']).'٪' }}</div>
-                                    @if ($total['missing'] > 0)
-                                        <div class="text-[10px] text-rose-600 dark:text-rose-400">{{ $ar($total['missing']) }} بلا تحضير</div>
-                                    @endif
+                                <td class="bg-zinc-100 dark:bg-zinc-800 px-1 py-1.5 text-center" x-data="{ get total() { return day('{{ $day['date'] }}') } }">
+                                    <div class="text-[13px] {{ $rateText($total['rate']) }}" x-bind:class="tone(total.rate)" x-text="pct(total.rate)">{{ $total['rate'] === null ? '—' : $ar($total['rate']).'٪' }}</div>
+                                    <div class="text-[10px] text-rose-600 dark:text-rose-400" x-show="total.missing > 0" @if ($total['missing'] === 0) style="display: none" @endif>
+                                        <span x-text="ar(total.missing)">{{ $ar($total['missing']) }}</span> بلا تحضير
+                                    </div>
                                 </td>
                             @endforeach
                             <td class="bg-zinc-200 dark:bg-zinc-700 px-2 py-1.5 text-center">
-                                <div class="text-base font-black {{ $rateText($summary['rate']) }}">{{ $summary['rate'] === null ? '—' : $ar($summary['rate']).'٪' }}</div>
+                                <div class="text-base font-black {{ $rateText($summary['rate']) }}" x-bind:class="tone(summary.rate)" x-text="pct(summary.rate)">{{ $summary['rate'] === null ? '—' : $ar($summary['rate']).'٪' }}</div>
                             </td>
                         </tr>
                     </tfoot>
@@ -265,5 +306,6 @@
                 <span>الخلية: الحاضرون (والمتأخرون) من الطلاب المشاركين، والمستأذن خارجها. اضغطها لترى الأسماء.</span>
             </div>
         @endif
+    </div>
     </div>
 </div>

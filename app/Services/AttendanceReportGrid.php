@@ -25,7 +25,7 @@ final class AttendanceReportGrid
 {
     /**
      * @param  array<int, int|string>  $stageIds  none means every stage
-     * @return array{dates: array<int, array{date: string, today: bool, future: bool}>, groups: array<int, array{stage: string, circles: array<int, array{circle: Circle, cells: array<string, array<string, mixed>>, totals: array<string, mixed>}>}>, days: array<string, array{rate: ?int, present: int, counted: int, missing: int}>, summary: array{rate: ?int, missing: int, missing_circles: int, unmarked: int, worst: ?array{name: string, rate: int}}}
+     * @return array{dates: array<int, array{date: string, today: bool, future: bool}>, groups: array<int, array{stage_id: int, stage: string, circles: array<int, array{circle: Circle, stage_id: int, cells: array<string, array<string, mixed>>, totals: array<string, mixed>}>}>, days_by_stage: array<int, array<string, array{present: int, counted: int, missing: int}>>, days: array<string, array{rate: ?int, present: int, counted: int, missing: int}>, summary: array{rate: ?int, missing: int, missing_circles: int, unmarked: int, worst: ?array{name: string, rate: int}}}
      */
     public static function build(string $from, string $to, array $stageIds = []): array
     {
@@ -66,11 +66,12 @@ final class AttendanceReportGrid
             return $working[$stageId ?? 0][$date] ??= AcademicCalendarEvent::isWorkingDay($date, $stageId);
         };
 
-        $days = collect($dates)->mapWithKeys(fn (array $day) => [$day['date'] => ['present' => 0, 'counted' => 0, 'missing' => 0]])->all();
-        $summary = ['present' => 0, 'counted' => 0, 'missing' => 0, 'missing_circles' => [], 'unmarked' => 0];
+        $byStage = [];
         $rows = [];
 
         foreach ($circles as $circle) {
+            $stageKey = $circle->stage_id ?? 0;
+            $byStage[$stageKey] ??= collect($dates)->mapWithKeys(fn (array $day) => [$day['date'] => ['present' => 0, 'counted' => 0, 'missing' => 0]])->all();
             $totals = ['present' => 0, 'late' => 0, 'absent' => 0, 'excused' => 0, 'unmarked' => 0, 'missing' => 0];
             $cells = [];
 
@@ -94,7 +95,7 @@ final class AttendanceReportGrid
                     'unmarked' => $marks === [] ? 0 : $expected - count($marks),
                 ];
                 $counted = $cell['present'] + $cell['absent'];
-                $cell['rate'] = $counted > 0 ? (int) round($cell['present'] / $counted * 100) : null;
+                $cell['rate'] = self::rate($cell['present'], $counted);
                 $cell['state'] = match (true) {
                     $marks !== [] => 'data',
                     $day['future'] => 'future',
@@ -107,54 +108,94 @@ final class AttendanceReportGrid
 
                 if ($cell['state'] === 'missing') {
                     $totals['missing']++;
-                    $days[$date]['missing']++;
-                    $summary['missing_circles'][$circle->id] = true;
+                    $byStage[$stageKey][$date]['missing']++;
                 }
 
                 foreach (['present', 'late', 'absent', 'excused', 'unmarked'] as $key) {
                     $totals[$key] += $cell[$key];
                 }
-                $days[$date]['present'] += $cell['present'];
-                $days[$date]['counted'] += $counted;
+                $byStage[$stageKey][$date]['present'] += $cell['present'];
+                $byStage[$stageKey][$date]['counted'] += $counted;
                 $cells[$date] = $cell;
             }
 
-            $counted = $totals['present'] + $totals['absent'];
-            $totals['rate'] = $counted > 0 ? (int) round($totals['present'] / $counted * 100) : null;
+            $totals['counted'] = $totals['present'] + $totals['absent'];
+            $totals['rate'] = self::rate($totals['present'], $totals['counted']);
 
-            $summary['present'] += $totals['present'];
-            $summary['counted'] += $counted;
-            $summary['missing'] += $totals['missing'];
-            $summary['unmarked'] += $totals['unmarked'];
-
-            $rows[] = ['circle' => $circle, 'cells' => $cells, 'totals' => $totals];
+            $rows[] = ['circle' => $circle, 'stage_id' => $stageKey, 'cells' => $cells, 'totals' => $totals];
         }
 
+        $grid = [
+            'dates' => $dates,
+            'groups' => collect($rows)
+                ->groupBy('stage_id')
+                ->map(fn (Collection $circles) => [
+                    'stage_id' => $circles->first()['stage_id'],
+                    'stage' => $circles->first()['circle']->stage->name ?? 'بدون مرحلة',
+                    'circles' => $circles->values()->all(),
+                ])
+                ->values()
+                ->all(),
+            'days_by_stage' => $byStage,
+        ];
+
+        return $grid + self::select($grid, []);
+    }
+
+    /**
+     * The academy's line and summary over the chosen stages — all of them when
+     * none is chosen: each day's rate and missed roll calls, and the period's
+     * rate, missed roll calls, unmarked students and the circle that missed
+     * most. The page works the same out in the browser as stages are picked
+     * (see the report's view), so a pick costs no request.
+     *
+     * @param  array{dates: array<int, array{date: string}>, groups: array<int, array{stage_id: int, circles: array<int, array<string, mixed>>}>, days_by_stage: array<int, array<string, array{present: int, counted: int, missing: int}>>}  $grid
+     * @param  array<int, int|string>  $stageIds
+     * @return array{days: array<string, array{rate: ?int, present: int, counted: int, missing: int}>, summary: array{rate: ?int, missing: int, missing_circles: int, unmarked: int, worst: ?array{name: string, rate: int}}}
+     */
+    public static function select(array $grid, array $stageIds): array
+    {
+        $picked = array_map('intval', $stageIds);
+        $shown = fn (int $stageKey) => $picked === [] || in_array($stageKey, $picked, true);
+
+        $days = [];
+        foreach ($grid['dates'] as $day) {
+            $total = ['present' => 0, 'counted' => 0, 'missing' => 0];
+            foreach ($grid['days_by_stage'] as $stageKey => $stageDays) {
+                if ($shown((int) $stageKey)) {
+                    foreach ($total as $key => $value) {
+                        $total[$key] += $stageDays[$day['date']][$key];
+                    }
+                }
+            }
+            $days[$day['date']] = $total + ['rate' => self::rate($total['present'], $total['counted'])];
+        }
+
+        $rows = collect($grid['groups'])
+            ->filter(fn (array $group) => $shown((int) $group['stage_id']))
+            ->flatMap(fn (array $group) => $group['circles']);
+
         // The circle that missed most, among those with a week's worth of records.
-        $worst = collect($rows)
-            ->filter(fn (array $row) => $row['totals']['rate'] !== null && $row['totals']['rate'] < 100
-                && $row['totals']['present'] + $row['totals']['absent'] >= 5)
+        $worst = $rows
+            ->filter(fn (array $row) => $row['totals']['rate'] !== null && $row['totals']['rate'] < 100 && $row['totals']['counted'] >= 5)
             ->sortBy(fn (array $row) => $row['totals']['rate'])
             ->first();
 
         return [
-            'dates' => $dates,
-            'groups' => collect($rows)
-                ->groupBy(fn (array $row) => $row['circle']->stage->name ?? 'بدون مرحلة')
-                ->map(fn (Collection $circles, string $stage) => ['stage' => $stage, 'circles' => $circles->values()->all()])
-                ->values()
-                ->all(),
-            'days' => collect($days)->map(fn (array $day) => $day + [
-                'rate' => $day['counted'] > 0 ? (int) round($day['present'] / $day['counted'] * 100) : null,
-            ])->all(),
+            'days' => $days,
             'summary' => [
-                'rate' => $summary['counted'] > 0 ? (int) round($summary['present'] / $summary['counted'] * 100) : null,
-                'missing' => $summary['missing'],
-                'missing_circles' => count($summary['missing_circles']),
-                'unmarked' => $summary['unmarked'],
+                'rate' => self::rate($rows->sum('totals.present'), $rows->sum('totals.counted')),
+                'missing' => $rows->sum('totals.missing'),
+                'missing_circles' => $rows->filter(fn (array $row) => $row['totals']['missing'] > 0)->count(),
+                'unmarked' => $rows->sum('totals.unmarked'),
                 'worst' => $worst ? ['name' => $worst['circle']->name, 'rate' => $worst['totals']['rate']] : null,
             ],
         ];
+    }
+
+    private static function rate(int $present, int $counted): ?int
+    {
+        return $counted > 0 ? (int) round($present / $counted * 100) : null;
     }
 
     /**

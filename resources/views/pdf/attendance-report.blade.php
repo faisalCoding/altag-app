@@ -199,7 +199,7 @@
 
                     <td class="totalcol">
                         <span class="big">{{ $percent($row['totals']['rate']) }}</span><br>
-                        <span class="sub">غياب {{ $ar($row['totals']['absent']) }} · تأخر {{ $ar($row['totals']['late']) }}@if ($row['totals']['missing'] > 0) · {{ $ar($row['totals']['missing']) }} بلا تحضير@endif</span>
+                        <span class="sub">غياب {{ $ar($row['totals']['absent']) }}، تأخر {{ $ar($row['totals']['late']) }}@if ($row['totals']['missing'] > 0)، {{ $ar($row['totals']['missing']) }} بلا تحضير@endif</span>
                     </td>
                 </tr>
             @endforeach
@@ -225,7 +225,7 @@
     @endif
 </table>
 
-<p class="foot">طُبع في {{ HijriDate::full(now('Asia/Riyadh')) }} · الخلية: الحاضرون (والمتأخرون) من الطلاب المشاركين، والمستأذن خارجها · الرمادي ليس يوم دوام</p>
+<p class="foot">طُبع في {{ HijriDate::full(now('Asia/Riyadh')) }} — الخلية: الحاضرون (والمتأخرون) من الطلاب المشاركين، والمستأذن خارجها — الرمادي ليس يوم دوام</p>
 
 </body>
 

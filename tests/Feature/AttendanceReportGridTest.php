@@ -116,6 +116,16 @@ it('sums each circle and the academy over the range', function () {
         ]);
 });
 
+it('works the line and the summary out for the stages picked', function () {
+    $grid = grid();
+
+    expect(AttendanceReportGrid::select($grid, [$this->middle->id])['summary']['rate'])->toBe(80)
+        ->and(AttendanceReportGrid::select($grid, [(string) $this->primary->id])['summary'])
+        ->toBe(['rate' => null, 'missing' => 0, 'missing_circles' => 0, 'unmarked' => 0, 'worst' => null])
+        ->and(AttendanceReportGrid::select($grid, [$this->primary->id])['days']['2026-07-07']['missing'])->toBe(0)
+        ->and(AttendanceReportGrid::select($grid, [])['days']['2026-07-07']['missing'])->toBe(1);
+});
+
 it('draws the day cells as links to the names behind them', function () {
     $this->actingAs(Manager::factory()->create(), 'manager');
 

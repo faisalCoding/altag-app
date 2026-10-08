@@ -17,10 +17,22 @@ beforeEach(function () {
     $this->middle = Stage::factory()->create(['name' => 'المتوسطة', 'position' => 2]);
     $this->primary = Stage::factory()->create(['name' => 'الابتدائية', 'position' => 3]);
 
+    $this->circles = [];
     foreach ([$this->secondary, $this->middle, $this->primary] as $stage) {
-        Circle::factory()->create(['stage_id' => $stage->id, 'name' => 'حلقة '.$stage->name]);
+        $this->circles[$stage->name] = Circle::factory()->create(['stage_id' => $stage->id, 'name' => 'حلقة '.$stage->name]);
     }
 });
+
+/**
+ * Whether a circle's row is showing. Every stage is on the page, so a pick
+ * costs no request; the rows of the others are hidden.
+ */
+function circleRowShown(string $html, Circle $circle): bool
+{
+    expect(preg_match('/<tr[^>]*data-circle-row="'.$circle->id.'"[^>]*>/', $html, $row))->toBe(1);
+
+    return ! str_contains($row[0], 'display: none');
+}
 
 function attendanceReport(array $stageIds = [])
 {
@@ -41,17 +53,40 @@ it('shows the whole academy until a stage is picked', function () {
 it('narrows the table to the stages the manager picked', function () {
     $html = attendanceReport([(string) $this->middle->id])->html();
 
-    expect($html)->toContain('حلقة المتوسطة')
-        ->not->toContain('حلقة الثانوية')
-        ->not->toContain('حلقة الابتدائية');
+    expect(circleRowShown($html, $this->circles['المتوسطة']))->toBeTrue()
+        ->and(circleRowShown($html, $this->circles['الثانوية']))->toBeFalse()
+        ->and(circleRowShown($html, $this->circles['الابتدائية']))->toBeFalse();
 });
 
 it('takes more than one stage at a time', function () {
     $html = attendanceReport([(string) $this->secondary->id, (string) $this->primary->id])->html();
 
-    expect($html)->toContain('حلقة الثانوية')
-        ->toContain('حلقة الابتدائية')
-        ->not->toContain('حلقة المتوسطة');
+    expect(circleRowShown($html, $this->circles['الثانوية']))->toBeTrue()
+        ->and(circleRowShown($html, $this->circles['الابتدائية']))->toBeTrue()
+        ->and(circleRowShown($html, $this->circles['المتوسطة']))->toBeFalse();
+});
+
+it('picks stages in the browser, with no request to the server', function () {
+    $html = attendanceReport()->html();
+
+    expect($html)->toContain('x-model="stages"')
+        ->toContain("\$wire.entangle('stageIds')")
+        ->not->toContain('wire:model.live="stageIds"')
+        // Every circle of every stage is drawn, ready to be shown.
+        ->toContain('حلقة الثانوية')->toContain('حلقة المتوسطة')->toContain('حلقة الابتدائية');
+});
+
+it('prints without the dot the sheet\'s font lacks', function () {
+    $html = view('pdf.attendance-report', [
+        'grid' => AttendanceReportGrid::build('2026-09-24', '2026-09-28'),
+        'fromDate' => '2026-09-24',
+        'toDate' => '2026-09-28',
+        'stageNames' => invade_names([(string) $this->secondary->id, (string) $this->middle->id]),
+    ])->render();
+
+    // Lama Sans has no «·»; mPDF printed a «no glyph» box in its place.
+    expect($html)->not->toContain('·')
+        ->toContain('الثانوية، المتوسطة');
 });
 
 it('keeps the arranged order inside a narrowed report', function () {

@@ -218,7 +218,7 @@ class TeacherAttendanceReport extends Component
     {
         return $this->stageIds === []
             ? ($this->role === 'manager' ? 'كل المراحل' : 'كل مراحلك')
-            : Stage::whereIn('id', $this->scope()->narrow($this->stageIds))->pluck('name')->implode(' · ');
+            : Stage::whereIn('id', $this->scope()->narrow($this->stageIds))->pluck('name')->implode('، ');
     }
 
     public function downloadPdf()
