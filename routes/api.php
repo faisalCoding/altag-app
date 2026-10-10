@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\V1\Teacher\ExamChangeController;
 use App\Http\Controllers\Api\V1\Teacher\ExtraPointChangeController;
 use App\Http\Controllers\Api\V1\Teacher\MyAttendanceController;
 use App\Http\Controllers\Api\V1\Teacher\PeerPairController;
+use App\Http\Controllers\Api\V1\Teacher\PlanChangeController;
 use App\Http\Controllers\Api\V1\Teacher\ScoreChangeController;
 use App\Http\Controllers\Api\V1\Teacher\StudentContactController;
 use App\Http\Controllers\Api\V1\Teacher\SyncController;
@@ -49,6 +50,11 @@ Route::prefix('v1/teacher')->name('api.v1.teacher.')->group(function () {
 
         Route::middleware(['teacher.api:teacher.student-exams', 'throttle:120,1'])->group(function () {
             Route::post('/exams/changes', [ExamChangeController::class, 'store'])->name('exams.changes.store');
+        });
+
+        // Quran plans written on the phone with the app's port of the plan engine.
+        Route::middleware(['teacher.api:teacher.plan-creator', 'throttle:120,1'])->group(function () {
+            Route::post('/plans/changes', [PlanChangeController::class, 'store'])->name('plans.changes.store');
         });
 
         // Mutual recitation: the day's pairs, swaps and outcomes.

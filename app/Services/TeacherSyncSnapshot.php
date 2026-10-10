@@ -18,6 +18,7 @@ use App\Models\Leaderboard;
 use App\Models\LeaderboardScore;
 use App\Models\PeerPair;
 use App\Models\Student;
+use App\Models\StudentPlan;
 use App\Models\Teacher;
 use App\Support\HijriDate;
 use App\Support\RolePages;
@@ -38,7 +39,9 @@ use Illuminate\Support\Facades\DB;
  * grades while the tasmeeh screen is switched on for teachers, and the exams
  * their students await while either the tasmeeh or the exams screen is: the
  * tasmeeh tab shows each student's next exam even where teachers may not
- * schedule one.
+ * schedule one. While teachers may make plans, it carries what the app needs
+ * to write them offline too: the attendance periods their days are laid out
+ * on, and how many plans each student has running.
  *
  * Attendance is bounded to a window — from the first day of the previous Hijri
  * month to today — while the calendar runs two weeks beyond today, so the app
@@ -131,6 +134,7 @@ class TeacherSyncSnapshot
             'tasmeeh' => RolePages::isEnabled('teacher', 'teacher.tasmeeh'),
             'student_exams' => RolePages::isEnabled('teacher', 'teacher.student-exams'),
             'pairs' => RolePages::isEnabled('teacher', 'teacher.pairs'),
+            'plan_creator' => RolePages::isEnabled('teacher', 'teacher.plan-creator'),
         ];
 
         $tasmeeh = $pages['tasmeeh'] ? TasmeehSnapshot::for($students->modelKeys(), $from, $today) : TasmeehSnapshot::empty();
@@ -177,6 +181,11 @@ class TeacherSyncSnapshot
                 ? SyncTurnResource::collection(TurnBooking::turnsBetween($circles->modelKeys(), $from, $today))
                 : [],
             ...($pages['tasmeeh'] || $pages['student_exams'] ? ExamSnapshot::for($students->modelKeys()) : ExamSnapshot::empty()),
+            // What the app needs to write plans offline: the attendance periods
+            // it lays their days out on, and how many plans each student has
+            // running, which a new one may switch off.
+            'calendar_periods' => $pages['plan_creator'] ? AcademicCalendarEvent::periodsFor($stageIds->values()->all()) : [],
+            'active_plan_counts' => $pages['plan_creator'] ? self::activePlanCounts($students->modelKeys()) : (object) [],
             'hijri_months' => self::hijriMonths(min($from, $periodsFrom ?? $from, $planDays[0] ?? $from), $today, $planDays[1] ?? null),
             'days' => self::days($from, $to),
             'labels' => [
@@ -321,6 +330,23 @@ class TeacherSyncSnapshot
                 'date' => $attendance->date->toDateString(),
                 'status' => $attendance->status,
             ])
+            ->all();
+    }
+
+    /**
+     * How many plans each student has running, keyed by student; students
+     * with none are left out.
+     *
+     * @param  array<int, int>  $studentIds
+     */
+    private static function activePlanCounts(array $studentIds): object
+    {
+        return (object) StudentPlan::whereIn('student_id', $studentIds)
+            ->where('status', 'active')
+            ->groupBy('student_id')
+            ->selectRaw('student_id, count(*) as plans')
+            ->pluck('plans', 'student_id')
+            ->map(fn ($plans) => (int) $plans)
             ->all();
     }
 

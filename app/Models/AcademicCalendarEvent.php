@@ -168,6 +168,23 @@ class AcademicCalendarEvent extends Model
     }
 
     /**
+     * The attendance periods that speak for any of the stages, as the working
+     * days are read from them: for the teacher app, which lays plans out on
+     * days to come with no connection.
+     *
+     * @param  array<int, int>  $stageIds
+     * @return list<array{name: string, start: string, end: string|null, weekdays: list<int>, stage_ids: list<int>, extra_dates: list<string>, excluded_dates: list<string>}>
+     */
+    public static function periodsFor(array $stageIds): array
+    {
+        return self::allPeriods()
+            ->filter(fn (array $period) => $period['stage_ids'] === [] || array_intersect($stageIds, $period['stage_ids']) !== [])
+            ->map(fn (array $period) => collect($period)->except('sessions')->all())
+            ->values()
+            ->all();
+    }
+
+    /**
      * The attendance periods that speak for a stage: those bound to it, plus
      * the academy-wide ones that name no stage at all.
      *
@@ -175,10 +192,22 @@ class AcademicCalendarEvent extends Model
      */
     private static function periodsForStage(?int $stageId)
     {
+        return self::allPeriods()->filter(fn (array $period) => $period['stage_ids'] === []
+            || ($stageId !== null && in_array($stageId, $period['stage_ids'], true)));
+    }
+
+    /**
+     * Every attendance period, read once a request.
+     *
+     * @return Collection<int, array<string, mixed>>
+     */
+    private static function allPeriods(): Collection
+    {
         if (! app()->bound(self::CACHE_KEY)) {
             app()->instance(self::CACHE_KEY, static::where('is_attendance_period', true)
                 ->get()
                 ->map(fn (self $event) => [
+                    'name' => $event->event_name,
                     'start' => Carbon::parse($event->start_date)->format('Y-m-d'),
                     'end' => $event->end_date ? Carbon::parse($event->end_date)->format('Y-m-d') : null,
                     // Stored weekdays mix integers and strings, so compare as integers.
@@ -191,8 +220,7 @@ class AcademicCalendarEvent extends Model
                 ->values());
         }
 
-        return app(self::CACHE_KEY)->filter(fn (array $period) => $period['stage_ids'] === []
-            || ($stageId !== null && in_array($stageId, $period['stage_ids'], true)));
+        return app(self::CACHE_KEY);
     }
 
     protected $fillable = [

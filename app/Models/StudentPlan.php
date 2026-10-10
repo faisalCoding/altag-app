@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 class StudentPlan extends Model
 {
     protected $fillable = [
+        'uuid',
         'student_id',
         'teacher_id',
         'start_date',
