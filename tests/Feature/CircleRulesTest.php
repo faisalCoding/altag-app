@@ -213,3 +213,26 @@ it('opens a supervisor\'s link onto a page of this site only', function () {
     $this->get(route('supervisor.magic-link', ['token' => 'tok-sup', 'redirect' => 'https://evil.example/x']))
         ->assertRedirect(route('supervisor.dashboard'));
 });
+
+it('adds the academy\'s rules to the draft once, and publishes them when asked', function () {
+    $this->artisan('app:seed-circle-rules')->assertSuccessful();
+    $this->artisan('app:seed-circle-rules')->expectsOutputToContain('تخطّي «أنظمة الحلقات»')->assertSuccessful();
+
+    expect(RuleSection::count())->toBe(7)
+        ->and(RuleVersion::count())->toBe(0);
+
+    $this->artisan('app:seed-circle-rules', ['--publish' => true])->assertSuccessful();
+
+    $version = RuleVersion::sole();
+    $teacherReads = collect(CircleRules::textFor($version, ['teacher']))->flatMap(fn ($section) => array_column($section['clauses'], 'body'));
+    $supervisorReads = collect(CircleRules::textFor($version, ['supervisor']))->flatMap(fn ($section) => array_column($section['clauses'], 'body'));
+
+    expect($version->requires_acknowledgement)->toBeTrue()
+        ->and($teacherReads)->toContain('دوام الحلقات القرآنية من يوم الأحد إلى يوم الأربعاء.')
+        ->and($teacherReads)->not->toContain('إعداد تقرير شهري وتسليمه للإدارة وفق النموذج الإداري.')
+        ->and($supervisorReads)->toContain('إعداد تقرير شهري وتسليمه للإدارة وفق النموذج الإداري.')
+        ->and($supervisorReads)->not->toContain('القيام بكل ما تحتاج إليه الحلقة.');
+
+    $this->artisan('app:seed-circle-rules', ['--publish' => true])->expectsOutputToContain('فلم يُنشر إصدار جديد')->assertSuccessful();
+    expect(RuleVersion::count())->toBe(1);
+});
