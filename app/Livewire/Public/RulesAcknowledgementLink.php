@@ -2,13 +2,13 @@
 
 namespace App\Livewire\Public;
 
+use App\Models\RuleAcknowledgement;
 use App\Models\RuleVersion;
 use App\Models\Stage;
 use App\Models\User;
 use App\Support\CircleRules;
-use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\RateLimiter;
-use Livewire\Attributes\Computed;
+use Livewire\Attributes\Renderless;
 use Livewire\Component;
 
 /**
@@ -17,145 +17,121 @@ use Livewire\Component;
  * supervisors, read the rules meant for you, and give your word. It is
  * recorded on that person's account, marked as given through the link.
  *
+ * Everything the steps need — the stages, their people, who has already
+ * given their word, and the text each kind of reader sees — comes with the
+ * page, so moving between steps happens in the browser at once. Only the word
+ * itself goes to the server.
+ *
  * Whoever holds the link can pick any name on it, so the link is signed and
  * the manager's list says which acknowledgements came through it. A name that
- * has already given its word is shown as such and cannot be picked again.
+ * has already given its word cannot be picked again.
  */
 class RulesAcknowledgementLink extends Component
 {
-    public ?int $stageId = null;
-
-    public ?int $personId = null;
-
-    public bool $agreed = false;
-
-    /** The name of whoever has just given their word, for the thanks. */
-    public ?string $doneName = null;
-
-    public function chooseStage(int $stageId): void
+    /**
+     * Record the word of the person picked. Answers without redrawing the
+     * page; the browser moves on with what it is told.
+     *
+     * @return array{ok: bool, name?: string, message?: string, already?: bool}
+     */
+    #[Renderless]
+    public function acknowledge(int $personId): array
     {
-        $this->stageId = Stage::whereKey($stageId)->exists() ? $stageId : null;
-        $this->personId = null;
-        $this->agreed = false;
-        unset($this->people, $this->owing);
-    }
-
-    public function choosePerson(int $personId): void
-    {
-        $person = $this->people->firstWhere('id', $personId);
-
-        $this->personId = $person && $this->owes($person) ? $person->id : null;
-        $this->agreed = false;
-        $this->resetErrorBag();
-    }
-
-    public function back(): void
-    {
-        if ($this->personId !== null) {
-            $this->personId = null;
-        } else {
-            $this->stageId = null;
-        }
-
-        $this->agreed = false;
-    }
-
-    public function startOver(): void
-    {
-        $this->reset();
-    }
-
-    public function acknowledge(): void
-    {
-        $this->resetErrorBag();
-
-        if (! $this->agreed) {
-            $this->addError('agreed', 'ضع علامة على الإقرار أولاً.');
-
-            return;
-        }
-
         $key = 'rules-link:'.request()->ip();
 
         if (RateLimiter::tooManyAttempts($key, 20)) {
-            $this->addError('agreed', 'محاولات كثيرة، أعد المحاولة بعد دقائق.');
-
-            return;
+            return ['ok' => false, 'message' => 'محاولات كثيرة، أعد المحاولة بعد دقائق.'];
         }
 
         RateLimiter::hit($key, 600);
 
-        $person = $this->person;
-        $version = $this->version;
+        $version = CircleRules::current();
+        $person = $this->eligible()->whereKey($personId)->first();
 
-        if (! $person || ! $version || ! $this->owes($person)) {
-            $this->personId = null;
+        if (! $version || ! $person) {
+            return ['ok' => false, 'message' => 'تعذّر حفظ الإقرار، أعد فتح الرابط وحاول مرة أخرى.'];
+        }
 
-            return;
+        if (! collect(CircleRules::rolesOf($person))->contains(fn (string $role) => CircleRules::owes($person, $role))) {
+            return ['ok' => false, 'already' => true, 'message' => 'سبق أن أقرّ صاحب هذا الاسم بالأنظمة.'];
         }
 
         CircleRules::acknowledge($person, $version, request()->ip(), request()->userAgent(), 'public_link');
 
-        $this->doneName = $person->name;
-        $this->personId = null;
-        $this->agreed = false;
-        unset($this->people, $this->owing);
-    }
-
-    #[Computed]
-    public function version(): ?RuleVersion
-    {
-        return CircleRules::current();
-    }
-
-    /** @return Collection<int, Stage> */
-    #[Computed]
-    public function stages(): Collection
-    {
-        return Stage::orderBy('position')->orderBy('id')->get(['id', 'name']);
-    }
-
-    /** @return Collection<int, User> */
-    #[Computed]
-    public function people(): Collection
-    {
-        return $this->stageId === null ? new Collection : CircleRules::peopleOfStage($this->stageId);
-    }
-
-    #[Computed]
-    public function person(): ?User
-    {
-        return $this->personId === null ? null : $this->people->firstWhere('id', $this->personId);
-    }
-
-    /** @return list<array{title: string, clauses: list<array{number: int, audience: string, body: string}>}> */
-    #[Computed]
-    public function text(): array
-    {
-        return $this->person && $this->version ? CircleRules::textFor($this->version, CircleRules::rolesOf($this->person)) : [];
-    }
-
-    /**
-     * The people of the stage who still owe their word.
-     *
-     * @return list<int>
-     */
-    #[Computed]
-    public function owing(): array
-    {
-        return $this->people->filter(fn (User $person) => $this->owes($person))->modelKeys();
-    }
-
-    /** Whether any role the person holds still owes their word. */
-    private function owes(User $person): bool
-    {
-        return collect(CircleRules::rolesOf($person))->contains(fn (string $role) => CircleRules::owes($person, $role));
+        return ['ok' => true, 'name' => $person->name];
     }
 
     public function render()
     {
-        return view('livewire.public.rules-acknowledgement-link')
-            ->layout('layouts.blank')
-            ->title('الإقرار بأنظمة الحلقات');
+        $version = CircleRules::current();
+
+        return view('livewire.public.rules-acknowledgement-link', [
+            'version' => $version,
+            ...($version ? $this->steps($version) : ['stages' => [], 'texts' => []]),
+        ])->layout('layouts.blank')->title('الإقرار بأنظمة الحلقات');
+    }
+
+    /**
+     * The stages with their people, and the text for each set of roles they
+     * hold — read in a handful of queries, whatever the size of the academy.
+     *
+     * @return array{stages: list<array{id: int, name: string, people: list<array{id: int, name: string, roles: string, owes: bool, text: string}>}>, texts: array<string, list<array{title: string, clauses: list<array{number: int, audience: string, body: string}>}>>}
+     */
+    private function steps(RuleVersion $version): array
+    {
+        $people = $this->eligible()
+            ->with([
+                'roles' => fn ($q) => $q->where('is_approved', true),
+                'circles:id,stage_id',
+                'stages:id',
+            ])
+            ->orderBy('name')
+            ->get(['id', 'name']);
+
+        $binding = CircleRules::binding();
+        $covered = RuleAcknowledgement::whereIn('user_id', $people->modelKeys())
+            ->when($binding, fn ($q) => $q->whereHas('version', fn ($v) => $v->where('number', '>=', $binding->number)))
+            ->get(['user_id', 'roles'])
+            ->groupBy('user_id')
+            ->map(fn ($given) => $given->flatMap(fn (RuleAcknowledgement $acknowledgement) => $acknowledgement->roles)->unique()->all());
+
+        $texts = [];
+        $byStage = [];
+
+        foreach ($people as $person) {
+            $roles = array_values(array_intersect(CircleRules::ROLES, $person->roles->pluck('role')->all()));
+            $textKey = implode('+', $roles);
+            $texts[$textKey] ??= CircleRules::textFor($version, $roles);
+
+            $entry = [
+                'id' => $person->id,
+                'name' => $person->name,
+                'roles' => collect($roles)->map(fn ($role) => CircleRules::ROLE_LABELS[$role])->implode(' و'),
+                'owes' => $binding !== null && array_diff($roles, $covered->get($person->id, [])) !== [],
+                'text' => $textKey,
+            ];
+
+            $stageIds = collect()
+                ->when(in_array('teacher', $roles, true), fn ($ids) => $ids->merge($person->circles->pluck('stage_id')))
+                ->when(in_array('supervisor', $roles, true), fn ($ids) => $ids->merge($person->stages->modelKeys()))
+                ->filter()
+                ->unique();
+
+            foreach ($stageIds as $stageId) {
+                $byStage[$stageId][] = $entry;
+            }
+        }
+
+        $stages = Stage::orderBy('position')->orderBy('id')->get(['id', 'name'])
+            ->map(fn (Stage $stage) => ['id' => $stage->id, 'name' => $stage->name, 'people' => $byStage[$stage->id] ?? []])
+            ->all();
+
+        return ['stages' => $stages, 'texts' => $texts];
+    }
+
+    /** The approved teachers and supervisors, who may give their word here. */
+    private function eligible()
+    {
+        return User::whereHas('roles', fn ($q) => $q->whereIn('role', CircleRules::ROLES)->where('is_approved', true));
     }
 }

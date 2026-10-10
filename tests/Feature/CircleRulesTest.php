@@ -251,22 +251,23 @@ it('lets whoever opens the signed link pick their stage and name, and keeps the 
     $stranger->circles()->attach(Circle::factory()->create(['stage_id' => $elsewhere->id])->id);
 
     $this->get(route('rules.public'))->assertForbidden();
-    $this->get(URL::signedRoute('rules.public'))->assertSuccessful()->assertSee('اختر مرحلتك');
-
-    $page = Livewire::test(RulesAcknowledgementLink::class)
-        ->call('chooseStage', $stage->id)
-        ->assertSee($this->teacher->name)
-        ->assertSee($this->supervisor->name)
-        ->assertDontSee('معلم مرحلة أخرى')
-        ->call('choosePerson', $stranger->id)
-        ->assertSet('personId', null)
-        ->call('choosePerson', $this->teacher->id)
+    $this->get(URL::signedRoute('rules.public'))->assertSuccessful()
+        ->assertSee('اختر مرحلتك')
         ->assertSee('تحضير الطلاب في يومه.')
-        ->assertDontSee('متابعة تحضير المعلمين أسبوعياً.')
-        ->assertDontSee('(للمعلمين)')
-        ->set('agreed', true)
-        ->call('acknowledge')
-        ->assertSee('شكراً لك');
+        ->assertDontSee('(للمعلمين)');
+
+    $page = Livewire::test(RulesAcknowledgementLink::class);
+    $people = fn () => collect($page->viewData('stages'))->firstWhere('id', $stage->id)['people'];
+
+    // Every step comes with the page: the stage's people, whether they owe, and which text they read.
+    expect(collect($people())->pluck('name')->all())->toEqualCanonicalizing([$this->teacher->name, $this->supervisor->name])
+        ->and(collect($people())->firstWhere('id', $this->teacher->id))->toMatchArray(['roles' => 'معلم', 'owes' => true, 'text' => 'teacher'])
+        ->and(collect($page->viewData('stages'))->firstWhere('id', $elsewhere->id)['people'][0]['name'])->toBe('معلم مرحلة أخرى')
+        ->and(collect($page->viewData('texts')['teacher'])->flatMap(fn ($section) => array_column($section['clauses'], 'body')))
+        ->toContain('تحضير الطلاب في يومه.')
+        ->not->toContain('متابعة تحضير المعلمين أسبوعياً.');
+
+    $page->call('acknowledge', $this->teacher->id)->assertReturned(['ok' => true, 'name' => $this->teacher->name]);
 
     $acknowledgement = RuleAcknowledgement::sole();
 
@@ -274,8 +275,21 @@ it('lets whoever opens the signed link pick their stage and name, and keeps the 
         ->and($acknowledgement->channel)->toBe('public_link')
         ->and(CircleRules::owes($this->teacher, 'teacher'))->toBeFalse();
 
-    // Given once, the name cannot be picked again.
-    $page->call('startOver')->call('chooseStage', $stage->id)->call('choosePerson', $this->teacher->id)->assertSet('personId', null);
+    // Given once, the name is shown as done and its word is not taken twice.
+    $page->call('acknowledge', $this->teacher->id)->assertReturned(['ok' => false, 'already' => true, 'message' => 'سبق أن أقرّ صاحب هذا الاسم بالأنظمة.']);
+
+    expect(RuleAcknowledgement::count())->toBe(1)
+        ->and(collect(collect(Livewire::test(RulesAcknowledgementLink::class)->viewData('stages'))->firstWhere('id', $stage->id)['people'])->firstWhere('id', $this->teacher->id)['owes'])->toBeFalse();
+});
+
+it('takes no word for someone who is neither a teacher nor a supervisor', function () {
+    publishRules();
+
+    Livewire::test(RulesAcknowledgementLink::class)
+        ->call('acknowledge', $this->manager->id)
+        ->assertReturned(['ok' => false, 'message' => 'تعذّر حفظ الإقرار، أعد فتح الرابط وحاول مرة أخرى.']);
+
+    expect(RuleAcknowledgement::count())->toBe(0);
 });
 
 it('names no audience beside the clauses a reader sees', function () {
