@@ -15,6 +15,10 @@
             {{ __('الرسائل') }}
         </flux:sidebar.item>
     @endif
+    <flux:sidebar.item class="[&_svg]:bg-[#b45309] hover:[&_svg]:bg-[#92400e]" icon="scale" wire:navigate :current="request()->routeIs('teacher.rules')"
+        href="{{ route('teacher.rules') }}">
+        {{ __('أنظمة الحلقات') }}
+    </flux:sidebar.item>
     <flux:sidebar.group heading="{{ __('الخطط القرآنية') }}" class="mt-4">
         @if(\App\Support\RolePages::isEnabled('teacher', 'teacher.students'))
             <flux:sidebar.item class="[&_svg]:bg-[#a855f7] hover:[&_svg]:bg-[#9333ea]" icon="users"

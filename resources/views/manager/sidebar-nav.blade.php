@@ -183,6 +183,10 @@
         wire:navigate>
         صلاحيات الصفحات
     </flux:sidebar.item>
+    <flux:sidebar.item class="[&_svg]:bg-[#b45309] hover:[&_svg]:bg-[#92400e]" icon="scale" :href="route('manager.circle-rules')" :current="request()->routeIs('manager.circle-rules')"
+        wire:navigate>
+        أنظمة الحلقات
+    </flux:sidebar.item>
 
     @if(\App\Support\RolePages::isEnabled('manager', 'manager.forms'))
         <flux:sidebar.item class="[&_svg]:bg-[#14b8a6] hover:[&_svg]:bg-[#0d9488]" icon="document-text" :href="route('manager.forms')"

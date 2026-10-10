@@ -124,6 +124,23 @@
     </flux:header>
 
     <flux:main class="!px-3 !pt-2 !pb-32 md:!p-8 md:!pb-32 lg:!pb-8 min-w-0">
+        @php
+            // The circles' rules, while the teacher or supervisor owes their
+            // word on them: a reminder above every page, never a gate.
+            $rulesRole = request()->routeIs('teacher.*') ? 'teacher' : (request()->routeIs('supervisor.*') ? 'supervisor' : null);
+            $rulesOwed = $rulesRole !== null
+                && auth($rulesRole)->check()
+                && ! request()->routeIs("{$rulesRole}.rules")
+                && \App\Support\CircleRules::owes(auth($rulesRole)->user(), $rulesRole);
+        @endphp
+        @if($rulesOwed)
+            <a href="{{ route("{$rulesRole}.rules") }}" wire:navigate data-rules-reminder
+                class="mb-3 flex items-center gap-3 rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-900/20 px-4 py-2.5 text-sm text-amber-900 dark:text-amber-200 hover:border-amber-300 dark:hover:border-amber-700 transition-colors">
+                <flux:icon icon="scale" class="size-5 shrink-0" />
+                <span class="flex-1">صدرت أنظمة الحلقات ولم تُقِرّ بها بعد.</span>
+                <span class="font-bold whitespace-nowrap">اطّلع وأقرّ</span>
+            </a>
+        @endif
         {{ $slot }}
     </flux:main>
 

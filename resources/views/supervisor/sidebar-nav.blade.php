@@ -10,6 +10,9 @@
         {{ __('الرسائل') }}
     </flux:sidebar.item>
 @endif
+<flux:sidebar.item class="[&_svg]:bg-[#b45309] hover:[&_svg]:bg-[#92400e]" icon="scale" :href="route('supervisor.rules')" :current="request()->routeIs('supervisor.rules')" wire:navigate>
+    {{ __('أنظمة الحلقات') }}
+</flux:sidebar.item>
 
 <flux:sidebar.group heading="العملية التعليمية" class="grid">
     @if(\App\Support\RolePages::isEnabled('supervisor', 'supervisor.circles'))

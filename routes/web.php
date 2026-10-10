@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Manager\BackupController;
+use App\Http\Controllers\Manager\RuleAcknowledgementPdfController;
 use App\Http\Controllers\ProgramSchedulePrintController;
 use App\Http\Controllers\Student\StudentPlanPrintController;
 use App\Http\Controllers\Teacher\TasmeehDataController;
@@ -148,6 +149,8 @@ Route::middleware(['auth:manager', 'approved', 'page.enabled'])->prefix('manager
     Route::view('/api-docs', 'manager.api-docs')->name('api-docs');
     Route::view('/messages', 'manager.messages')->name('messages');
     Route::view('/role-permissions', 'manager.role-permissions')->name('role-permissions');
+    Route::view('/circle-rules', 'manager.circle-rules')->name('circle-rules');
+    Route::get('/circle-rules/acknowledgements/{acknowledgement}/pdf', [RuleAcknowledgementPdfController::class, 'show'])->name('circle-rules.pdf');
     Route::view('/forms', 'manager.forms')->name('forms');
     Route::get('/forms/create', fn () => view('manager.form-create'))->name('forms.create');
     Route::get('/forms/{id}/edit', fn ($id) => view('manager.form-edit', ['formId' => $id]))->name('forms.edit');
@@ -199,6 +202,7 @@ Route::middleware(['auth:supervisor', 'approved', 'page.enabled', 'surveys.requi
     Route::view('/settings', 'supervisor.settings')->name('settings');
     Route::view('/whatsapp-settings', 'supervisor.whatsapp-settings')->name('whatsapp-settings');
     Route::view('/messages', 'supervisor.messages')->name('messages');
+    Route::view('/rules', 'supervisor.rules')->name('rules');
 
     // Forms Builder Routes
     Route::view('/forms', 'supervisor.forms')->name('forms');
@@ -228,6 +232,7 @@ Route::middleware(['auth:teacher', 'approved', 'page.enabled', 'surveys.required
     Route::get('/grade-items', $appShellRoute('grade-items'))->name('grade-items');
 
     // Standard Routes
+    Route::view('/rules', 'teacher.rules')->name('rules');
     Route::view('/discipline', 'teacher.discipline')->name('discipline');
     Route::view('/quranic-discipline', 'teacher.quranic-discipline')->name('quranic-discipline');
     Route::view('/student-plans', 'teacher.student-plans')->name('student-plans');
@@ -393,6 +398,13 @@ Route::get('/supervisor-magic/{token}', function ($token) {
     // person's own WhatsApp, and a session alone lapses after two hours.
     auth()->guard('supervisor')->login($supervisor, true);
     request()->session()->regenerate();
+
+    // Only back into this site, as the teacher's link does.
+    $redirect = request()->query('redirect');
+
+    if (is_string($redirect) && parse_url($redirect, PHP_URL_HOST) === request()->getHost()) {
+        return redirect()->to($redirect);
+    }
 
     return redirect()->route('supervisor.dashboard');
 })->name('supervisor.magic-link');
