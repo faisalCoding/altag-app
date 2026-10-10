@@ -9,12 +9,14 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * A person's word that they read a version of the rules and will keep them.
  *
  * One per person and version, covering every role they held when they gave
- * it; `content_hash` is of the very text they were shown.
+ * it; `content_hash` is of the very text they were shown. `channel` says how
+ * it was given: 'account' from their own sign-in, 'public_link' by picking
+ * their name on the public page.
  */
 class RuleAcknowledgement extends Model
 {
     /** @var list<string> */
-    protected $fillable = ['user_id', 'rule_version_id', 'roles', 'content_hash', 'ip', 'user_agent', 'acknowledged_at'];
+    protected $fillable = ['user_id', 'rule_version_id', 'roles', 'channel', 'content_hash', 'ip', 'user_agent', 'acknowledged_at'];
 
     /** @return array<string, string> */
     protected function casts(): array

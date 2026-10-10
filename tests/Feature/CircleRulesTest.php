@@ -2,16 +2,20 @@
 
 use App\Livewire\Manager\RulesAcknowledgements;
 use App\Livewire\Manager\RulesEditor;
+use App\Livewire\Public\RulesAcknowledgementLink;
 use App\Livewire\Shared\RulesAcknowledgement as RulesPage;
 use App\Models\AppNotification;
+use App\Models\Circle;
 use App\Models\Manager;
 use App\Models\RuleAcknowledgement;
 use App\Models\RuleClause;
 use App\Models\RuleSection;
 use App\Models\RuleVersion;
+use App\Models\Stage;
 use App\Models\Supervisor;
 use App\Models\Teacher;
 use App\Support\CircleRules;
+use Illuminate\Support\Facades\URL;
 use Livewire\Livewire;
 
 /*
@@ -235,4 +239,50 @@ it('adds the academy\'s rules to the draft once, and publishes them when asked',
 
     $this->artisan('app:seed-circle-rules', ['--publish' => true])->expectsOutputToContain('فلم يُنشر إصدار جديد')->assertSuccessful();
     expect(RuleVersion::count())->toBe(1);
+});
+
+it('lets whoever opens the signed link pick their stage and name, and keeps the word on that account', function () {
+    publishRules();
+    $stage = Stage::factory()->create(['name' => 'المتوسطة']);
+    $elsewhere = Stage::factory()->create(['name' => 'الابتدائية']);
+    $this->teacher->circles()->attach(Circle::factory()->create(['stage_id' => $stage->id])->id);
+    $this->supervisor->stages()->attach($stage->id);
+    $stranger = Teacher::factory()->create(['name' => 'معلم مرحلة أخرى']);
+    $stranger->circles()->attach(Circle::factory()->create(['stage_id' => $elsewhere->id])->id);
+
+    $this->get(route('rules.public'))->assertForbidden();
+    $this->get(URL::signedRoute('rules.public'))->assertSuccessful()->assertSee('اختر مرحلتك');
+
+    $page = Livewire::test(RulesAcknowledgementLink::class)
+        ->call('chooseStage', $stage->id)
+        ->assertSee($this->teacher->name)
+        ->assertSee($this->supervisor->name)
+        ->assertDontSee('معلم مرحلة أخرى')
+        ->call('choosePerson', $stranger->id)
+        ->assertSet('personId', null)
+        ->call('choosePerson', $this->teacher->id)
+        ->assertSee('تحضير الطلاب في يومه.')
+        ->assertDontSee('متابعة تحضير المعلمين أسبوعياً.')
+        ->assertDontSee('(للمعلمين)')
+        ->set('agreed', true)
+        ->call('acknowledge')
+        ->assertSee('شكراً لك');
+
+    $acknowledgement = RuleAcknowledgement::sole();
+
+    expect($acknowledgement->user_id)->toBe($this->teacher->id)
+        ->and($acknowledgement->channel)->toBe('public_link')
+        ->and(CircleRules::owes($this->teacher, 'teacher'))->toBeFalse();
+
+    // Given once, the name cannot be picked again.
+    $page->call('startOver')->call('chooseStage', $stage->id)->call('choosePerson', $this->teacher->id)->assertSet('personId', null);
+});
+
+it('names no audience beside the clauses a reader sees', function () {
+    publishRules();
+    $this->actingAs($this->teacher, 'teacher');
+
+    Livewire::test(RulesPage::class, ['role' => 'teacher'])
+        ->assertSee('تحضير الطلاب في يومه.')
+        ->assertDontSee('(للمعلمين)');
 });

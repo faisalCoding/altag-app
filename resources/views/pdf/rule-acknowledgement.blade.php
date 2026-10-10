@@ -33,7 +33,6 @@
         h2 { font-size: 11.5px; color: {{ $brandDark }}; margin: 12px 0 4px 0; }
         .clause { margin: 0 0 4px 0; }
         .number { color: {{ $brandDark }}; font-weight: bold; }
-        .audience { font-size: 8.5px; color: #71717a; }
 
         .pledge { margin-top: 16px; padding: 10px 12px; border: 1px solid {{ $brand }}; background-color: #fafafa; font-weight: bold; }
         .trail { margin-top: 10px; font-size: 8.5px; color: #71717a; }
@@ -67,9 +66,6 @@
             <p class="clause">
                 <span class="number">{{ $ar($clause['number']) }}.</span>
                 {{ $clause['body'] }}
-                @if($clause['audience'] !== 'shared')
-                    <span class="audience">({{ \App\Models\RuleClause::AUDIENCES[$clause['audience']] }})</span>
-                @endif
             </p>
         @endforeach
     @endforeach
@@ -81,7 +77,7 @@
          stays in the database — mPDF runs its letters and digits backwards —
          and the page says whether the text above still matches it. --}}
     <div class="trail">
-        <div>أُعطي هذا الإقرار من الموقع</div>
+        <div>{{ $acknowledgement->channel === 'public_link' ? 'أُعطي هذا الإقرار من الرابط العام باختيار الاسم من قائمة المرحلة' : 'أُعطي هذا الإقرار من حساب المُقِرّ في الموقع' }}</div>
         <div>عنوان الجهاز: {{ $acknowledgement->ip ?? '—' }}</div>
         @if($intact)
             <div>النص أعلاه مطابق لبصمة النص المحفوظة لحظة الإقرار</div>

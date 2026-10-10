@@ -7,6 +7,7 @@ use App\Models\RuleSection;
 use App\Models\RuleVersion;
 use App\Models\User;
 use App\Services\NotificationService;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -134,7 +135,7 @@ final class CircleRules
      * again on the same version — after gaining a role — it covers the new
      * role too, over the text they read this time.
      */
-    public static function acknowledge(User $user, RuleVersion $version, ?string $ip, ?string $userAgent): RuleAcknowledgement
+    public static function acknowledge(User $user, RuleVersion $version, ?string $ip, ?string $userAgent, string $channel = 'account'): RuleAcknowledgement
     {
         $roles = self::rolesOf($user);
 
@@ -142,12 +143,35 @@ final class CircleRules
             ['user_id' => $user->id, 'rule_version_id' => $version->id],
             [
                 'roles' => $roles,
+                'channel' => $channel,
                 'content_hash' => self::hashOf(self::textFor($version, $roles)),
                 'ip' => $ip,
                 'user_agent' => $userAgent !== null ? mb_substr($userAgent, 0, 500) : null,
                 'acknowledged_at' => now(),
             ],
         );
+    }
+
+    /**
+     * The approved teachers and supervisors of a stage, each once, by name:
+     * teachers through the circles they teach in it, supervisors through the
+     * stages they oversee.
+     *
+     * @return Collection<int, User>
+     */
+    public static function peopleOfStage(int $stageId): Collection
+    {
+        return User::query()
+            ->where(fn ($q) => $q
+                ->where(fn ($teachers) => $teachers
+                    ->whereHas('roles', fn ($r) => $r->where('role', 'teacher')->where('is_approved', true))
+                    ->whereHas('circles', fn ($c) => $c->where('stage_id', $stageId)))
+                ->orWhere(fn ($supervisors) => $supervisors
+                    ->whereHas('roles', fn ($r) => $r->where('role', 'supervisor')->where('is_approved', true))
+                    ->whereHas('stages', fn ($st) => $st->whereKey($stageId))))
+            ->with(['roles' => fn ($q) => $q->where('is_approved', true)])
+            ->orderBy('name')
+            ->get();
     }
 
     /**

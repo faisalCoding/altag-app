@@ -14,6 +14,7 @@ use App\Livewire\Public\CoinRedemption as PublicCoinRedemption;
 use App\Livewire\Public\FormReport;
 use App\Livewire\Public\FormSubmit;
 use App\Livewire\Public\ResultsDisplay as PublicResultsDisplay;
+use App\Livewire\Public\RulesAcknowledgementLink;
 use App\Models\Circle;
 use App\Models\FormAssignment;
 use App\Models\Guardian;
@@ -480,6 +481,10 @@ Route::get('/f/{slug}', FormSubmit::class)->name('forms.submit');
 Route::get('/bus-booking/{token}', BusBooking::class)->name('bus.book');
 Route::get('/bus-officer/{token}', BusOfficer::class)->name('bus.officer');
 Route::get('/f/{slug}/{token}', FormReport::class)->name('forms.report');
+
+// The circles' rules, acknowledged without signing in: the manager shares this
+// signed link, and whoever opens it picks the stage, then their name.
+Route::get('/rules-acknowledgement', RulesAcknowledgementLink::class)->middleware('signed')->name('rules.public');
 
 // Where the survey gate sends anyone who owes a blocking survey. Reachable from
 // behind the gate by design — it is the way through it.

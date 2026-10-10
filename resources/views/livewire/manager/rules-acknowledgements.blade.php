@@ -7,6 +7,23 @@
 @endphp
 
 <div class="space-y-5">
+    {{-- The public link: no sign-in, so whoever holds it may pick any name —
+         its acknowledgements are marked as given through it. --}}
+    <div class="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4 sm:p-5 space-y-3"
+        x-data="{ copied: false, copy() { navigator.clipboard.writeText(this.$refs.link.value); this.copied = true; setTimeout(() => this.copied = false, 2000) } }">
+        <div class="space-y-1">
+            <div class="font-bold text-zinc-900 dark:text-white">رابط الإقرار العام</div>
+            <p class="text-sm text-zinc-500">يفتحه المعلم أو المشرف دون تسجيل دخول، فيختار مرحلته ثم اسمه ويُقِرّ، ويُربط إقراره بحسابه. من يملك الرابط يستطيع اختيار أي اسم، فيُعلَّم إقراره هنا بأنه «عبر الرابط».</p>
+        </div>
+        <div class="flex gap-2">
+            <input x-ref="link" type="text" readonly value="{{ $this->publicLink }}" dir="ltr" data-public-link
+                class="flex-1 min-w-0 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-2 text-xs text-zinc-600 dark:text-zinc-300">
+            <flux:button size="sm" icon="clipboard-document" x-on:click="copy()">
+                <span x-text="copied ? 'نُسخ' : 'نسخ'">نسخ</span>
+            </flux:button>
+        </div>
+    </div>
+
     @if(! $this->binding)
         <div class="rounded-2xl border border-dashed border-zinc-300 dark:border-zinc-700 p-8 text-center text-zinc-500">
             لم يُنشر إصدار من الأنظمة بعد. انشر الأنظمة من تبويب «الأنظمة» ليبدأ المعلمون والمشرفون بالإقرار بها.
@@ -57,6 +74,9 @@
                             @if($person['owed'] === [])
                                 <span class="text-emerald-600 dark:text-emerald-400 font-medium">أقرّ بالإصدار {{ $ar($person['acknowledgement']->version->number) }}</span>
                                 <span class="text-zinc-500">· {{ HijriDate::full($person['acknowledgement']->acknowledged_at) }}</span>
+                                @if($person['acknowledgement']->channel === 'public_link')
+                                    <span class="text-zinc-500">· عبر الرابط</span>
+                                @endif
                             @elseif($person['acknowledgement'])
                                 <span class="text-amber-600 dark:text-amber-400 font-medium">لم يُقِرّ بصفته {{ collect($person['owed'])->map(fn ($r) => CircleRules::ROLE_LABELS[$r])->implode(' و') }} بعد</span>
                             @else

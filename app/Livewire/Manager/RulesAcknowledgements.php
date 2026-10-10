@@ -7,6 +7,7 @@ use App\Models\RuleVersion;
 use App\Models\User;
 use App\Support\CircleRules;
 use App\Support\RulesReminder;
+use Illuminate\Support\Facades\URL;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\On;
 use Livewire\Component;
@@ -29,6 +30,13 @@ class RulesAcknowledgements extends Component
     public function refreshAfterPublishing(): void
     {
         unset($this->binding, $this->people);
+    }
+
+    /** The signed link to share, where anyone picks their stage and name to acknowledge. */
+    #[Computed]
+    public function publicLink(): string
+    {
+        return URL::signedRoute('rules.public');
     }
 
     #[Computed]

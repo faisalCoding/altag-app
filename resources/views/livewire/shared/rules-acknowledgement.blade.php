@@ -1,5 +1,4 @@
 @php
-    use App\Models\RuleClause;
     use App\Support\CircleRules;
     use App\Support\HijriDate;
 
@@ -45,26 +44,7 @@
             </div>
         @endif
 
-        <div class="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 sm:p-7 space-y-6">
-            @foreach($this->text as $section)
-                <section class="space-y-3">
-                    <h2 class="text-base font-bold text-accent dark:text-zinc-100">{{ $section['title'] }}</h2>
-                    <ol class="space-y-2.5">
-                        @foreach($section['clauses'] as $clause)
-                            <li class="flex gap-3 text-[15px] leading-loose text-zinc-800 dark:text-zinc-200">
-                                <span class="shrink-0 font-bold text-accent dark:text-zinc-300 tabular-nums">{{ $ar($clause['number']) }}.</span>
-                                <span class="flex-1">
-                                    {{ $clause['body'] }}
-                                    @if($clause['audience'] !== 'shared')
-                                        <span class="text-xs text-zinc-400 whitespace-nowrap">({{ RuleClause::AUDIENCES[$clause['audience']] }})</span>
-                                    @endif
-                                </span>
-                            </li>
-                        @endforeach
-                    </ol>
-                </section>
-            @endforeach
-        </div>
+        <x-rules.text :text="$this->text" />
 
         @if($this->owes)
             <div class="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 space-y-4">
