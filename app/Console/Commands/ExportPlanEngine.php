@@ -8,6 +8,8 @@ use App\Services\QuranPlanService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\File;
+use Random\Engine\Mt19937;
+use Random\Randomizer;
 use Throwable;
 
 /**
@@ -39,6 +41,15 @@ class ExportPlanEngine extends Command
 
     /** @var array<int, int> verses in each surah */
     private array $verses = [];
+
+    /**
+     * The scenarios' own seeded generator. Drawing from PHP's shared one let
+     * any other code in the process take a number from the middle of the
+     * sequence and write different scenarios for the same seed; this engine
+     * gives the same numbers $this->random->getInt() gave for the seed, so fixtures already
+     * written stay the ones it writes.
+     */
+    private Randomizer $random;
 
     public function handle(QuranPlanService $service): int
     {
@@ -173,7 +184,7 @@ class ExportPlanEngine extends Command
      */
     private function fillScenarios(int $count): array
     {
-        mt_srand((int) $this->option('seed'));
+        $this->random = new Randomizer(new Mt19937((int) $this->option('seed')));
 
         $scenarios = [];
 
@@ -193,12 +204,12 @@ class ExportPlanEngine extends Command
         $fillDirection = $this->pick(['forward', 'reverse']);
         // Choosing the hifz direction sets the review one to match, and it
         // may then be changed.
-        $reviewDirection = mt_rand(0, 1) ? $fillDirection : $this->pick(['forward', 'reverse']);
+        $reviewDirection = $this->random->getInt(0, 1) ? $fillDirection : $this->pick(['forward', 'reverse']);
         // The ceiling sits at the far end of the mushaf unless it is moved.
-        $ceiling = mt_rand(0, 1) ? ($fillDirection === 'reverse' ? [1, 7] : [114, 6]) : $this->randomAyah();
+        $ceiling = $this->random->getInt(0, 1) ? ($fillDirection === 'reverse' ? [1, 7] : [114, 6]) : $this->randomAyah();
         // generateDays() opens a review plan at the end the hifz runs from.
         $bulkStart = $planType === 'review' ? [$fillDirection === 'reverse' ? 114 : 1, 1] : $this->randomAyah();
-        $daysCount = mt_rand(3, 30);
+        $daysCount = $this->random->getInt(3, 30);
 
         $filler = new QuranPlanFiller($planType, $fillDirection, $reviewDirection, $bulkStart[0], $bulkStart[1], $ceiling[0], $ceiling[1]);
 
@@ -213,9 +224,9 @@ class ExportPlanEngine extends Command
 
         $steps = [];
 
-        foreach (range(1, mt_rand(1, 5)) as $ignored) {
-            if (mt_rand(1, 100) <= 15) {
-                $edit = ['day' => mt_rand(0, $daysCount - 1), 'field' => $this->pick(['from', 'to', 'review_from', 'review_to']), 'ayah' => $this->randomAyah()];
+        foreach (range(1, $this->random->getInt(1, 5)) as $ignored) {
+            if ($this->random->getInt(1, 100) <= 15) {
+                $edit = ['day' => $this->random->getInt(0, $daysCount - 1), 'field' => $this->pick(['from', 'to', 'review_from', 'review_to']), 'ayah' => $this->randomAyah()];
                 $days[$edit['day']][$edit['field'].'_surah_id'] = $edit['ayah'][0];
                 $days[$edit['day']][$edit['field'].'_verse'] = $edit['ayah'][1];
                 $steps[] = ['edit' => $edit];
@@ -251,12 +262,12 @@ class ExportPlanEngine extends Command
     private function volumeFor(string $planType, string $target): string
     {
         $custom = [
-            'custom_pages_'.mt_rand(1, 30),
-            'custom_surahs_'.mt_rand(1, 20),
-            'custom_juz_'.mt_rand(1, 5),
+            'custom_pages_'.$this->random->getInt(1, 30),
+            'custom_surahs_'.$this->random->getInt(1, 20),
+            'custom_juz_'.$this->random->getInt(1, 5),
         ];
 
-        if (mt_rand(1, 10) === 1) {
+        if ($this->random->getInt(1, 10) === 1) {
             return $this->pick([...self::HIFZ_BUTTONS, ...self::REVIEW_BUTTONS, 'all_previous', ...$custom]);
         }
 
@@ -276,20 +287,20 @@ class ExportPlanEngine extends Command
      */
     private function selection(int $daysCount): array
     {
-        $roll = mt_rand(1, 100);
+        $roll = $this->random->getInt(1, 100);
 
         if ($roll <= 40) {
             return range(0, $daysCount - 1);
         }
 
         if ($roll <= 80) {
-            $first = mt_rand(0, $daysCount - 1);
+            $first = $this->random->getInt(0, $daysCount - 1);
 
-            return range($first, mt_rand($first, $daysCount - 1));
+            return range($first, $this->random->getInt($first, $daysCount - 1));
         }
 
         if ($roll <= 95) {
-            return array_values(array_filter(range(0, $daysCount - 1), fn () => mt_rand(0, 1) === 1));
+            return array_values(array_filter(range(0, $daysCount - 1), fn () => $this->random->getInt(0, 1) === 1));
         }
 
         return [];
@@ -302,10 +313,10 @@ class ExportPlanEngine extends Command
      */
     private function randomAyah(): array
     {
-        $surah = mt_rand(1, 114);
+        $surah = $this->random->getInt(1, 114);
         $verses = $this->verses[$surah] ?? 1;
 
-        return [$surah, $this->pick([1, $verses, mt_rand(1, $verses)])];
+        return [$surah, $this->pick([1, $verses, $this->random->getInt(1, $verses)])];
     }
 
     /**
@@ -316,6 +327,6 @@ class ExportPlanEngine extends Command
      */
     private function pick(array $choices): mixed
     {
-        return $choices[mt_rand(0, count($choices) - 1)];
+        return $choices[$this->random->getInt(0, count($choices) - 1)];
     }
 }
