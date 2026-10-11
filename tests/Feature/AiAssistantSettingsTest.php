@@ -1,11 +1,15 @@
 <?php
 
+use App\Ai\Agents\KeyCheck;
 use App\Ai\Agents\PersonlanAssistant;
 use App\Models\AiProviderCredential;
 use App\Models\Manager;
 use App\Models\Setting;
 use App\Support\AiSettings;
+use Illuminate\Encryption\Encrypter;
 use Illuminate\Support\Facades\DB;
+use Laravel\Ai\Exceptions\AiException;
+use Laravel\Ai\Prompts\AgentPrompt;
 use Livewire\Livewire;
 
 beforeEach(function () {
@@ -16,13 +20,13 @@ beforeEach(function () {
 it('lets the manager choose the provider and model for the assistant', function () {
     Livewire::test('manager.ai-assistant-settings')
         ->set('provider', 'anthropic')
-        ->set('model', 'claude-opus-4-6')
+        ->set('model', 'claude-opus-5-5')
         ->set('fallbackProvider', 'deepseek')
         ->call('save')
         ->assertHasNoErrors();
 
     expect(AiSettings::provider())->toBe('anthropic')
-        ->and(AiSettings::model())->toBe('claude-opus-4-6')
+        ->and(AiSettings::model())->toBe('claude-opus-5-5')
         ->and(AiSettings::fallbackProvider())->toBe('deepseek');
 });
 
@@ -182,4 +186,85 @@ it('keeps the settings page away from other roles', function () {
     auth('manager')->logout();
 
     $this->get(route('manager.ai-settings'))->assertRedirect();
+});
+
+it('starts a new provider from its own default model, not the last one\'s', function () {
+    Livewire::test('manager.ai-assistant-settings')
+        ->set('provider', 'gemini')
+        ->set('model', 'gemini-3.1-pro-preview')
+        ->set('fallbackProvider', 'anthropic')
+        ->set('provider', 'anthropic')
+        ->assertSet('model', '')
+        ->assertSet('fallbackProvider', '');
+});
+
+it('refuses a model that belongs to another provider', function () {
+    Livewire::test('manager.ai-assistant-settings')
+        ->set('provider', 'anthropic')
+        ->set('model', 'gemini-3-flash-preview')
+        ->call('save')
+        ->assertHasErrors('model');
+
+    expect(Setting::getVal(AiSettings::PROVIDER_KEY))->not->toBe('anthropic');
+
+    // A model id outside every list is the manager's to type.
+    Livewire::test('manager.ai-assistant-settings')
+        ->set('provider', 'anthropic')
+        ->set('model', 'claude-some-future-model')
+        ->call('save')
+        ->assertHasNoErrors();
+});
+
+it('offers the current Claude models and uses Sonnet when none is chosen', function () {
+    expect(AiSettings::TEXT_PROVIDERS['anthropic']['models'])->toBe(['claude-sonnet-5-5', 'claude-haiku-5-5', 'claude-opus-5-5'])
+        ->and(config('ai.providers.anthropic.models.text.default'))->toBe('claude-sonnet-5-5');
+});
+
+it('tests a stored key with the model chosen on the page', function () {
+    AiProviderCredential::create(['provider' => 'anthropic', 'api_key' => 'sk-ant-test']);
+    KeyCheck::fake(['OK']);
+
+    Livewire::test('manager.ai-assistant-settings')
+        ->set('provider', 'anthropic')
+        ->set('model', 'claude-haiku-5-5')
+        ->call('testKey', 'anthropic')
+        ->assertHasNoErrors();
+
+    KeyCheck::assertPrompted(fn (AgentPrompt $prompt) => $prompt->model === 'claude-haiku-5-5');
+    expect(config('ai.providers.anthropic.key'))->toBe('sk-ant-test');
+});
+
+it('says so when a key fails its test, and does not test a provider with no key', function () {
+    AiProviderCredential::create(['provider' => 'anthropic', 'api_key' => 'sk-ant-bad']);
+    config(['ai.providers.openai.key' => null]);
+    KeyCheck::fake(function () {
+        throw new AiException('invalid x-api-key');
+    });
+
+    Livewire::test('manager.ai-assistant-settings')
+        ->call('testKey', 'anthropic')
+        ->assertHasNoErrors()
+        ->call('testKey', 'openai')
+        ->assertHasNoErrors();
+
+    KeyCheck::assertPrompted(fn (AgentPrompt $prompt) => true);
+});
+
+/**
+ * A backup restored under another APP_KEY, or a changed key, leaves stored
+ * keys that cannot be decrypted. The page must still open so the manager can
+ * enter them again, and the assistant must treat them as missing.
+ */
+it('treats a key encrypted with another application key as missing, and still opens the page', function () {
+    $foreign = new Encrypter(random_bytes(32), 'AES-256-CBC');
+    $credential = AiProviderCredential::create(['provider' => 'anthropic', 'api_key' => 'placeholder']);
+    DB::table('ai_provider_credentials')->where('id', $credential->id)->update(['api_key' => $foreign->encryptString('sk-ant-old')]);
+    config(['ai.providers.anthropic.key' => null]);
+
+    expect(AiSettings::hasKey('anthropic'))->toBeFalse()
+        ->and($credential->fresh()->isUnreadable())->toBeTrue();
+
+    $this->get(route('manager.ai-settings'))
+        ->assertSuccessful()
+        ->assertSee('تعذّرت قراءة المفتاح المحفوظ، فأعد إدخاله');
 });

@@ -37,7 +37,7 @@ class AiSettings
         ],
         'anthropic' => [
             'label' => 'Anthropic Claude',
-            'models' => ['claude-sonnet-4-6', 'claude-haiku-4-5-20251001', 'claude-opus-4-6'],
+            'models' => ['claude-sonnet-5-5', 'claude-haiku-5-5', 'claude-opus-5-5'],
             'needs_url' => false,
         ],
         'openai' => [
@@ -76,6 +76,25 @@ class AiSettings
             'needs_url' => true,
         ],
     ];
+
+    /**
+     * The provider whose own model list holds this model id, when it is one of
+     * another provider's — a model typed for one provider fails on any other.
+     */
+    public static function modelOwnedElsewhere(string $provider, string $model): ?string
+    {
+        if ($model === '' || in_array($model, self::TEXT_PROVIDERS[$provider]['models'] ?? [], true)) {
+            return null;
+        }
+
+        foreach (self::TEXT_PROVIDERS as $other => $meta) {
+            if ($other !== $provider && in_array($model, $meta['models'], true)) {
+                return $other;
+            }
+        }
+
+        return null;
+    }
 
     public static function isSupportedProvider(?string $provider): bool
     {
@@ -186,7 +205,7 @@ class AiSettings
         return AiProviderCredential::all()
             ->mapWithKeys(fn (AiProviderCredential $credential) => [
                 $credential->provider => [
-                    'api_key' => $credential->api_key,
+                    'api_key' => $credential->readableKey(),
                     'base_url' => $credential->base_url,
                 ],
             ])->all();

@@ -23,7 +23,7 @@ class getMutunPlans implements Tool
     public function description(): Stringable|string
     {
         return 'Get the mutun (المتون الحديثية) and odes (المنظومات) available in the academy, their memorization paths (مسارات), '
-            .'and the student plans on those paths together with their grading (ممتاز/جيد/ضعيف) and progress. '
+            .'and the student plans on those paths together with their grading (ممتاز/جيد/مقبول) and progress. '
             .'Use "kind" to ask for hadith texts only, odes only, or both, and filter the plans with "student" or "circle". '
             .'A path is shared: many students follow the same path and each keeps their own achievements.';
     }
@@ -36,7 +36,7 @@ class getMutunPlans implements Tool
         $kind = (string) (($request['kind'] ?? null) ?: 'both');
         $limit = min(max((int) (($request['limit'] ?? null) ?: 50), 1), self::MAX_LIMIT);
 
-        $result = ['grade_scale' => '3=ممتاز، 2=جيد، 1=ضعيف'];
+        $result = ['grade_scale' => '3=ممتاز، 2=جيد، 1=مقبول'];
 
         if ($kind === 'hadith' || $kind === 'both') {
             $result['mutun_catalogue'] = $this->hadithCatalogue();
@@ -176,14 +176,14 @@ class getMutunPlans implements Tool
      */
     private function gradeLabels($achievements): array
     {
-        $counts = ['ممتاز' => 0, 'جيد' => 0, 'ضعيف' => 0];
+        $counts = ['ممتاز' => 0, 'جيد' => 0, 'مقبول' => 0];
 
         foreach ($achievements as $achievement) {
             foreach ([$achievement->hifz_achievement, $achievement->review_achievement] as $value) {
                 match ($value) {
                     3 => $counts['ممتاز']++,
                     2 => $counts['جيد']++,
-                    1 => $counts['ضعيف']++,
+                    1 => $counts['مقبول']++,
                     default => null,
                 };
             }

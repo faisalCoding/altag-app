@@ -1,10 +1,12 @@
 <?php
 
 use Livewire\Component;
+use App\Ai\Agents\KeyCheck;
 use App\Models\AiProviderCredential;
 use App\Models\Setting;
 use App\Support\AiSettings;
 use Flux\Flux;
+use Illuminate\Support\Str;
 
 new class extends Component
 {
@@ -39,6 +41,20 @@ new class extends Component
         }
     }
 
+    /**
+     * A model id belongs to the provider it was typed for: a new provider
+     * starts from its own default rather than sending it another's model.
+     */
+    public function updatedProvider(): void
+    {
+        $this->model = '';
+        $this->resetErrorBag('model');
+
+        if ($this->fallbackProvider === $this->provider) {
+            $this->fallbackProvider = '';
+        }
+    }
+
     public function save(): void
     {
         $this->validate([
@@ -52,6 +68,13 @@ new class extends Component
 
         if ($this->fallbackProvider === $this->provider) {
             $this->fallbackProvider = '';
+        }
+
+        if ($owner = AiSettings::modelOwnedElsewhere($this->provider, trim($this->model))) {
+            $this->addError('model', 'هذا الموديل من موديلات '.AiSettings::TEXT_PROVIDERS[$owner]['label'].'، فلن يقبله '
+                .AiSettings::TEXT_PROVIDERS[$this->provider]['label'].'. اختر موديلاً من المقترحات أو اترك الخانة فارغة.');
+
+            return;
         }
 
         Setting::setVal(AiSettings::PROVIDER_KEY, $this->provider);
@@ -98,6 +121,37 @@ new class extends Component
         Flux::toast('تم حفظ مفتاح '.AiSettings::TEXT_PROVIDERS[$provider]['label'], variant: 'success');
     }
 
+    /**
+     * Send the provider the smallest request it answers, with the stored key
+     * and the model chosen on this page, and say whether it worked.
+     */
+    public function testKey(string $provider): void
+    {
+        abort_unless(AiSettings::isSupportedProvider($provider), 404);
+
+        $label = AiSettings::TEXT_PROVIDERS[$provider]['label'];
+
+        if (! AiSettings::hasKey($provider)) {
+            Flux::toast('لا يوجد مفتاح لـ'.$label.' بعد؛ احفظه أولاً ثم اختبره.', variant: 'warning');
+
+            return;
+        }
+
+        AiSettings::apply();
+        $model = $provider === $this->provider && trim($this->model) !== '' ? trim($this->model) : null;
+
+        try {
+            $reply = KeyCheck::make()->prompt('ping', provider: $provider, model: $model, timeout: 30);
+        } catch (\Throwable $e) {
+            report($e);
+            Flux::toast('لم ينجح الاتصال بـ'.$label.': '.Str::limit($e->getMessage(), 180), variant: 'danger', duration: 10000);
+
+            return;
+        }
+
+        Flux::toast('يعمل مفتاح '.$label.'، وأجاب الموديل '.($reply->meta->model ?? $model ?? 'الافتراضي').'.', variant: 'success');
+    }
+
     public function deleteKey(string $provider): void
     {
         abort_unless(AiSettings::isSupportedProvider($provider), 404);
@@ -118,6 +172,10 @@ new class extends Component
             'providers' => AiSettings::TEXT_PROVIDERS,
             'storedKeys' => AiProviderCredential::all()
                 ->mapWithKeys(fn ($credential) => [$credential->provider => $credential->maskedKey()])
+                ->all(),
+            'unreadableKeys' => AiProviderCredential::all()
+                ->filter(fn ($credential) => $credential->isUnreadable())
+                ->pluck('provider')
                 ->all(),
             'envKeys' => collect(AiSettings::TEXT_PROVIDERS)
                 ->mapWithKeys(fn ($meta, $provider) => [
@@ -151,6 +209,7 @@ new class extends Component
             <div>
                 <flux:input wire:model="model" label="الموديل" list="ai-model-suggestions"
                     placeholder="اتركه فارغاً لاستخدام الافتراضي" />
+                <flux:error name="model" />
                 <datalist id="ai-model-suggestions">
                     @foreach ($providers[$provider]['models'] ?? [] as $suggestion)
                         <option value="{{ $suggestion }}"></option>
@@ -217,7 +276,13 @@ new class extends Component
                         </div>
 
                         <div class="flex items-center gap-2">
-                            @if (! empty($storedKeys[$key]))
+                            @if (in_array($key, $unreadableKeys, true))
+                                <flux:badge size="sm" color="amber">تعذّرت قراءة المفتاح المحفوظ، فأعد إدخاله</flux:badge>
+                                <flux:button size="xs" variant="ghost" icon="trash"
+                                    wire:click="deleteKey('{{ $key }}')">
+                                    حذف
+                                </flux:button>
+                            @elseif (! empty($storedKeys[$key]))
                                 <flux:badge size="sm" color="green">
                                     محفوظ: {{ $storedKeys[$key] }}
                                 </flux:badge>
@@ -246,10 +311,18 @@ new class extends Component
                                 autocomplete="off" class="font-mono" />
                         @endif
 
-                        <flux:button size="sm" variant="filled" icon="check"
-                            wire:click="saveKey('{{ $key }}')">
-                            حفظ المفتاح
-                        </flux:button>
+                        <div class="flex gap-2">
+                            <flux:button size="sm" variant="filled" icon="check"
+                                wire:click="saveKey('{{ $key }}')">
+                                حفظ المفتاح
+                            </flux:button>
+                            @if (! empty($storedKeys[$key]) || ($envKeys[$key] ?? false) || $key === 'ollama')
+                                <flux:button size="sm" variant="ghost" icon="signal"
+                                    wire:click="testKey('{{ $key }}')" wire:target="testKey('{{ $key }}')">
+                                    اختبار
+                                </flux:button>
+                            @endif
+                        </div>
                     </div>
                 </div>
             @endforeach

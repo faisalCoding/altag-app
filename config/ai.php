@@ -53,6 +53,18 @@ return [
         'anthropic' => [
             'driver' => 'anthropic',
             'key' => env('ANTHROPIC_API_KEY'),
+
+            /*
+             * The SDK's own defaults are a generation behind; with no model
+             * chosen on the settings page the assistant uses these.
+             */
+            'models' => [
+                'text' => [
+                    'default' => 'claude-sonnet-5-5',
+                    'cheapest' => 'claude-haiku-5-5',
+                    'smartest' => 'claude-opus-5-5',
+                ],
+            ],
         ],
 
         'azure' => [

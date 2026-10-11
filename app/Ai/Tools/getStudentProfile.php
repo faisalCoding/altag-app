@@ -259,7 +259,7 @@ class getStudentProfile implements Tool
         return [
             'ممتاز' => $counts['excellent'],
             'جيد' => $counts['good'],
-            'ضعيف' => $counts['weak'],
+            'مقبول' => $counts['weak'],
         ];
     }
 

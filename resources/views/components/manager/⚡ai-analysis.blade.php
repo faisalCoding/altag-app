@@ -3,7 +3,9 @@
 use Livewire\Component;
 use App\Models\AiInsight;
 use App\Models\Attendance;
-use App\Ai\Agents\PersonlanAssistant;
+use App\Ai\Agents\AttendanceInsights;
+use App\Models\Circle;
+use App\Models\Student;
 use Flux\Flux;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Carbon;
@@ -32,70 +34,64 @@ new class extends Component
         $this->insights = AiInsight::where('period', $this->period)->get();
     }
 
+    /** The most students sent for analysis: the most absent and late first. */
+    private const MAX_STUDENTS = 400;
+
+    private const STATUSES = ['present', 'absent', 'late', 'excused'];
+
     public function generateInsights()
     {
-        // 1. Gather Data for the selected period
-        $startDate = Carbon::createFromFormat('Y-m', $this->period)->startOfMonth()->format('Y-m-d');
-        $endDate = Carbon::createFromFormat('Y-m', $this->period)->endOfMonth()->format('Y-m-d');
+        $month = Carbon::createFromFormat('Y-m', $this->period);
 
-        // Attendance stats by student
-        $studentStats = Attendance::with('student:id,name')
-            ->whereBetween('date', [$startDate, $endDate])
-            ->select('student_id', 'status', DB::raw('count(*) as count'))
-            ->groupBy('student_id', 'status')
-            ->get()
-            ->groupBy('student_id')
-            ->map(function ($group) {
-                $studentName = $group->first()->student->name ?? 'مجهول';
-                $statuses = $group->pluck('count', 'status')->toArray();
+        // Dates are stored with a time, so whereDate keeps the month's last day in.
+        $counts = Attendance::query()
+            ->whereDate('date', '>=', $month->copy()->startOfMonth()->toDateString())
+            ->whereDate('date', '<=', $month->copy()->endOfMonth()->toDateString())
+            ->select('student_id', 'circle_id', 'status', DB::raw('count(*) as count'))
+            ->groupBy('student_id', 'circle_id', 'status')
+            ->get();
+
+        if ($counts->isEmpty()) {
+            Flux::toast(__('لا سجلات حضور في هذا الشهر لتحليلها.'), variant: 'warning');
+
+            return;
+        }
+
+        $studentNames = Student::whereIn('id', $counts->pluck('student_id')->unique())->pluck('name', 'id');
+        $circleNames = Circle::whereIn('id', $counts->pluck('circle_id')->unique())->pluck('name', 'id');
+
+        $circles = $counts->groupBy('circle_id')
+            ->map(fn ($rows, $circleId) => ['name' => trim($circleNames[$circleId] ?? 'حلقة محذوفة')] + $this->tally($rows))
+            ->values();
+
+        // Every student, each under the circle most of their days were in; the
+        // most absent and late first, so a cap drops the least telling.
+        $students = $counts->groupBy('student_id')
+            ->map(function ($rows, $studentId) use ($studentNames, $circleNames) {
+                $circleId = $rows->groupBy('circle_id')->sortByDesc(fn ($days) => $days->sum('count'))->keys()->first();
+
                 return [
-                    'name' => $studentName,
-                    'present' => $statuses['present'] ?? 0,
-                    'absent' => $statuses['absent'] ?? 0,
-                    'late' => $statuses['late'] ?? 0,
-                    'excused' => $statuses['excused'] ?? 0,
-                ];
-            })->values()->toArray();
+                    'name' => trim($studentNames[$studentId] ?? 'طالب محذوف'),
+                    'circle' => trim($circleNames[$circleId] ?? ''),
+                ] + $this->tally($rows);
+            })
+            ->sortByDesc(fn ($student) => [$student['absent'] + $student['late'], $student['absent']])
+            ->values();
 
-        // Attendance stats by circle
-        $circleStats = Attendance::with('circle:id,name')
-            ->whereBetween('date', [$startDate, $endDate])
-            ->select('circle_id', 'status', DB::raw('count(*) as count'))
-            ->groupBy('circle_id', 'status')
-            ->get()
-            ->groupBy('circle_id')
-            ->map(function ($group) {
-                $circleName = $group->first()->circle->name ?? 'مجهولة';
-                $statuses = $group->pluck('count', 'status')->toArray();
-                return [
-                    'name' => $circleName,
-                    'present' => $statuses['present'] ?? 0,
-                    'absent' => $statuses['absent'] ?? 0,
-                    'late' => $statuses['late'] ?? 0,
-                    'excused' => $statuses['excused'] ?? 0,
-                ];
-            })->values()->toArray();
-
-        // 2. Prepare AI Prompt
-        $dataToAnalyze = [
-            'period' => $this->period,
-            'students' => array_slice($studentStats, 0, 100), // limit to avoid token limit if very large
-            'circles' => $circleStats,
+        $data = [
+            'month' => $this->period,
+            'totals' => $this->tally($counts),
+            'circles' => $circles->all(),
+            'students' => $students->take(self::MAX_STUDENTS)->all(),
+            'students_capped' => $students->count() > self::MAX_STUDENTS
+                ? 'Only the '.self::MAX_STUDENTS.' students with the most absences and lateness are listed, of '.$students->count().'.'
+                : null,
         ];
 
-        $prompt = "قم بتحليل بيانات الحضور والانصراف التالية لشهر {$this->period} واستخرج الأنماط. ابحث عن الأشياء المميزة مثل: الطلاب الأكثر التزامًا، الحلقات الأفضل أو الأسوأ أداءً، والطلاب الذين يتأخرون كثيرًا. \n\n"
-            . "يجب أن يكون الرد عبارة عن مصفوفة JSON صالحة تفقط دون أي نص إضافي ، كل عنصر يحتوي على:\n"
-            . "- category: (مثل: 'الطلاب', 'الحلقات')\n"
-            . "- title: عنوان النمط (مثل: 'النخبة الملتزمون', 'نسب غياب مرتفعة')\n"
-            . "- description: تفاصيل التحليل باللغة العربية بأسلوب رسمي وواضح\n"
-            . "- type: (يجب أن يكون أحد هذه القيم فقط: 'positive', 'negative', 'neutral')\n\n"
-            . json_encode($dataToAnalyze, JSON_UNESCAPED_UNICODE);
-
-        // 3. Request AI Insight
-        $assistant = PersonlanAssistant::make();
-
         try {
-            $response = $assistant->prompt($prompt);
+            $response = AttendanceInsights::make()->prompt(
+                'بيانات حضور شهر '.$this->period.":\n".json_encode($data, JSON_UNESCAPED_UNICODE)
+            );
         } catch (RateLimitedException $e) {
             report($e);
             Flux::toast(
@@ -122,15 +118,11 @@ new class extends Component
             return;
         }
 
-        $jsonText = $response->text;
+        $insights = collect($response['insights'] ?? [])
+            ->filter(fn ($insight) => is_array($insight) && filled($insight['title'] ?? null))
+            ->values();
 
-        // Clean up markdown json tags if present
-        $jsonText = str_replace(['```json', '```'], '', $jsonText);
-        $jsonText = trim($jsonText);
-
-        $parsed = json_decode($jsonText, true);
-
-        if (! is_array($parsed)) {
+        if ($insights->isEmpty()) {
             Flux::toast(
                 __('لم يُرجِع المساعد الذكي تحليلاً مفهوماً. أعد المحاولة.'),
                 variant: 'warning',
@@ -139,23 +131,41 @@ new class extends Component
             return;
         }
 
-        // Remove old insights
-        AiInsight::where('period', $this->period)->delete();
+        DB::transaction(function () use ($insights) {
+            AiInsight::where('period', $this->period)->delete();
 
-        // Save new insights
-        foreach ($parsed as $insight) {
-            AiInsight::create([
-                'period' => $this->period,
-                'category' => $insight['category'] ?? 'عام',
-                'title' => $insight['title'] ?? 'تحليل ذكي',
-                'description' => $insight['description'] ?? '',
-                'type' => in_array($insight['type'] ?? '', ['positive', 'negative', 'neutral']) ? $insight['type'] : 'neutral',
-            ]);
-        }
+            foreach ($insights as $insight) {
+                AiInsight::create([
+                    'period' => $this->period,
+                    'category' => filled($insight['category'] ?? null) ? $insight['category'] : 'عام',
+                    'title' => $insight['title'],
+                    'description' => (string) ($insight['description'] ?? ''),
+                    'type' => in_array($insight['type'] ?? '', ['positive', 'negative', 'neutral'], true) ? $insight['type'] : 'neutral',
+                ]);
+            }
+        });
 
         $this->loadInsights();
 
         Flux::toast(__('تم تحديث التحليل الذكي'), variant: 'success');
+    }
+
+    /**
+     * Counts by status for a set of grouped attendance rows.
+     *
+     * @return array<string, int>
+     */
+    private function tally($rows): array
+    {
+        $tally = array_fill_keys(self::STATUSES, 0);
+
+        foreach ($rows as $row) {
+            if (array_key_exists($row->status, $tally)) {
+                $tally[$row->status] += (int) $row->count;
+            }
+        }
+
+        return $tally;
     }
 };
 ?>

@@ -7,6 +7,7 @@ use App\Models\Manager;
 use App\Models\Student;
 use App\Models\Supervisor;
 use App\Models\Teacher;
+use App\Support\MagicLinkTray;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Facades\Date;
@@ -22,7 +23,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // One tray per request, so links gathered for one reply never reach another.
+        $this->app->scoped(MagicLinkTray::class);
     }
 
     /**

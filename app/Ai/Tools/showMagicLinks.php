@@ -7,26 +7,31 @@ use App\Models\Student;
 use App\Models\Supervisor;
 use App\Models\Teacher;
 use App\Models\User;
+use App\Support\MagicLinkTray;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 use Laravel\Ai\Contracts\Tool;
 use Laravel\Ai\Tools\Request;
 use Stringable;
 
 /**
- * Magic login links, for the manager to hand out.
+ * Magic login links, for the manager to hand out — shown on the page, never
+ * given to the model.
  *
  * A magic link signs its holder straight into that account with no password, so
- * every row here is a credential rather than a fact about someone. The
- * assistant runs only on the manager's page, behind the manager guard, and the
- * manager can already copy these same links from the students page — this saves
- * the walk, it does not widen anyone's access.
+ * it is a credential, and a credential must not leave the server for the AI
+ * provider. The assistant only picks the people: this tool puts them in the
+ * request's MagicLinkTray and tells the model their names, and the chat renders
+ * their links locally beneath the reply. The manager can already copy these
+ * same links from the students page — this saves the walk, it does not widen
+ * anyone's access.
  *
  * Accounts that never had a token get one issued, exactly as the copy button on
  * the students page does, because a link cannot be handed out otherwise.
  */
-class getMagicLinks implements Tool
+class showMagicLinks implements Tool
 {
     private const MAX_LIMIT = 300;
 
@@ -45,10 +50,10 @@ class getMagicLinks implements Tool
      */
     public function description(): Stringable|string
     {
-        return 'Get the magic login links (الروابط السحرية) of students, teachers, supervisors or guardians, so the manager can hand them out. '
+        return 'Show the manager the magic login links (الروابط السحرية) of students, teachers, supervisors or guardians, so they can hand them out. '
             .'Filter with "role", "search" (part of a name or email), "circle", "stage", or "only_without_link" to find who has never been issued one. '
-            .'Each link signs its holder into that account without a password, so treat every one as a credential: quote them only when the manager '
-            .'has asked for links, never volunteer them alongside an unrelated answer, and never include them in a summary. '
+            .'The links are never given to you: the system displays them to the manager directly beneath your reply. You receive only the names '
+            .'of the people whose links are shown. Use it only when the manager asks for links. '
             .'Accounts with no token yet are issued one when they appear here.';
     }
 
@@ -83,22 +88,57 @@ class getMagicLinks implements Tool
 
         $people = $query->orderBy('name')->limit($limit)->get();
 
-        $rows = $people->map(fn ($person) => [
-            'name' => $person->name,
-            'circle' => $role === 'student' ? $person->circle?->name : null,
-            'had_no_link_before' => blank($person->access_token),
-            'magic_link' => route(self::ROUTES[$role], ['token' => $this->ensureToken($person)]),
-        ])->all();
+        $rows = $people->map(function ($person) use ($role) {
+            $hadNoLink = blank($person->access_token);
+            $this->ensureToken($person);
+
+            return [
+                'name' => $person->name,
+                'circle' => $role === 'student' ? $person->circle?->name : null,
+                'had_no_link_before' => $hadNoLink,
+            ];
+        })->all();
+
+        app(MagicLinkTray::class)->add($role, $people->modelKeys());
 
         return json_encode([
             'role' => $role,
-            'returned' => count($rows),
-            'warning' => 'Each link signs its holder in without a password. Share only what the manager asked for.',
-            'note' => count($rows) === $limit
-                ? 'The result was capped at the limit; narrow the filters or raise "limit" to see more.'
+            'shown_to_manager' => count($rows),
+            'note' => 'The links themselves are not given to you. The system shows them to the manager directly beneath your reply. '
+                .'Tell the manager the links appear below; never write, guess or describe a link or a token.',
+            'capped' => count($rows) === $limit
+                ? 'The list was capped at the limit; narrow the filters or raise "limit" to show more.'
                 : null,
             'people' => $rows,
         ], JSON_UNESCAPED_UNICODE);
+    }
+
+    /**
+     * The links of the accounts a reply showed, made on the server as the
+     * chat renders them: a name, a circle for a student, and the link — null
+     * when the account's token has since been withdrawn.
+     *
+     * @param  array<int, int>  $ids
+     * @return Collection<int, array{name: string, circle: ?string, link: ?string}>
+     */
+    public static function linksFor(string $role, array $ids): Collection
+    {
+        if (! array_key_exists($role, self::ROUTES) || $ids === []) {
+            return collect();
+        }
+
+        $query = match ($role) {
+            'teacher' => Teacher::query(),
+            'supervisor' => Supervisor::query(),
+            'guardian' => Guardian::query(),
+            default => Student::with('circle:id,name'),
+        };
+
+        return $query->whereKey($ids)->orderBy('name')->get()->map(fn ($person) => [
+            'name' => trim((string) $person->name),
+            'circle' => $role === 'student' ? $person->circle?->name : null,
+            'link' => filled($person->access_token) ? route(self::ROUTES[$role], ['token' => $person->access_token]) : null,
+        ]);
     }
 
     /**
@@ -138,14 +178,12 @@ class getMagicLinks implements Tool
     /**
      * A link needs a token; accounts that never had one get it now.
      */
-    private function ensureToken($person): string
+    private function ensureToken($person): void
     {
         if (blank($person->access_token)) {
             $person->access_token = Str::random(32);
             $person->save();
         }
-
-        return $person->access_token;
     }
 
     /**
@@ -159,7 +197,7 @@ class getMagicLinks implements Tool
             'circle' => $schema->string()->description('Circle name (حلقة). Students and teachers.'),
             'stage' => $schema->string()->description('Stage name (مرحلة).'),
             'only_without_link' => $schema->boolean()->description('Only accounts that have never been issued a link.'),
-            'limit' => $schema->integer()->description('Maximum people to return. Defaults to 100, maximum 300.'),
+            'limit' => $schema->integer()->description('Maximum people to show. Defaults to 100, maximum 300.'),
         ];
     }
 }

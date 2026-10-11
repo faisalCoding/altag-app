@@ -3,6 +3,8 @@
 namespace App\Console\Commands;
 
 use App\Ai\Agents\PersonlanAssistant;
+use App\Ai\Tools\showMagicLinks;
+use App\Support\MagicLinkTray;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
@@ -60,6 +62,13 @@ class AssistantChat extends Command
             }
             $output->close();
             $this->newLine();
+
+            // Links the assistant chose to show are made here, never passed through the model.
+            foreach (app(MagicLinkTray::class)->take() as $batch) {
+                $this->table(['الاسم', 'الرابط'], showMagicLinks::linksFor($batch['role'], $batch['ids'])
+                    ->map(fn (array $person) => [$person['name'], $person['link'] ?? '—'])
+                    ->all());
+            }
 
         }
     }
