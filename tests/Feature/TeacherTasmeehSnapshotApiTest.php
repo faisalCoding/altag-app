@@ -180,6 +180,7 @@ it('sends the exam levels by juz count, with the pending exams and the level eac
     expect($response->json('data.exams'))->toBe([[
         'id' => $pending->id, 'uuid' => null, 'student_id' => $this->student->id, 'level_id' => $two->id,
         'status' => 'pending', 'date' => '2026-07-01', 'date_hijri' => HijriDate::full('2026-07-01'),
+        'ready' => true, 'expected_on' => null,
         'location' => 'المسجد', 'updated_at' => $pending->updated_at->toISOString(),
     ]]);
 

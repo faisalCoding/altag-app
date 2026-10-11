@@ -13,6 +13,7 @@ use App\Models\StudentPlan;
 use App\Models\StudentPlanDay;
 use App\Models\Surah;
 use App\Models\Teacher;
+use App\Services\ExamReadiness;
 use App\Services\NotificationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
@@ -112,28 +113,31 @@ it('notifies the student when their plan is approved', function () {
     expect(AppNotification::first()->type)->toBe('plan_approved');
 });
 
-it('notifies the student when a new exam is scheduled and when its result is recorded', function () {
+it('notifies the student when a batch gives their exam a day, and when its result is recorded — never when only put forward', function () {
     $examLevel = ExamLevel::create(['name' => 'مستوى أول']);
 
     $this->actingAs($this->teacher, 'teacher');
 
-    $component = Livewire::test('teacher.student-exams')
+    Livewire::test('teacher.student-exams')
+        ->call('nominate')
         ->set('studentId', $this->student->id)
         ->set('examLevelId', $examLevel->id)
-        ->set('dateTime', now()->addDay()->format('Y-m-d\TH:i'))
-        ->set('status', 'pending')
-        ->call('save');
+        ->call('saveNomination')
+        ->assertHasNoErrors();
+
+    expect(NotificationService::unreadCountFor('student', $this->student->id))->toBe(0);
+
+    $exam = StudentExam::sole();
+    ExamReadiness::createBatch(now()->addWeek()->format('Y-m-d H:i'), 'قاعة الجمعية', null, [$exam->id], null);
 
     expect(NotificationService::unreadCountFor('student', $this->student->id))->toBe(1);
     expect(AppNotification::orderByDesc('id')->first()->type)->toBe('exam_scheduled');
 
-    $exam = StudentExam::first();
-
     Livewire::test('teacher.student-exams')
-        ->call('edit', $exam->id)
+        ->call('editResult', $exam->id)
         ->set('status', 'passed')
         ->set('scorePercentage', 90)
-        ->call('save');
+        ->call('saveResult');
 
     expect(NotificationService::unreadCountFor('student', $this->student->id))->toBe(2);
     expect(AppNotification::orderByDesc('id')->first()->type)->toBe('exam_result');

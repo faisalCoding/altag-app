@@ -205,6 +205,7 @@ final class StudentProgressReport
     public static function exams(Student $student): array
     {
         $exams = StudentExam::where('student_id', $student->id)
+            ->visibleToStudent()
             ->with('examLevel:id,name')
             ->orderBy('date_time')
             ->get();

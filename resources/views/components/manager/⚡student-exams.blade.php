@@ -60,6 +60,13 @@ new class extends Component {
         $this->resetValidation();
         $exam = StudentExam::findOrFail($id);
 
+        // A nomination has no day yet: it is seated from the readiness page.
+        if ($exam->status === StudentExam::NOMINATED) {
+            $this->redirectRoute('manager.exam-readiness', navigate: true);
+
+            return;
+        }
+
         $this->editingId = $exam->id;
         $this->studentId = $exam->student_id;
         $this->examLevelId = $exam->exam_level_id;
@@ -158,13 +165,19 @@ new class extends Component {
                                     <flux:badge color="amber">تغيب</flux:badge>
                                 @elseif($exam->status === 'pending')
                                     <flux:badge color="blue">في الانتظار</flux:badge>
+                                @elseif($exam->status === 'nominated')
+                                    <flux:badge color="sky">{{ $exam->ready_at ? 'مرشح، جاهز' : 'مرشح، جاهزيته متوقعة' }}</flux:badge>
                                 @else
                                     <flux:badge color="zinc">ملغى</flux:badge>
                                 @endif
                             </flux:table.cell>
                             <flux:table.cell class="first:ps-3" >
-                                <div class="text-sm"><x-hijri-date :date="$exam->date_time" /></div>
-                                <div class="text-xs text-zinc-500">{{ $exam->date_time->format('h:i A') }}</div>
+                                @if($exam->date_time)
+                                    <div class="text-sm"><x-hijri-date :date="$exam->date_time" /></div>
+                                    <div class="text-xs text-zinc-500">{{ $exam->date_time->format('h:i A') }}</div>
+                                @else
+                                    <a href="{{ route('manager.exam-readiness') }}" wire:navigate class="text-xs text-sky-600 hover:underline">يُحدَّد في دفعة</a>
+                                @endif
                             </flux:table.cell>
                             <flux:table.cell class="first:ps-3" >
                                 @if($exam->score_percentage !== null)

@@ -10,14 +10,16 @@ use Illuminate\Support\Collection;
 
 /**
  * A student's next exam as the box beside their name reads it: the juz count
- * of its level, its Hijri date, and how near it is.
+ * of its level, and where the student stands — put forward and ready, put
+ * forward for a day expected, or seated in a batch with its day and how near
+ * it is.
  *
  * The tasmeeh card draws it large in its header and the tasmeeh page small
  * beside each name in its list. Both read it through this one place, so the
  * two can never disagree on which exam is next or on when one turns soon.
  *
- * The next exam is the earliest pending one whatever its date: one that
- * slipped past its day without a result is still the one awaited.
+ * The next exam is the student's open one: a seated exam that slipped past its
+ * day without a result is still the one awaited.
  */
 class NextExamBadge
 {
@@ -44,7 +46,7 @@ class NextExamBadge
      * for the whole list. A student with nothing pending has no entry.
      *
      * @param  array<int, int>  $studentIds
-     * @return Collection<int, array{juz: ?int, word: ?string, level: string, date_hijri: string, soon: bool, overdue: bool}>
+     * @return Collection<int, array{state: string, juz: ?int, word: ?string, level: string, date_hijri: string, soon: bool, overdue: bool}>
      */
     public static function forStudents(array $studentIds): Collection
     {
@@ -72,12 +74,15 @@ class NextExamBadge
             return collect();
         }
 
+        // A student has one open exam; should an old one still be seated beside
+        // a nomination, the seated one, with its day, is the one awaited.
         return StudentExam::whereIn('student_id', $studentIds)
-            ->pending()
+            ->open()
             ->with('examLevel.endAyah:id,juz_number')
             ->get()
             ->sortBy([
-                fn (StudentExam $a, StudentExam $b) => $a->date_time->toDateString() <=> $b->date_time->toDateString(),
+                fn (StudentExam $a, StudentExam $b) => ($a->status === StudentExam::SCHEDULED ? 0 : 1) <=> ($b->status === StudentExam::SCHEDULED ? 0 : 1),
+                fn (StudentExam $a, StudentExam $b) => ($a->date_time?->toDateString() ?? '') <=> ($b->date_time?->toDateString() ?? ''),
                 fn (StudentExam $a, StudentExam $b) => $a->id <=> $b->id,
             ])
             ->unique('student_id')
@@ -88,19 +93,41 @@ class NextExamBadge
      * The badge of one exam, its level loaded. Today is passed in when a whole
      * list is read, so every row is measured against the same day.
      *
-     * @return array{juz: ?int, word: ?string, level: string, date_hijri: string, soon: bool, overdue: bool}
+     * The state says where the student stands: 'ready' put forward and ready,
+     * 'expected' put forward for a day to come, 'due' that day come and the
+     * teacher yet to confirm, 'scheduled' seated in a batch with its day.
+     *
+     * @return array{state: string, juz: ?int, word: ?string, level: string, date_hijri: string, soon: bool, overdue: bool}
      */
     public static function of(StudentExam $exam, ?CarbonImmutable $today = null): array
     {
         $today ??= CarbonImmutable::parse(TeacherSyncSnapshot::today());
-        $date = $exam->date_time->toDateString();
-        $daysAway = (int) $today->diffInDays($date, false);
         $juz = $exam->examLevel?->juzCount();
-
-        return [
+        $badge = [
             'juz' => $juz,
             'word' => $juz === null ? null : ExamLevel::juzWord($juz),
             'level' => $exam->examLevel?->name ?? '',
+        ];
+
+        if ($exam->status === StudentExam::NOMINATED) {
+            $expected = $exam->expected_ready_on?->toDateString();
+            $state = match (true) {
+                $exam->ready_at !== null || $expected === null => 'ready',
+                $expected <= $today->toDateString() => 'due',
+                default => 'expected',
+            };
+
+            return ['state' => $state] + $badge + [
+                'date_hijri' => $state === 'ready' ? '' : HijriDate::full($expected),
+                'soon' => false,
+                'overdue' => false,
+            ];
+        }
+
+        $date = $exam->date_time->toDateString();
+        $daysAway = (int) $today->diffInDays($date, false);
+
+        return ['state' => 'scheduled'] + $badge + [
             'date_hijri' => HijriDate::full($date),
             'soon' => $daysAway >= 0 && $daysAway <= self::SOON_DAYS,
             'overdue' => $daysAway < 0,

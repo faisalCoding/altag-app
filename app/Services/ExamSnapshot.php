@@ -9,9 +9,10 @@ use App\Models\StudentExam;
 use Illuminate\Support\Collection;
 
 /**
- * What the teacher app needs to show each student's next exam and to schedule
- * one offline: the exam levels with their juz counts, every exam still pending
- * for the teacher's students, and the level each student would sit next.
+ * What the teacher app needs to show each student's next exam and to put
+ * students forward offline: the exam levels with their juz counts, every exam
+ * still pending for the teacher's students, the students put forward and not
+ * yet seated, and the level each student would sit next.
  *
  * The next exam is the earliest pending one whatever its date: an exam that
  * slipped past its day without a result is still the one the student awaits,
@@ -21,7 +22,7 @@ class ExamSnapshot
 {
     /**
      * @param  array<int, int>  $studentIds
-     * @return array{exam_levels: array<int, SyncExamLevelResource>, exams: array<int, SyncExamResource>, exam_suggestions: array<int, array{student_id: int, level_id: int}>}
+     * @return array{exam_levels: array<int, SyncExamLevelResource>, exams: array<int, SyncExamResource>, exam_nominations: array<int, SyncExamResource>, exam_suggestions: array<int, array{student_id: int, level_id: int}>}
      */
     public static function for(array $studentIds): array
     {
@@ -33,11 +34,19 @@ class ExamSnapshot
             ->orderBy('id')
             ->get();
 
+        $nominations = StudentExam::whereIn('student_id', $studentIds)
+            ->nominated()
+            ->orderBy('id')
+            ->get();
+
         return [
             'exam_levels' => $levels->values()
                 ->map(fn (ExamLevel $level, int $position) => new SyncExamLevelResource($level, $position))
                 ->all(),
+            // Seated exams only, as apps before nominations read them: a day is never missing.
             'exams' => SyncExamResource::collection($exams)->all(),
+            // Students put forward and not yet seated, for apps that know them.
+            'exam_nominations' => SyncExamResource::collection($nominations)->all(),
             'exam_suggestions' => self::suggestions($studentIds, $levels),
         ];
     }
@@ -46,11 +55,11 @@ class ExamSnapshot
      * The nothing an app sees while both the tasmeeh and the exams pages are
      * switched off for teachers: either one shows the next exam.
      *
-     * @return array{exam_levels: array{}, exams: array{}, exam_suggestions: array{}}
+     * @return array{exam_levels: array{}, exams: array{}, exam_nominations: array{}, exam_suggestions: array{}}
      */
     public static function empty(): array
     {
-        return ['exam_levels' => [], 'exams' => [], 'exam_suggestions' => []];
+        return ['exam_levels' => [], 'exams' => [], 'exam_nominations' => [], 'exam_suggestions' => []];
     }
 
     /**

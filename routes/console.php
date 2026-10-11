@@ -21,3 +21,7 @@ Schedule::command('students:sync-current-status')->dailyAt('00:10');
 // Close out bus bookings whose prepayment deadline passed unpaid. Their buses
 // are free from midnight regardless; this writes the cancellation down.
 Schedule::command('bus:expire-unpaid')->dailyAt('00:15');
+
+// Remind teachers, once, when the day they expected a student to be ready for
+// the association's exam comes: readiness is theirs to confirm. 07:00 Riyadh.
+Schedule::command('exams:remind-readiness')->dailyAt('04:00');

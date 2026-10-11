@@ -158,7 +158,7 @@ it('draws a box at the end of every name in every section: the next exam\'s numb
         expect(listRow($html, $student)[1])
             ->toStartWith('<button')
             ->toContain('data-exam-box="none"')
-            ->toContain('aria-label="إضافة الاختبار القادم — '.$student->name.'"')
+            ->toContain('aria-label="ترشيح للاختبار — '.$student->name.'"')
             ->toContain('border-dashed')
             ->toContain(openEditorCall($student));
     }
@@ -314,5 +314,5 @@ it('names the student in each box\'s label', function () {
     $student = boxStudent('أحمد');
 
     expect(listRow(Livewire::test('teacher.⚡tasmeeh-manager')->html(), $student)[1])
-        ->toContain('aria-label="إضافة الاختبار القادم — أحمد"');
+        ->toContain('aria-label="ترشيح للاختبار — أحمد"');
 });

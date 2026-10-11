@@ -151,6 +151,7 @@ Route::middleware(['auth:manager', 'approved', 'page.enabled'])->prefix('manager
     Route::view('/messages', 'manager.messages')->name('messages');
     Route::view('/role-permissions', 'manager.role-permissions')->name('role-permissions');
     Route::view('/circle-rules', 'manager.circle-rules')->name('circle-rules');
+    Route::view('/exam-readiness', 'manager.exam-readiness')->name('exam-readiness');
     Route::get('/circle-rules/acknowledgements/{acknowledgement}/pdf', [RuleAcknowledgementPdfController::class, 'show'])->name('circle-rules.pdf');
     Route::view('/forms', 'manager.forms')->name('forms');
     Route::get('/forms/create', fn () => view('manager.form-create'))->name('forms.create');
@@ -204,6 +205,7 @@ Route::middleware(['auth:supervisor', 'approved', 'page.enabled', 'surveys.requi
     Route::view('/whatsapp-settings', 'supervisor.whatsapp-settings')->name('whatsapp-settings');
     Route::view('/messages', 'supervisor.messages')->name('messages');
     Route::view('/rules', 'supervisor.rules')->name('rules');
+    Route::view('/exam-readiness', 'supervisor.exam-readiness')->name('exam-readiness');
 
     // Forms Builder Routes
     Route::view('/forms', 'supervisor.forms')->name('forms');

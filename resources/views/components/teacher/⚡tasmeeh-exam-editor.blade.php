@@ -3,19 +3,15 @@
 use App\Models\ExamLevel;
 use App\Models\Student;
 use App\Models\StudentExam;
-use App\Services\ExamChangeService;
+use App\Services\ExamReadiness;
 use App\Services\ExamSnapshot;
-use App\Services\NotificationService;
 use App\Services\TeacherSyncSnapshot;
 use App\Support\HijriDate;
 use App\Support\NextExamBadge;
 use Carbon\CarbonImmutable;
 use Flux\Flux;
-use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
@@ -25,15 +21,15 @@ use Livewire\Component;
  * The tasmeeh page's one exam editor, opened by the box at the end of a
  * student's name, in the list or in their card.
  *
- * Without a pending exam it sets one: the level the student would sit next
- * already chosen, as the teacher app chooses it, and a day a fortnight on.
- * With one it shows that exam, and lets its level, day and place change.
- * Results stay with the exams page, as they do for the phone.
+ * A teacher does not set the exam's day: they put the student forward for a
+ * level, ready now or by a day they expect, and the manager seats the ready
+ * ones in a dated batch. Without an open exam the editor puts the student
+ * forward, the level the student would sit next already chosen. Put forward,
+ * the nomination can change, be confirmed ready once the expected day comes,
+ * or be taken back. Seated, the exam is shown as the manager set it.
  *
  * It is mounted once for the whole page and stays empty until opened, so the
- * list costs nothing more to draw however many students it holds. It writes
- * under the lock the teacher app's exam changes take, and by the same rules:
- * one pending exam per student, never on a day already gone.
+ * list costs nothing more to draw however many students it holds.
  */
 new class extends Component {
     #[Locked]
@@ -42,7 +38,7 @@ new class extends Component {
     #[Locked]
     public string $studentName = '';
 
-    /** The pending exam on show; null while a new one is being set. */
+    /** The open exam on show; null while the student is being put forward. */
     #[Locked]
     public ?int $examId = null;
 
@@ -50,27 +46,18 @@ new class extends Component {
     #[Locked]
     public ?int $suggestedLevelId = null;
 
-    /**
-     * The exam on show as the form was filled from it: level, day and place.
-     * A change is written only while the exam still stands so, as the teacher
-     * app's base value guards its own.
-     *
-     * @var array{0: int, 1: string, 2: string}|null
-     */
-    #[Locked]
-    public ?array $base = null;
-
     public bool $showEditor = false;
 
-    /** Whether the exam on show is open for changing. A new one always is. */
+    /** Whether the nomination on show is open for changing. A new one always is. */
     public bool $changing = false;
 
     /** @var int|string|null */
     public $levelId = null;
 
-    public ?string $date = null;
+    /** 'now' or 'expected'. */
+    public string $readiness = 'now';
 
-    public string $location = '';
+    public ?string $expectedOn = null;
 
     #[On('open-exam-editor')]
     public function open(int $studentId): void
@@ -90,10 +77,7 @@ new class extends Component {
         $this->showEditor = true;
     }
 
-    /**
-     * Open the exam on show for changing, the form filled from it as it
-     * stands now rather than as it stood when the editor opened.
-     */
+    /** Open the nomination on show for changing, filled as it stands now. */
     public function startChanging(): void
     {
         if ($this->studentId === null) {
@@ -101,13 +85,10 @@ new class extends Component {
         }
 
         $this->reload();
-        $this->changing = $this->examId !== null;
+        $this->changing = $this->openExam()?->status === StudentExam::NOMINATED;
     }
 
-    /**
-     * Leave the form: a change goes back to the exam as it stands, a new
-     * exam closes the editor.
-     */
+    /** Leave the form: a change goes back to the nomination, a new one closes the editor. */
     public function cancel(): void
     {
         if ($this->examId !== null && $this->changing && $this->studentId !== null) {
@@ -129,39 +110,64 @@ new class extends Component {
             return;
         }
 
-        $exam = $this->examId === null ? null : StudentExam::where('student_id', $student->id)->find($this->examId);
-
-        $this->validate($this->examRules($exam), [
+        $this->validate([
+            'levelId' => ['required', 'integer', 'exists:exam_levels,id'],
+            'readiness' => ['required', 'in:now,expected'],
+            // A day to come on the academy's clock, never the bare `tomorrow` rule, which reads UTC.
+            'expectedOn' => ['required_if:readiness,expected', 'nullable', 'date_format:Y-m-d', 'after:'.TeacherSyncSnapshot::today()],
+        ], [
             'levelId.required' => 'اختر مستوى الاختبار.',
             'levelId.integer' => 'اختر مستوى الاختبار.',
             'levelId.exists' => 'لم يعد هذا المستوى موجوداً، فاختر غيره.',
-            'date.required' => 'اختر موعد الاختبار.',
-            'date.date_format' => 'اختر موعد الاختبار من التقويم.',
-            'date.after_or_equal' => 'مضى هذا اليوم، فاختر يوماً قادماً للاختبار.',
-            'location.max' => 'المكان أطول من أن يُحفظ، فاختصره.',
+            'expectedOn.required_if' => 'اختر اليوم الذي تتوقع أن يكون فيه جاهزاً.',
+            'expectedOn.date_format' => 'اختر اليوم من التقويم.',
+            'expectedOn.after' => 'اختر يوماً قادماً، أو اختر «جاهز الآن».',
         ]);
 
-        try {
-            $saved = Cache::lock(ExamChangeService::studentLockKey($student->id), 10)->block(5, fn () => DB::transaction(
-                fn () => $this->examId === null ? $this->schedule($student) : $this->move($student),
-            ));
-        } catch (LockTimeoutException) {
-            // The phone is writing this student's exam right now; nothing was saved.
-            Flux::toast('لم يُحفظ الاختبار: يجري تعديل اختبار هذا الطالب من جهاز آخر، أعد المحاولة.', variant: 'danger');
+        $expected = $this->readiness === 'expected' ? $this->expectedOn : null;
+        // What the form was opened on decides: a new nomination never writes
+        // over one made meanwhile from the phone or by another teacher.
+        $exam = $this->examId === null ? null : StudentExam::where('student_id', $student->id)->find($this->examId);
+
+        $result = match (true) {
+            $this->examId === null => ExamReadiness::nominate($student, (int) $this->levelId, $expected, Auth::guard('teacher')->user()),
+            $exam === null => 'حُذف هذا الترشيح من جهاز آخر في هذه الأثناء.',
+            default => ExamReadiness::revise($exam, (int) $this->levelId, $expected),
+        };
+
+        if (is_string($result)) {
+            $this->reload();
+            Flux::toast($result, variant: 'warning');
 
             return;
         }
 
-        if (! $saved) {
+        $this->done($this->examId === null ? 'رُشّح الطالب للاختبار، وتحدد الإدارة موعده.' : 'تم حفظ الترشيح');
+    }
+
+    /** The day expected has come and the teacher says the student is ready. */
+    public function confirmReady(): void
+    {
+        $exam = $this->openExam();
+
+        if ($exam?->status === StudentExam::NOMINATED) {
+            ExamReadiness::confirmReady($exam);
+            $this->done('أُكّدت جاهزية الطالب، وتحدد الإدارة موعد اختباره.');
+        }
+    }
+
+    public function withdraw(): void
+    {
+        $exam = $this->openExam();
+
+        if ($exam && ExamReadiness::withdraw($exam)) {
+            $this->done('أُلغي ترشيح الطالب');
+
             return;
         }
 
-        $this->showEditor = false;
-        Flux::toast('تم حفظ الاختبار', variant: 'success');
-
-        // The list redraws every box; only this student's card redraws its own.
-        $this->dispatch('exam-saved', studentId: $student->id);
-        $this->dispatch("exam-saved.{$student->id}");
+        $this->reload();
+        Flux::toast('جُدول اختبار الطالب في دفعة، فلم يعد الترشيح قابلاً للإلغاء.', variant: 'warning');
     }
 
     /**
@@ -180,32 +186,31 @@ new class extends Component {
         // Closed and never opened: nothing to read, so the tasmeeh list draws
         // with no query of the editor's.
         if ($this->studentId === null) {
-            return ['exam' => null, 'badge' => null, 'when' => '', 'quickDates' => [], 'today' => ''];
+            return ['exam' => null, 'badge' => null, 'when' => '', 'today' => ''];
         }
 
         $today = TeacherSyncSnapshot::today();
         $exam = $this->examId === null ? null : StudentExam::with('examLevel.endAyah:id,juz_number')
             ->where('student_id', $this->studentId)
             ->find($this->examId);
-        $date = $exam?->date_time->toDateString();
+        $scheduledOn = $exam?->status === StudentExam::SCHEDULED ? $exam->date_time->toDateString() : null;
 
         return [
             'exam' => $exam,
             'badge' => $exam ? NextExamBadge::of($exam, CarbonImmutable::parse($today)) : null,
-            'when' => $exam ? $this->relativeDays((int) CarbonImmutable::parse($today)->diffInDays($date, false)) : '',
-            'quickDates' => $this->quickDates($today),
+            'when' => $scheduledOn ? $this->relativeDays((int) CarbonImmutable::parse($today)->diffInDays($scheduledOn, false)) : '',
             'today' => $today,
         ];
     }
 
     /**
-     * The student, if the teacher may set exams and the student is still an
-     * active one of theirs; otherwise null, the teacher told why.
+     * The student, if the teacher may put students forward and the student
+     * is still an active one of theirs; otherwise null, the teacher told why.
      */
     private function allowedStudent(int $studentId): ?Student
     {
         if (! NextExamBadge::canSchedule()) {
-            Flux::toast('صفحة الاختبارات مغلقة للمعلمين الآن، فلا يُجدول اختبار من هنا.', variant: 'danger');
+            Flux::toast('صفحة الاختبارات مغلقة للمعلمين الآن، فلا يُرشَّح طالب من هنا.', variant: 'danger');
 
             return null;
         }
@@ -225,162 +230,39 @@ new class extends Component {
         return $student;
     }
 
-    /**
-     * Fill the editor from the student's pending exam, or for a new one when
-     * there is none.
-     */
+    /** The student's open exam as it stands now. */
+    private function openExam(): ?StudentExam
+    {
+        return $this->studentId === null ? null : NextExamBadge::nextExams([$this->studentId])->get($this->studentId);
+    }
+
+    /** Fill the editor from the student's open exam, or for a new nomination. */
     private function prepare(?StudentExam $exam): void
     {
         $this->resetValidation();
         $this->examId = $exam?->id;
         $this->changing = false;
         $this->suggestedLevelId = ExamSnapshot::suggestedLevelId($this->studentId, $this->levels);
-
-        if ($exam) {
-            $this->levelId = $exam->exam_level_id;
-            $this->date = $exam->date_time->toDateString();
-            $this->location = (string) $exam->location;
-            $this->base = self::standing($exam);
-
-            return;
-        }
-
-        $this->base = null;
-        $this->levelId = $this->suggestedLevelId;
-        $this->date = $this->quickDates(TeacherSyncSnapshot::today())['two_weeks']['date'];
-        $this->location = '';
+        $this->levelId = $exam?->exam_level_id ?? $this->suggestedLevelId;
+        $expected = $exam?->status === StudentExam::NOMINATED && $exam->ready_at === null ? $exam->expected_ready_on?->toDateString() : null;
+        $this->readiness = $expected ? 'expected' : 'now';
+        $this->expectedOn = $expected;
     }
 
     private function reload(): void
     {
-        $this->prepare(NextExamBadge::nextExams([$this->studentId])->get($this->studentId));
+        $this->prepare($this->openExam());
     }
 
-    /**
-     * The day is checked against today on the academy's clock, never the bare
-     * `today` rule, which reads UTC. A day kept as it was is not checked: an
-     * exam that slipped past its day may still change level or place without
-     * being moved, as the teacher app allows.
-     *
-     * @return array<string, array<int, string>>
-     */
-    private function examRules(?StudentExam $exam): array
+    /** Close the editor on a saved change, the boxes drawn again. */
+    private function done(string $message): void
     {
-        $keepsDay = $exam !== null && $this->date === $exam->date_time->toDateString();
+        $this->showEditor = false;
+        Flux::toast($message, variant: 'success');
 
-        return [
-            'levelId' => ['required', 'integer', 'exists:exam_levels,id'],
-            'date' => ['required', 'date_format:Y-m-d', ...($keepsDay ? [] : ['after_or_equal:'.TeacherSyncSnapshot::today()])],
-            'location' => ['nullable', 'string', 'max:255'],
-        ];
-    }
-
-    /**
-     * Write the new exam, unless one turned up since the editor opened.
-     */
-    private function schedule(Student $student): bool
-    {
-        // Another teacher of the circle, or this one on the phone, may have
-        // set one meanwhile. A student waits on one exam at a time, so that
-        // one is shown instead of a second written beside it.
-        $pending = NextExamBadge::nextExams([$student->id])->get($student->id);
-
-        if ($pending) {
-            $this->prepare($pending);
-            Flux::toast('سُجّل للطالب اختبار قادم في هذه الأثناء، فلم يُضف آخر. هذا هو، ويمكنك تغييره.', variant: 'warning');
-
-            return false;
-        }
-
-        StudentExam::create([
-            'student_id' => $student->id,
-            'exam_level_id' => (int) $this->levelId,
-            // The column defaults to passed, which an exam yet to be sat is not.
-            'status' => 'pending',
-            // A day without an hour, as the teacher app writes it.
-            'date_time' => "{$this->date} 00:00:00",
-            'location' => $this->locationOrNull(),
-        ]);
-
-        // Told once the exam is safely written, as the exams page tells them.
-        DB::afterCommit(fn () => NotificationService::notify(
-            'student',
-            $student->id,
-            'exam_scheduled',
-            'اختبار جديد مجدول',
-            'تم جدولة اختبار جديد لك، تفقّد التفاصيل',
-            route('student.exams'),
-        ));
-
-        return true;
-    }
-
-    /**
-     * Move the exam on show, if it is still waiting to be sat.
-     */
-    private function move(Student $student): bool
-    {
-        $exam = StudentExam::where('student_id', $student->id)->find($this->examId);
-
-        if (! $exam || $exam->status !== 'pending') {
-            $this->reload();
-            Flux::toast('لم يعد هذا الاختبار في الانتظار: حُذف أو رُصدت نتيجته من صفحة الاختبارات.', variant: 'warning');
-
-            return false;
-        }
-
-        // Changed from the phone or the exams page since this form was filled:
-        // writing it now would undo that change unseen.
-        if (self::standing($exam) !== $this->base) {
-            $this->reload();
-            $this->changing = true;
-            Flux::toast('غُيّر هذا الاختبار من جهاز آخر في هذه الأثناء، فلم يُحفظ تغييرك. هذا هو الآن، فراجعه ثم احفظ.', variant: 'warning');
-
-            return false;
-        }
-
-        $exam->update([
-            'exam_level_id' => (int) $this->levelId,
-            // The day moves; an hour the exams page may have set stays.
-            'date_time' => $exam->date_time->copy()->setDateFrom($this->date),
-            'location' => $this->locationOrNull(),
-        ]);
-
-        return true;
-    }
-
-    /**
-     * An exam's level, day and place, as the form shows them.
-     *
-     * @return array{0: int, 1: string, 2: string}
-     */
-    private static function standing(StudentExam $exam): array
-    {
-        return [(int) $exam->exam_level_id, $exam->date_time->toDateString(), (string) $exam->location];
-    }
-
-    private function locationOrNull(): ?string
-    {
-        $location = trim($this->location);
-
-        return $location === '' ? null : $location;
-    }
-
-    /**
-     * The shortcuts the teacher app offers beside its calendar, on the same
-     * days: the coming Sunday, a fortnight on, and a month on.
-     *
-     * @return array<string, array{label: string, date: string}>
-     */
-    private function quickDates(string $today): array
-    {
-        $today = CarbonImmutable::parse($today);
-
-        return [
-            'sunday' => ['label' => 'الأحد القادم', 'date' => $today->addDays(7 - $today->dayOfWeek)->toDateString()],
-            'two_weeks' => ['label' => 'بعد أسبوعين', 'date' => $today->addDays(14)->toDateString()],
-            'month' => ['label' => 'بعد شهر', 'date' => $today->addDays(30)->toDateString()],
-        ];
+        // The list redraws every box; only this student's card redraws its own.
+        $this->dispatch('exam-saved', studentId: $this->studentId);
+        $this->dispatch("exam-saved.{$this->studentId}");
     }
 
     /**
@@ -406,13 +288,17 @@ new class extends Component {
     {{-- Scrolling the page rather than the card, so the calendar may hang below the card. --}}
     <flux:modal wire:model.self="showEditor" scroll="body" class="w-full md:w-[30rem]">
         @if ($studentId !== null)
+            @php
+                $state = $badge['state'] ?? null;
+                $scheduled = $state === 'scheduled';
+            @endphp
             <div class="space-y-5">
                 <div>
                     <flux:heading size="lg">
-                        {{ $examId === null ? __('تحديد اختبار') : __('الاختبار القادم') }} — {{ $studentName }}
+                        {{ $examId === null ? __('ترشيح للاختبار') : ($scheduled ? __('الاختبار القادم') : __('ترشيح للاختبار')) }} — {{ $studentName }}
                     </flux:heading>
                     @if ($examId === null)
-                        <flux:subheading>{{ __('اختر المستوى والموعد، ويصل الطالبَ إشعارٌ بالاختبار.') }}</flux:subheading>
+                        <flux:subheading>{{ __('اختر المستوى ومتى يكون الطالب جاهزاً، وتحدد الإدارة موعد الاختبار.') }}</flux:subheading>
                     @endif
                 </div>
 
@@ -420,12 +306,17 @@ new class extends Component {
                     <div @class([
                         'flex items-center gap-4 rounded-xl p-4',
                         'bg-red-50 dark:bg-red-500/10' => $badge['overdue'],
-                        'bg-indigo-50 dark:bg-indigo-500/10' => ! $badge['overdue'],
+                        'bg-amber-50 dark:bg-amber-500/10' => $state === 'due',
+                        'bg-indigo-50 dark:bg-indigo-500/10' => ! $badge['overdue'] && $state !== 'due',
                     ])>
                         <div @class([
                             'size-14 shrink-0 rounded-xl flex flex-col items-center justify-center leading-none bg-white dark:bg-zinc-900',
+                            'border-2 border-dashed' => ! $scheduled,
+                            'border-indigo-300 dark:border-indigo-500/50' => in_array($state, ['ready', 'expected'], true),
+                            'border-amber-400' => $state === 'due',
                             'text-red-600 dark:text-red-400' => $badge['overdue'],
-                            'text-indigo-700 dark:text-indigo-300' => ! $badge['overdue'],
+                            'text-amber-700 dark:text-amber-300' => $state === 'due',
+                            'text-indigo-700 dark:text-indigo-300' => ! $badge['overdue'] && $state !== 'due',
                         ])>
                             @if ($badge['juz'] !== null)
                                 <span class="text-2xl font-bold">{{ HijriDate::arabicDigits($badge['juz']) }}</span>
@@ -436,27 +327,38 @@ new class extends Component {
                         </div>
                         <div class="min-w-0">
                             <flux:heading size="lg" class="truncate">{{ $badge['level'] ?: __('مستوى محذوف') }}</flux:heading>
-                            <div class="text-sm text-zinc-700 dark:text-zinc-200 mt-1">{{ HijriDate::withWeekday($exam->date_time) }}</div>
-                            <div @class([
-                                'text-xs mt-0.5',
-                                'text-red-600 dark:text-red-400 font-medium' => $badge['overdue'],
-                                'text-zinc-500 dark:text-zinc-400' => ! $badge['overdue'],
-                            ])>
-                                {{ $when }}{{ $badge['overdue'] ? '، '.__('ولم تُرصد نتيجته بعد') : '' }}
-                            </div>
+                            @if ($scheduled)
+                                <div class="text-sm text-zinc-700 dark:text-zinc-200 mt-1" data-exam-day>{{ HijriDate::withWeekday($exam->date_time->toDateString()) }}</div>
+                                <div @class([
+                                    'text-xs mt-0.5',
+                                    'text-red-600 dark:text-red-400 font-medium' => $badge['overdue'],
+                                    'text-zinc-500 dark:text-zinc-400' => ! $badge['overdue'],
+                                ])>
+                                    {{ $when }}{{ $badge['overdue'] ? '، '.__('ولم تُرصد نتيجته بعد') : '' }}
+                                </div>
+                            @elseif ($state === 'ready')
+                                <div class="text-sm text-zinc-700 dark:text-zinc-200 mt-1">{{ __('جاهز، بانتظار موعد من الإدارة') }}</div>
+                            @elseif ($state === 'expected')
+                                <div class="text-sm text-zinc-700 dark:text-zinc-200 mt-1">{{ __('جاهزيته متوقعة') }} {{ $badge['date_hijri'] }}</div>
+                            @else
+                                <div class="text-sm font-medium text-amber-800 dark:text-amber-200 mt-1">{{ __('حان اليوم المتوقع لجاهزيته') }}</div>
+                                <div class="text-xs text-amber-700/80 dark:text-amber-300/80 mt-0.5">{{ __('أكّد جاهزيته ليُدرج في الدفعات، أو حدّد يوماً آخر.') }}</div>
+                            @endif
                         </div>
                     </div>
 
-                    <div class="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-300">
-                        <flux:icon icon="map-pin" variant="mini" class="size-4 shrink-0 text-zinc-400" />
-                        <span>{{ $exam->location ?: __('لم يُحدَّد المكان') }}</span>
-                    </div>
+                    @if ($scheduled)
+                        <div class="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-300">
+                            <flux:icon icon="map-pin" variant="mini" class="size-4 shrink-0 text-zinc-400" />
+                            <span>{{ $exam->location ?: __('لم يُحدَّد المكان') }}</span>
+                        </div>
+                    @endif
                 @endif
 
                 @if ($examId === null || $changing)
                     <form wire:submit="save" class="space-y-4">
                         @if ($examId !== null)
-                            <flux:separator text="{{ __('تغيير الاختبار') }}" />
+                            <flux:separator text="{{ __('تعديل الترشيح') }}" />
                         @endif
 
                         <flux:select wire:model="levelId" label="{{ __('المستوى') }}" placeholder="{{ __('اختر المستوى') }}">
@@ -467,55 +369,51 @@ new class extends Component {
                             @endforeach
                         </flux:select>
 
-                        <flux:field>
-                            <flux:label>{{ __('الموعد') }}</flux:label>
+                        <flux:radio.group wire:model.live="readiness" label="{{ __('الجاهزية') }}" variant="segmented">
+                            <flux:radio value="now" label="{{ __('جاهز الآن') }}" />
+                            <flux:radio value="expected" label="{{ __('في يوم متوقع') }}" />
+                        </flux:radio.group>
 
-                            <div class="flex flex-wrap gap-2">
-                                @foreach ($quickDates as $key => $quick)
-                                    <button type="button" wire:click="$set('date', '{{ $quick['date'] }}')"
-                                        data-quick-date="{{ $key }}"
-                                        aria-pressed="{{ $date === $quick['date'] ? 'true' : 'false' }}"
-                                        @class([
-                                            'px-3 py-1.5 rounded-lg border text-xs font-bold transition-colors',
-                                            'bg-indigo-50 border-indigo-400 text-indigo-700 dark:bg-indigo-500/15 dark:border-indigo-500 dark:text-indigo-300' => $date === $quick['date'],
-                                            'bg-white border-zinc-200 text-zinc-700 hover:border-zinc-300 dark:bg-zinc-900 dark:border-zinc-700 dark:text-zinc-200 dark:hover:border-zinc-600' => $date !== $quick['date'],
-                                        ])>
-                                        {{ $quick['label'] }}
-                                    </button>
-                                @endforeach
-                            </div>
-
-                            {{-- Keyed by the day, so a shortcut above draws the picker again on it. --}}
-                            <livewire:shared.hijri-datepicker
-                                wire:model.live="date"
-                                label=""
-                                :min-date="$today"
-                                :placeholder="__('اختر التاريخ')"
-                                :wire:key="'exam-date-'.$studentId.'-'.$date"
-                            />
-
-                            <flux:error name="date" />
-                        </flux:field>
-
-                        <flux:input wire:model="location" label="{{ __('المكان') }}" placeholder="{{ __('اختياري، مثل: قاعة الجمعية') }}" />
+                        @if ($readiness === 'expected')
+                            <flux:field>
+                                <flux:label>{{ __('اليوم المتوقع لجاهزيته') }}</flux:label>
+                                <livewire:shared.hijri-datepicker
+                                    wire:model="expectedOn"
+                                    label=""
+                                    :min-date="$today"
+                                    :placeholder="__('اختر التاريخ')"
+                                    :wire:key="'expected-'.$studentId"
+                                />
+                                <flux:description>{{ __('لا يُدرج في الدفعات حتى تؤكد جاهزيته، ويصلك تذكير في ذلك اليوم.') }}</flux:description>
+                                <flux:error name="expectedOn" />
+                            </flux:field>
+                        @endif
 
                         <div class="flex justify-end gap-2">
                             <flux:button type="button" variant="ghost" wire:click="cancel">{{ __('إلغاء') }}</flux:button>
-                            <flux:button type="submit" variant="primary">{{ $examId === null ? __('إضافة الاختبار') : __('حفظ التغيير') }}</flux:button>
+                            <flux:button type="submit" variant="primary">{{ $examId === null ? __('ترشيح') : __('حفظ التعديل') }}</flux:button>
                         </div>
                     </form>
-                @else
+                @elseif ($scheduled)
                     <div class="flex flex-wrap items-center justify-between gap-3">
-                        {{-- Not in the accent colour, which this app sets to white. --}}
-                        <flux:link :accent="false" href="{{ route('teacher.student-exams') }}" wire:navigate class="text-sm">
-                            {{ __('صفحة الاختبارات') }}
-                        </flux:link>
-
+                        <span class="text-xs text-zinc-500">{{ __('حدّدت الإدارة موعد هذا الاختبار.') }}</span>
+                        <flux:modal.close>
+                            <flux:button variant="primary">{{ __('تم') }}</flux:button>
+                        </flux:modal.close>
+                    </div>
+                @else
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                        <flux:button variant="ghost" size="sm" icon="trash" class="text-rose-600" wire:click="withdraw"
+                            wire:confirm="{{ __('يُلغى ترشيح الطالب للاختبار. متابعة؟') }}">{{ __('إلغاء الترشيح') }}</flux:button>
                         <div class="flex gap-2">
-                            <flux:button variant="filled" icon="pencil-square" wire:click="startChanging">{{ __('تغيير الاختبار') }}</flux:button>
-                            <flux:modal.close>
-                                <flux:button variant="primary">{{ __('تم') }}</flux:button>
-                            </flux:modal.close>
+                            <flux:button variant="filled" icon="pencil-square" wire:click="startChanging">{{ __('تعديل') }}</flux:button>
+                            @if ($state !== 'ready')
+                                <flux:button variant="primary" icon="check" wire:click="confirmReady">{{ __('تأكيد الجاهزية') }}</flux:button>
+                            @else
+                                <flux:modal.close>
+                                    <flux:button variant="primary">{{ __('تم') }}</flux:button>
+                                </flux:modal.close>
+                            @endif
                         </div>
                     </div>
                 @endif

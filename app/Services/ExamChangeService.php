@@ -7,24 +7,27 @@ use App\Models\ExamLevel;
 use App\Models\Student;
 use App\Models\StudentExam;
 use App\Models\Teacher;
-use Illuminate\Contracts\Cache\LockTimeoutException;
+use App\Support\NextExamBadge;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\DB;
 
 /**
- * Exams scheduled or moved on the teacher's phone, applied to the student's
- * exams.
+ * Students put forward for the association's exam from the teacher's phone.
  *
- * The phone only schedules: it sets the level and the day of a pending exam.
- * Results, the place and notes stay with the web page.
+ * The phone no longer sets an exam's day: the manager seats ready students in
+ * dated batches. It puts a student forward ('nominate') for a level, ready
+ * now or by a day the teacher expects; changes a nomination ('revise') —
+ * confirming readiness is a revision to ready now; and takes one back
+ * ('withdraw'). A seated exam is the manager's: changing it is refused.
+ * Requests from apps that still schedule a day ('create', 'update') are
+ * refused with a word to update the app.
  *
- * A student waits on one exam at a time. Scheduling a second while one is
- * pending — two teachers of the circle, offline on the same morning — comes
- * back as a conflict carrying the exam already there. A moved exam carries the
- * level and day the phone last saw, and is held back as a conflict when the
- * server has since moved it elsewhere. Resending what the server already holds
- * reports as applied, so a dropped connection never schedules twice.
+ * A student has one open exam. Putting forward one who has an open exam
+ * already — two teachers of the circle, offline on the same morning — comes
+ * back as a conflict carrying that exam. A revision carries the nomination as
+ * the phone last saw it, and is held back as a conflict when the server has
+ * since changed it. Resending what the server already holds reports as
+ * applied, so a dropped connection never puts a student forward twice.
  */
 class ExamChangeService
 {
@@ -37,7 +40,6 @@ class ExamChangeService
      */
     public static function apply(Teacher $teacher, array $changes): array
     {
-        $today = TeacherSyncSnapshot::today();
         $changes = collect($changes);
         $students = Student::whereIn('id', $changes->pluck('student_id')->unique())
             ->whereIn('circle_id', $teacher->circles()->pluck('circles.id'))
@@ -45,10 +47,10 @@ class ExamChangeService
             ->get()
             ->keyBy('id');
 
-        $levels = ExamLevel::whereIn('id', $changes->pluck('level_id')->unique())->pluck('id')->flip();
+        $levels = ExamLevel::whereIn('id', $changes->pluck('level_id')->filter()->unique())->pluck('id')->flip();
 
         return $changes
-            ->map(fn (array $change) => ['id' => $change['id']] + self::applyOne($change, $students, $levels, $today))
+            ->map(fn (array $change) => ['id' => $change['id']] + self::applyOne($teacher, $change, $students, $levels))
             ->all();
     }
 
@@ -58,74 +60,56 @@ class ExamChangeService
      * @param  Collection<int, int>  $levels
      * @return array<string, mixed>
      */
-    private static function applyOne(array $change, Collection $students, Collection $levels, string $today): array
+    private static function applyOne(Teacher $teacher, array $change, Collection $students, Collection $levels): array
     {
+        if (in_array($change['action'], ['create', 'update'], true)) {
+            return self::rejected('update_required', 'حدّث التطبيق: صار موعد الاختبار تحدده الإدارة في دفعات، ويرشّح المعلم طلابه للاختبار.');
+        }
+
         $student = $students->get($change['student_id']);
 
         if (! $student) {
             return self::rejected('student_unavailable', 'لم يعد هذا الطالب ضمن حلقاتك.');
         }
 
-        if (! $levels->has($change['level_id'])) {
+        if ($change['action'] !== 'withdraw' && ! $levels->has($change['level_id'] ?? 0)) {
             return self::rejected('exam_level_unavailable', 'لم يعد مستوى الاختبار هذا موجوداً.');
         }
 
-        try {
-            return Cache::lock(self::studentLockKey($student->id), 10)->block(5, fn () => DB::transaction(
-                fn () => $change['action'] === 'create'
-                    ? self::create($student, $change, $today)
-                    : self::update($student, $change, $today),
-            ));
-        } catch (LockTimeoutException) {
-            return self::rejected('busy', 'يجري تعديل اختبار هذا الطالب الآن من جهاز آخر، ستُعاد المحاولة تلقائياً.');
-        }
+        return match ($change['action']) {
+            'nominate' => self::nominate($teacher, $student, $change),
+            'revise' => self::revise($student, $change),
+            default => self::withdraw($student, $change),
+        };
     }
 
     /**
      * @param  array<string, mixed>  $change
      * @return array<string, mixed>
      */
-    private static function create(Student $student, array $change, string $today): array
+    private static function nominate(Teacher $teacher, Student $student, array $change): array
     {
-        $date = $change['date'];
-        $level = (int) $change['level_id'];
-
-        // The change id names the exam it created, so a create resent after a
-        // dropped connection, or after the teacher edited it again, finds it.
+        // The change id names the nomination it made, so a resend, or a
+        // nomination edited again before its reply came, finds it.
         $existing = StudentExam::where('uuid', $change['id'])->where('student_id', $student->id)->first();
 
         if ($existing) {
-            return self::settle($existing, $level, $date, null, $change, $today);
+            return self::settle($existing, $change, null);
         }
 
-        $pending = StudentExam::where('student_id', $student->id)->pending()->orderBy('date_time')->orderBy('id')->first();
+        $open = NextExamBadge::nextExams([$student->id])->get($student->id);
 
-        if ($pending) {
-            return ['result' => 'conflict', 'exam' => new SyncExamResource($pending)];
+        if ($open) {
+            return ['result' => 'conflict', 'exam' => new SyncExamResource($open)];
         }
 
-        if (self::isPast($date, $change['edited_on'], $today)) {
-            return self::rejected('date_in_past', 'مضى هذا اليوم، فاختر يوماً قادماً للاختبار.');
+        $exam = ExamReadiness::nominate($student, (int) $change['level_id'], self::expectedOn($change), $teacher, $change['id']);
+
+        if (is_string($exam)) {
+            $open = NextExamBadge::nextExams([$student->id])->get($student->id);
+
+            return $open ? ['result' => 'conflict', 'exam' => new SyncExamResource($open)] : self::rejected('busy', $exam);
         }
-
-        $exam = StudentExam::create([
-            'uuid' => $change['id'],
-            'student_id' => $student->id,
-            'exam_level_id' => $level,
-            // The column defaults to passed, which an exam yet to be sat is not.
-            'status' => 'pending',
-            'date_time' => "{$date} 00:00:00",
-        ]);
-
-        // Told once the exam is safely written, as the web page tells them.
-        DB::afterCommit(fn () => NotificationService::notify(
-            'student',
-            $student->id,
-            'exam_scheduled',
-            'اختبار جديد مجدول',
-            'تم جدولة اختبار جديد لك، تفقّد التفاصيل',
-            route('student.exams'),
-        ));
 
         return ['result' => 'applied', 'exam' => new SyncExamResource($exam)];
     }
@@ -134,45 +118,61 @@ class ExamChangeService
      * @param  array<string, mixed>  $change
      * @return array<string, mixed>
      */
-    private static function update(Student $student, array $change, string $today): array
+    private static function revise(Student $student, array $change): array
     {
-        $examId = $change['exam']['id'] ?? null;
-        $examUuid = $change['exam']['uuid'] ?? null;
-
-        // An exam created on a phone is known there by its uuid until the
-        // next snapshot brings its id.
-        $exam = $examId === null && $examUuid === null ? null : StudentExam::query()
-            ->where(fn ($q) => $examId !== null ? $q->whereKey($examId) : $q->where('uuid', $examUuid))
-            ->where('student_id', $student->id)
-            ->first();
+        $exam = self::target($student, $change);
 
         if (! $exam) {
-            return self::rejected('exam_unavailable', 'حُذف هذا الاختبار، أو لم يعد لطالب في حلقاتك.');
+            return self::rejected('exam_unavailable', 'أُلغي هذا الترشيح، أو لم يعد لطالب في حلقاتك.');
         }
 
-        $base = [(int) $change['base']['level_id'], $change['base']['date']];
+        $base = isset($change['base']) ? [(int) $change['base']['level_id'], self::normalisedExpected($change['base']['expected_on'] ?? null)] : null;
 
-        return self::settle($exam, (int) $change['level_id'], $change['date'], $base, $change, $today);
+        return self::settle($exam, $change, $base);
     }
 
     /**
-     * Compare the change with the exam as it stands now, and move it when the
-     * server still holds what the phone last saw. A null base means the phone
-     * created this exam itself, so whatever it holds now is the phone's own.
-     *
-     * @param  array{0: int, 1: string}|null  $base
      * @param  array<string, mixed>  $change
      * @return array<string, mixed>
      */
-    private static function settle(StudentExam $exam, int $level, string $date, ?array $base, array $change, string $today): array
+    private static function withdraw(Student $student, array $change): array
     {
-        if ($exam->status !== 'pending') {
-            return self::rejected('exam_closed', 'رُصدت نتيجة هذا الاختبار أو أُلغي، فلم يعد قابلاً للتعديل.') + ['exam' => new SyncExamResource($exam)];
+        $exam = self::target($student, $change);
+
+        // Gone already: what the teacher asked for holds.
+        if (! $exam) {
+            return ['result' => 'applied', 'exam' => null];
         }
 
-        $server = [$exam->exam_level_id, $exam->date_time->toDateString()];
+        if ($exam->status !== StudentExam::NOMINATED) {
+            return self::closed($exam);
+        }
 
-        if ($server === [$level, $date]) {
+        ExamReadiness::withdraw($exam);
+
+        return ['result' => 'applied', 'exam' => null];
+    }
+
+    /**
+     * Compare the change with the nomination as it stands now, and revise it
+     * when the server still holds what the phone last saw. A null base means
+     * the phone made this nomination itself, so whatever it holds now is the
+     * phone's own.
+     *
+     * @param  array<string, mixed>  $change
+     * @param  array{0: int, 1: ?string}|null  $base
+     * @return array<string, mixed>
+     */
+    private static function settle(StudentExam $exam, array $change, ?array $base): array
+    {
+        if ($exam->status !== StudentExam::NOMINATED) {
+            return self::closed($exam);
+        }
+
+        $wanted = [(int) $change['level_id'], self::expectedOn($change)];
+        $server = self::valueOf($exam);
+
+        if ($server === $wanted) {
             return ['result' => 'applied', 'exam' => new SyncExamResource($exam)];
         }
 
@@ -180,35 +180,81 @@ class ExamChangeService
             return ['result' => 'conflict', 'exam' => new SyncExamResource($exam)];
         }
 
-        // An overdue exam may still change level without being moved.
-        if ($date !== $server[1] && self::isPast($date, $change['edited_on'], $today)) {
-            return self::rejected('date_in_past', 'مضى هذا اليوم، فاختر يوماً قادماً للاختبار.');
+        $revised = ExamReadiness::revise($exam, $wanted[0], $wanted[1]);
+
+        return is_string($revised)
+            ? self::closed($exam->fresh() ?? $exam)
+            : ['result' => 'applied', 'exam' => new SyncExamResource($revised)];
+    }
+
+    /**
+     * A nomination as the phone holds it: the level, and the day the student
+     * is expected ready — null once they are.
+     *
+     * @return array{0: int, 1: ?string}
+     */
+    private static function valueOf(StudentExam $exam): array
+    {
+        return [(int) $exam->exam_level_id, $exam->ready_at === null ? $exam->expected_ready_on?->toDateString() : null];
+    }
+
+    /**
+     * The exam a change names, by the server's id or, made on a phone and not
+     * synced since, by its uuid.
+     *
+     * @param  array<string, mixed>  $change
+     */
+    private static function target(Student $student, array $change): ?StudentExam
+    {
+        $examId = $change['exam']['id'] ?? null;
+        $examUuid = $change['exam']['uuid'] ?? null;
+
+        if ($examId === null && $examUuid === null) {
+            return null;
         }
 
-        // The day moves; the hour the web page may have set stays.
-        $exam->update([
-            'exam_level_id' => $level,
-            'date_time' => $exam->date_time->copy()->setDateFrom($date),
-        ]);
-
-        return ['result' => 'applied', 'exam' => new SyncExamResource($exam)];
+        return StudentExam::query()
+            ->where(fn ($q) => $examId !== null ? $q->whereKey($examId) : $q->where('uuid', $examUuid))
+            ->where('student_id', $student->id)
+            ->first();
     }
 
     /**
-     * Whether the day has gone by. Judged against the day the teacher made
-     * the edit, so an exam set for today offline is not refused for reaching
-     * the server tomorrow — and never against the bare `today` rule, which
-     * reads UTC.
+     * The day a change expects the student ready, or null for ready now. A
+     * day already come stays expected: the teacher still confirms it.
+     *
+     * @param  array<string, mixed>  $change
      */
-    private static function isPast(string $date, string $editedOn, string $today): bool
+    private static function expectedOn(array $change): ?string
     {
-        return $date < min($editedOn, $today);
+        return self::normalisedExpected($change['expected_on'] ?? null);
+    }
+
+    private static function normalisedExpected(mixed $day): ?string
+    {
+        if (! is_string($day) || $day === '') {
+            return null;
+        }
+
+        return CarbonImmutable::parse($day)->toDateString();
     }
 
     /**
-     * The lock both the API and the tasmeeh page's exam editor take to write
-     * a student's exams, so a phone and a browser setting the same student's
-     * exam at once cannot both find nothing pending and schedule two.
+     * A seated exam is the manager's, a finished one is closed.
+     *
+     * @return array<string, mixed>
+     */
+    private static function closed(StudentExam $exam): array
+    {
+        return $exam->status === StudentExam::SCHEDULED
+            ? self::rejected('exam_scheduled', 'حدّدت الإدارة موعد هذا الاختبار في دفعة، فلم يعد الترشيح قابلاً للتعديل.') + ['exam' => new SyncExamResource($exam)]
+            : self::rejected('exam_closed', 'رُصدت نتيجة هذا الاختبار أو أُلغي، فلم يعد قابلاً للتعديل.') + ['exam' => new SyncExamResource($exam)];
+    }
+
+    /**
+     * The lock both the API and the site's exam pages take to write a
+     * student's exams, so a phone and a browser putting the same student
+     * forward at once cannot both find nothing open.
      */
     public static function studentLockKey(int $studentId): string
     {

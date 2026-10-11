@@ -8,8 +8,11 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
- * An exam a student is waiting to sit. The date column holds the academy's
- * wall-clock time, so its date part is the day as the teacher set it.
+ * A student's open exam: put forward for the association's exam, or seated
+ * in a batch and waiting to be sat. The date column holds the academy's
+ * wall-clock time, so its date part is the day as it was set; a nomination
+ * has none, only whether the teacher has the student ready or the day they
+ * expect them to be.
  *
  * @mixin StudentExam
  */
@@ -31,7 +34,9 @@ class SyncExamResource extends JsonResource
             'level_id' => $this->exam_level_id,
             'status' => $this->status,
             'date' => $date,
-            'date_hijri' => HijriDate::full($date),
+            'date_hijri' => $date === null ? null : HijriDate::full($date),
+            'ready' => $this->status !== StudentExam::NOMINATED || $this->ready_at !== null,
+            'expected_on' => $this->status === StudentExam::NOMINATED && $this->ready_at === null ? $this->expected_ready_on?->toDateString() : null,
             'location' => $this->location,
             'updated_at' => $this->updated_at?->toISOString(),
         ];

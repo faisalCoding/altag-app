@@ -130,6 +130,10 @@
             التقويم الأكاديمي
         </flux:sidebar.item>
     @endif
+    <flux:sidebar.item class="[&_svg]:bg-[#0ea5e9] hover:[&_svg]:bg-[#0284c7]" icon="clipboard-document-list" :href="route('supervisor.exam-readiness')"
+        :current="request()->routeIs('supervisor.exam-readiness')" wire:navigate>
+        جاهزية الاختبارات
+    </flux:sidebar.item>
     @if(\App\Support\RolePages::isEnabled('supervisor', 'supervisor.tasks'))
         <flux:sidebar.item class="[&_svg]:bg-[#64748b] hover:[&_svg]:bg-[#475569]" icon="clipboard-document-list" :href="route('supervisor.tasks')"
             :current="request()->routeIs('supervisor.tasks')" wire:navigate>

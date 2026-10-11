@@ -13,8 +13,10 @@ new class extends Component
     {
         $student = Auth::guard('student')->user();
 
+        // A nomination stays between the teacher and the manager until a batch gives it a day.
         $exams = StudentExam::with('examLevel')
             ->where('student_id', $student->id)
+            ->visibleToStudent()
             ->orderByDesc('date_time')
             ->paginate(15);
 

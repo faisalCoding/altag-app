@@ -1,5 +1,5 @@
 @props([
-    /** The student's next exam as NextExamBadge reads it, or null when none is pending. */
+    /** The student's open exam as NextExamBadge reads it, or null when there is none. */
     'exam',
     /** The student it belongs to, handed to the editor the box opens. */
     'studentId',
@@ -14,24 +14,39 @@
 ])
 {{--
     The square at the end of a student's name on the tasmeeh page, as the
-    teacher app draws it: the juz count of their next exam, a dot a week or
-    less before it, red once its day passed without a result, and a dashed "+"
-    when none is set.
+    teacher app draws it: the juz count of their open exam, and a dashed "+"
+    when there is none.
 
-    While the teacher may set exams it is a button: the number opens that exam
-    and the "+" sets one, both in the page's one exam editor. Otherwise the
-    number only informs, and no "+" is drawn for an exam nobody here can set.
+    Put forward, the number sits in a dashed outline — firm once the teacher
+    has them ready, faint while the day is only expected, amber with a dot
+    once that day comes and readiness waits on the teacher. Seated in a batch
+    it fills in, with a dot a week or less before its day and red once the day
+    passed without a result.
+
+    While the teacher may put students forward it is a button: the number
+    opens that exam and the "+" puts the student forward, both in the page's
+    one exam editor. Otherwise the number only informs.
 
     It stands beside the row's own button, never inside it: a button inside a
     button is no longer two controls.
 --}}
 @php
     $large = $size === 'lg';
-    $state = $exam === null ? 'none' : ($exam['overdue'] ? 'overdue' : ($exam['soon'] ? 'soon' : 'upcoming'));
-    $label = ($exam === null
-        ? __('إضافة الاختبار القادم')
-        : __('الاختبار القادم').': '.$exam['level'].'، '.$exam['date_hijri'].($exam['overdue'] ? '، '.__('مضى موعده') : ''))
-        .($studentName ? ' — '.$studentName : '');
+    $state = match (true) {
+        $exam === null => 'none',
+        ($exam['state'] ?? 'scheduled') !== 'scheduled' => $exam['state'],
+        $exam['overdue'] => 'overdue',
+        $exam['soon'] => 'soon',
+        default => 'upcoming',
+    };
+    $scheduled = in_array($state, ['overdue', 'soon', 'upcoming'], true);
+    $label = (match ($state) {
+        'none' => __('ترشيح للاختبار'),
+        'ready' => __('مرشح للاختبار').': '.$exam['level'].'، '.__('جاهز، بانتظار موعد من الإدارة'),
+        'expected' => __('مرشح للاختبار').': '.$exam['level'].'، '.__('جاهزيته متوقعة').' '.$exam['date_hijri'],
+        'due' => __('حان موعد جاهزيته لاختبار').' '.$exam['level'].'، '.__('أكّد جاهزيته'),
+        default => __('الاختبار القادم').': '.$exam['level'].'، '.$exam['date_hijri'].($exam['overdue'] ? '، '.__('مضى موعده') : ''),
+    }).($studentName ? ' — '.$studentName : '');
     $tag = $canSchedule ? 'button' : 'div';
 @endphp
 
@@ -57,9 +72,12 @@
             'size-12 rounded-xl' => $large,
             'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 active:scale-95' => $canSchedule,
             'border-dashed border-zinc-300 text-zinc-400 dark:border-zinc-600 dark:text-zinc-500 hover:border-indigo-300 hover:text-indigo-500 dark:hover:border-indigo-500/50 dark:hover:text-indigo-400' => $state === 'none',
+            'border-dashed border-indigo-400 text-indigo-700 dark:border-indigo-400/70 dark:text-indigo-300' => $state === 'ready',
+            'border-dashed border-zinc-300 text-zinc-500 dark:border-zinc-600 dark:text-zinc-400' => $state === 'expected',
+            'border-dashed border-amber-500 bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300' => $state === 'due',
             'bg-red-50 border-red-500 text-red-600 dark:bg-red-500/15 dark:text-red-400' => $state === 'overdue',
-            'bg-indigo-50 border-indigo-50 text-indigo-700 dark:bg-indigo-500/15 dark:border-transparent dark:text-indigo-300' => $exam !== null && ! $exam['overdue'],
-            'hover:border-indigo-200 dark:hover:border-indigo-500/40' => $canSchedule && $exam !== null && ! $exam['overdue'],
+            'bg-indigo-50 border-indigo-50 text-indigo-700 dark:bg-indigo-500/15 dark:border-transparent dark:text-indigo-300' => $scheduled && $state !== 'overdue',
+            'hover:border-indigo-200 dark:hover:border-indigo-500/40' => $canSchedule && $scheduled && $state !== 'overdue',
         ])>
         @if ($canSchedule)
             <flux:icon.loading x-show="opening" x-cloak @class(['absolute', 'size-4' => ! $large, 'size-5' => $large]) />
@@ -77,7 +95,7 @@
         @endif
         </span>
 
-        @if ($state === 'soon')
+        @if ($state === 'soon' || $state === 'due')
             <span @class([
                 'absolute -top-1 -end-1 rounded-full bg-amber-500 ring-2 ring-white dark:ring-zinc-900',
                 'size-2.5' => ! $large,

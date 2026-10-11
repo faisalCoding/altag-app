@@ -80,7 +80,7 @@ it('shows the juz count of the student\'s next exam beside their name, opening t
         ->assertSeeHtml('title="الاختبار القادم: اختبار جزء النبأ والملك، '.HijriDate::full('2026-07-26').' — '.$this->student->name.'"')
         ->assertSeeHtml(cardOpensEditor())
         ->assertDontSeeHtml(route('teacher.student-exams'))
-        ->assertDontSee('إضافة الاختبار القادم')
+        ->assertDontSee('ترشيح للاختبار')
         ->html();
 
     expect($html)->toMatch('/<button\s[^>]*data-exam-box="upcoming"/')
@@ -119,7 +119,7 @@ it('offers a dashed "+" that opens the exam editor when no exam is pending', fun
 
     $html = examBoxCard()
         ->assertSeeHtml('data-exam-box="none"')
-        ->assertSee('إضافة الاختبار القادم')
+        ->assertSee('ترشيح للاختبار')
         ->assertSeeHtml(cardOpensEditor())
         ->assertDontSeeHtml(route('teacher.student-exams'))
         ->html();
@@ -143,7 +143,7 @@ it('shows the exam as a plain box, and no "+", while the exams page is switched 
 
     examBoxCard()
         ->assertDontSeeHtml('data-exam-box')
-        ->assertDontSee('إضافة الاختبار القادم');
+        ->assertDontSee('ترشيح للاختبار');
 });
 
 it('draws its box again once the exam editor saves this student\'s exam', function () {
