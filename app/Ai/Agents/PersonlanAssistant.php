@@ -4,15 +4,24 @@ namespace App\Ai\Agents;
 
 use App\Ai\Tools\getAcademicCalendar;
 use App\Ai\Tools\getAttendanceData;
+use App\Ai\Tools\getBusBookings;
 use App\Ai\Tools\getCompetitionGroups;
 use App\Ai\Tools\getCompetitions;
 use App\Ai\Tools\getDateAndTime;
+use App\Ai\Tools\getDisciplineAndStatus;
+use App\Ai\Tools\getExams;
+use App\Ai\Tools\getForms;
+use App\Ai\Tools\getMemorizationProgress;
 use App\Ai\Tools\getMutunPlans;
 use App\Ai\Tools\getOrganizationStructure;
+use App\Ai\Tools\getPeerPairs;
 use App\Ai\Tools\getPeopleDirectory;
 use App\Ai\Tools\getQuranPlans;
+use App\Ai\Tools\getRecitationActivity;
+use App\Ai\Tools\getRulesAcknowledgements;
 use App\Ai\Tools\getStudentProfile;
 use App\Ai\Tools\getTasks;
+use App\Ai\Tools\getTeacherAttendance;
 use App\Ai\Tools\showMagicLinks;
 use App\Support\AiSettings;
 use Laravel\Ai\Attributes\MaxSteps;
@@ -79,12 +88,22 @@ class PersonlanAssistant implements Agent, Conversational, HasTools
           getCompetitionGroups is the only tool that maps students to them, and it also returns each group's attendance.
         - The academic calendar (التقويم الأكاديمي) defines terms, holidays and attendance periods, and tasks (المهام)
           may be attached to its events.
+        - Teachers have a register of their own (تحضير المعلمين): getTeacherAttendance. Students are put forward for the
+          association's exams and seated in dated batches (دفعات): getExams. Every graded recitation session, and who did not
+          recite at all, is in getRecitationActivity; mutual recitation pairs in getPeerPairs; who is over the absence or
+          lateness limit, suspended or changed status in getDisciplineAndStatus; who acknowledged the circles' rules in
+          getRulesAcknowledgements; how far students have memorized, and the year's promotions, in getMemorizationProgress;
+          forms and surveys in getForms (counts and choices only, never free-text answers); buses in getBusBookings.
 
         Rules:
         - Answer in the language the user writes in; the users are Arabic speakers, so default to Arabic.
         - Never invent numbers, names or dates. Every figure you state must come from a tool result. If the tools do not
           cover what was asked, say so plainly instead of guessing.
-        - Call getDateAndTime before reasoning about "today", "this month" or any relative date.
+        - Call getDateAndTime before reasoning about "today", "this week", "last month" or any relative date; it gives the
+          exact from/to dates of this and last week and month, so pass those to the other tools instead of working them out.
+        - Names are matched loosely (أحمد/احمد, عائشة/عائشه, عبدالله/عبد الله), so search with the name as the manager wrote it.
+        - For attendance counts, rates or "who was absent most", call getAttendanceData with summary=true; group_by=student ranks
+          the students, group_by=date shows the trend day by day. Never add up a name-by-name list yourself.
         - Start broad then narrow: getOrganizationStructure gives you the exact stage and circle names to use as filters.
         - Prefer a filtered tool call over a wide one. Tool results are capped; when a result says it was capped, say so
           rather than presenting it as the complete picture.
@@ -132,6 +151,15 @@ class PersonlanAssistant implements Agent, Conversational, HasTools
             new getCompetitionGroups,
             new getAcademicCalendar,
             new getTasks,
+            new getTeacherAttendance,
+            new getExams,
+            new getRecitationActivity,
+            new getDisciplineAndStatus,
+            new getRulesAcknowledgements,
+            new getPeerPairs,
+            new getForms,
+            new getBusBookings,
+            new getMemorizationProgress,
         ];
     }
 }

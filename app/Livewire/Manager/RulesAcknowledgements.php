@@ -4,7 +4,6 @@ namespace App\Livewire\Manager;
 
 use App\Models\RuleAcknowledgement;
 use App\Models\RuleVersion;
-use App\Models\User;
 use App\Support\CircleRules;
 use App\Support\RulesReminder;
 use Illuminate\Support\Facades\URL;
@@ -55,39 +54,16 @@ class RulesAcknowledgements extends Component
     {
         $binding = $this->binding;
 
-        if (! $binding) {
-            return [];
-        }
-
-        $people = User::whereHas('roles', fn ($q) => $q->whereIn('role', CircleRules::ROLES)->where('is_approved', true))
-            ->with(['roles' => fn ($q) => $q->where('is_approved', true)])
-            ->orderBy('name')
-            ->get(['id', 'name', 'phone', 'access_token']);
-
-        $acknowledgements = RuleAcknowledgement::whereIn('user_id', $people->modelKeys())
-            ->whereHas('version', fn ($q) => $q->where('number', '>=', $binding->number))
-            ->with('version:id,number')
-            ->latest('acknowledged_at')
-            ->get()
-            ->groupBy('user_id');
-
-        return $people->map(function (User $person) use ($acknowledgements, $binding) {
-            $roles = array_values(array_intersect(CircleRules::ROLES, $person->roles->pluck('role')->all()));
-            $given = $acknowledgements->get($person->id, collect());
-            $covered = $given->flatMap(fn (RuleAcknowledgement $acknowledgement) => $acknowledgement->roles)->unique()->all();
-            $owed = array_values(array_diff($roles, $covered));
-
-            return [
-                'id' => $person->id,
-                'name' => $person->name,
-                'roles' => $roles,
-                'owed' => $owed,
-                'acknowledgement' => $given->first(),
-                // The page of the first role still owed: a supervisor who also
-                // teaches reads both from either.
-                'reminder' => $owed === [] ? null : RulesReminder::whatsappUrl($person, $owed[0], $binding),
-            ];
-        })->all();
+        return CircleRules::standings()->map(fn (array $standing) => [
+            'id' => $standing['person']->id,
+            'name' => $standing['person']->name,
+            'roles' => $standing['roles'],
+            'owed' => $standing['owed'],
+            'acknowledgement' => $standing['acknowledgement'],
+            // The page of the first role still owed: a supervisor who also
+            // teaches reads both from either.
+            'reminder' => $standing['owed'] === [] ? null : RulesReminder::whatsappUrl($standing['person'], $standing['owed'][0], $binding),
+        ])->all();
     }
 
     public function render()

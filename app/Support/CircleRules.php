@@ -7,6 +7,7 @@ use App\Models\RuleSection;
 use App\Models\RuleVersion;
 use App\Models\User;
 use App\Services\NotificationService;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -109,6 +110,47 @@ final class CircleRules
             ->with('version')
             ->latest('acknowledged_at')
             ->first();
+    }
+
+    /**
+     * Where every teacher and supervisor stands on the binding version: their
+     * roles, the roles they still owe their word for, and their latest
+     * acknowledgement that counts. Empty while no version is binding.
+     *
+     * @return Collection<int, array{person: User, roles: array<int, string>, owed: array<int, string>, acknowledgement: ?RuleAcknowledgement}>
+     */
+    public static function standings(): Collection
+    {
+        $binding = self::binding();
+
+        if (! $binding) {
+            return collect();
+        }
+
+        $people = User::whereHas('roles', fn ($q) => $q->whereIn('role', self::ROLES)->where('is_approved', true))
+            ->with(['roles' => fn ($q) => $q->where('is_approved', true)])
+            ->orderBy('name')
+            ->get(['id', 'name', 'phone', 'access_token']);
+
+        $acknowledgements = RuleAcknowledgement::whereIn('user_id', $people->modelKeys())
+            ->whereHas('version', fn ($q) => $q->where('number', '>=', $binding->number))
+            ->with('version:id,number')
+            ->latest('acknowledged_at')
+            ->get()
+            ->groupBy('user_id');
+
+        return $people->map(function (User $person) use ($acknowledgements) {
+            $roles = array_values(array_intersect(self::ROLES, $person->roles->pluck('role')->all()));
+            $given = $acknowledgements->get($person->id, collect());
+            $covered = $given->flatMap(fn (RuleAcknowledgement $acknowledgement) => $acknowledgement->roles)->unique()->all();
+
+            return [
+                'person' => $person,
+                'roles' => $roles,
+                'owed' => array_values(array_diff($roles, $covered)),
+                'acknowledgement' => $given->first(),
+            ];
+        });
     }
 
     /**
