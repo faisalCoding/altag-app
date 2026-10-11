@@ -3,6 +3,7 @@
 namespace App\Ai\Tools;
 
 use App\Models\StudentPlan;
+use App\Support\ArabicSearch;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Laravel\Ai\Contracts\Tool;
 use Laravel\Ai\Tools\Request;
@@ -19,8 +20,9 @@ class getQuranPlans implements Tool
     {
         return 'List the Quran memorization and review plans (خطط الحفظ والمراجعة) with each plan\'s completion percentage and grade breakdown. '
             .'Grades are ممتاز/جيد/مقبول, counted over every graded hifz and review day; لم يسمع means the student was graded as not having recited. '
-            .'Filter with "student", "circle", "teacher", "plan_type" (memorization=حفظ, review=مراجعة) or "status". '
-            .'Set "include_days" to true only when the day-by-day schedule of a single student\'s plan is genuinely needed.';
+            .'Filter with "student", "circle", "teacher", "plan_type" (hifz=حفظ فقط, hifz_review=حفظ ومراجعة, review=مراجعة فقط) '
+            .'or "status" (active=مفعّلة, inactive=موقوفة). Set "include_days" to true only when the day-by-day schedule of a single '
+            .'student\'s plan is genuinely needed: each day then carries its hifz and review portions and their grades.';
     }
 
     /**
@@ -34,19 +36,19 @@ class getQuranPlans implements Tool
         $query = StudentPlan::with(['student:id,name,circle_id', 'student.circle:id,name', 'teacher:id,name']);
 
         if ($student = ($request['student'] ?? null)) {
-            $query->whereHas('student', fn ($q) => $q->where('name', 'like', '%'.$student.'%'));
+            $query->whereHas('student', fn ($q) => ArabicSearch::where($q, 'name', $student));
         }
 
         if ($circle = ($request['circle'] ?? null)) {
-            $query->whereHas('student.circle', fn ($q) => $q->where('name', 'like', '%'.$circle.'%'));
+            $query->whereHas('student.circle', fn ($q) => ArabicSearch::where($q, 'name', $circle));
         }
 
         if ($teacher = ($request['teacher'] ?? null)) {
-            $query->whereHas('teacher', fn ($q) => $q->where('name', 'like', '%'.$teacher.'%'));
+            $query->whereHas('teacher', fn ($q) => ArabicSearch::where($q, 'name', $teacher));
         }
 
         if ($planType = ($request['plan_type'] ?? null)) {
-            $query->where('plan_type', $planType === 'مراجعة' ? 'review' : ($planType === 'حفظ' ? 'memorization' : $planType));
+            $query->where('plan_type', self::TYPE_KEYS[$planType] ?? $planType);
         }
 
         if ($status = ($request['status'] ?? null)) {
@@ -54,7 +56,10 @@ class getQuranPlans implements Tool
         }
 
         if ($includeDays) {
-            $query->with(['days' => fn ($q) => $q->orderBy('date')]);
+            $query->with([
+                'days' => fn ($q) => $q->orderBy('date'),
+                'days.fromAyah.surah', 'days.toAyah.surah', 'days.reviewFromAyah.surah', 'days.reviewToAyah.surah',
+            ]);
         }
 
         $plans = $query->latest()->limit($limit)->get();
@@ -66,10 +71,10 @@ class getQuranPlans implements Tool
                 'student' => $plan->student?->name,
                 'circle' => $plan->student?->circle?->name,
                 'teacher' => $plan->teacher?->name,
-                'type' => $plan->plan_type === 'review' ? 'مراجعة' : 'حفظ',
+                'type' => self::TYPE_LABELS[$plan->plan_type] ?? $plan->plan_type,
                 'start_date' => $plan->start_date?->format('Y-m-d'),
                 'days_count' => $plan->days_count,
-                'status' => $plan->status,
+                'status' => self::STATUS_LABELS[$plan->status] ?? $plan->status,
                 'is_approved' => (bool) $plan->is_approved,
                 'description' => $plan->description,
                 'completion_percentage' => $plan->completionPercentage(),
@@ -85,6 +90,8 @@ class getQuranPlans implements Tool
                 $row['days'] = $plan->days->map(fn ($day) => [
                     'date' => $day->date?->format('Y-m-d'),
                     'day_name' => $day->day_name,
+                    'hifz' => $plan->plan_type === 'review' ? null : $day->formatRange('hifz'),
+                    'review' => $plan->plan_type === 'hifz' ? null : $day->formatRange('review'),
                     'hifz_grade' => $this->gradeLabel($day->hifz_achievement),
                     'review_grade' => $this->gradeLabel($day->review_achievement),
                     'hifz_graded_at' => $day->hifz_graded_at?->format('Y-m-d'),
@@ -104,6 +111,17 @@ class getQuranPlans implements Tool
             'plans' => $rows->all(),
         ], JSON_UNESCAPED_UNICODE);
     }
+
+    /** The plan types, by every name the manager or the model may use. */
+    private const TYPE_KEYS = [
+        'حفظ' => 'hifz', 'حفظ فقط' => 'hifz', 'memorization' => 'hifz',
+        'حفظ ومراجعة' => 'hifz_review',
+        'مراجعة' => 'review', 'مراجعة فقط' => 'review',
+    ];
+
+    private const TYPE_LABELS = ['hifz' => 'حفظ فقط', 'hifz_review' => 'حفظ ومراجعة', 'review' => 'مراجعة فقط'];
+
+    private const STATUS_LABELS = ['active' => 'مفعّلة', 'inactive' => 'موقوفة'];
 
     private function gradeLabel(?int $value): ?string
     {
@@ -125,8 +143,8 @@ class getQuranPlans implements Tool
             'student' => $schema->string()->description('Student name, or part of it.'),
             'circle' => $schema->string()->description('Circle name (حلقة).'),
             'teacher' => $schema->string()->description('Name of the teacher who owns the plan.'),
-            'plan_type' => $schema->string()->enum(['memorization', 'review'])->description('memorization=حفظ, review=مراجعة.'),
-            'status' => $schema->string()->description('Plan status, for example active or completed.'),
+            'plan_type' => $schema->string()->enum(['hifz', 'hifz_review', 'review'])->description('hifz=حفظ فقط, hifz_review=حفظ ومراجعة, review=مراجعة فقط.'),
+            'status' => $schema->string()->enum(['active', 'inactive'])->description('active=مفعّلة, inactive=موقوفة.'),
             'include_days' => $schema->boolean()->description('Include the day-by-day schedule and its grades. Use only for a single student.'),
             'limit' => $schema->integer()->description('Maximum plans to return. Defaults to 50, maximum 150.'),
         ];

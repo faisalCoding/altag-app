@@ -32,12 +32,13 @@ class getAcademicCalendar implements Tool
 
         $query = AcademicCalendarEvent::with('taskCategories:id,name,event_id')->withCount('tasks');
 
+        // Dates are stored with a time: whereDate keeps an event on the bound's own day in.
         if ($from = ($request['from'] ?? null)) {
-            $query->where('end_date', '>=', $from);
+            $query->where(fn ($q) => $q->whereNull('end_date')->orWhereDate('end_date', '>=', $from));
         }
 
         if ($to = ($request['to'] ?? null)) {
-            $query->where('start_date', '<=', $to);
+            $query->whereDate('start_date', '<=', $to);
         }
 
         $events = $query->orderBy('start_date')->limit($limit)->get();

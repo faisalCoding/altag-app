@@ -6,7 +6,9 @@ use App\Models\AiProviderCredential;
 use App\Models\Manager;
 use App\Models\Setting;
 use App\Support\AiSettings;
+use GuzzleHttp\Psr7\Response;
 use Illuminate\Encryption\Encrypter;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\DB;
 use Laravel\Ai\Exceptions\AiException;
 use Laravel\Ai\Prompts\AgentPrompt;
@@ -267,4 +269,22 @@ it('treats a key encrypted with another application key as missing, and still op
     $this->get(route('manager.ai-settings'))
         ->assertSuccessful()
         ->assertSee('تعذّرت قراءة المفتاح المحفوظ، فأعد إدخاله');
+});
+
+it('shows the provider\'s whole reason when a key test is refused', function () {
+    AiProviderCredential::create(['provider' => 'anthropic', 'api_key' => 'sk-ant-org']);
+    $reason = 'This API key is not scoped to a workspace, so this request cannot be served. Create a key inside a workspace.';
+
+    KeyCheck::fake(function () use ($reason) {
+        throw new RequestException(new Illuminate\Http\Client\Response(
+            new Response(400, ['Content-Type' => 'application/json'], json_encode([
+                'type' => 'error',
+                'error' => ['type' => 'invalid_request_error', 'message' => $reason],
+            ])),
+        ));
+    });
+
+    Livewire::test('manager.ai-assistant-settings')
+        ->call('testKey', 'anthropic')
+        ->assertDispatched('toast-show', fn (string $event, array $params) => $params['slots']['text'] === 'لم ينجح الاتصال بـAnthropic Claude: (400) '.$reason);
 });

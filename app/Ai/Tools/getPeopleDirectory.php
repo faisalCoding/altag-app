@@ -7,6 +7,7 @@ use App\Models\Student;
 use App\Models\Supervisor;
 use App\Models\Teacher;
 use App\Models\User;
+use App\Support\ArabicSearch;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Illuminate\Database\Eloquent\Builder;
 use Laravel\Ai\Contracts\Tool;
@@ -63,13 +64,14 @@ class getPeopleDirectory implements Tool
         $this->applySearch($query, $request);
 
         if ($circle = ($request['circle'] ?? null)) {
-            $query->whereHas('circle', fn ($q) => $q->where('name', 'like', '%'.$circle.'%'));
+            $query->whereHas('circle', fn ($q) => ArabicSearch::where($q, 'name', $circle));
         }
 
         if ($stage = ($request['stage'] ?? null)) {
+            // A circle's stage always wins; a student's own stage counts only without a circle.
             $query->where(function ($q) use ($stage) {
-                $q->whereHas('circle.stage', fn ($s) => $s->where('name', 'like', '%'.$stage.'%'))
-                    ->orWhereHas('stage', fn ($s) => $s->where('name', 'like', '%'.$stage.'%'));
+                $q->whereHas('circle.stage', fn ($s) => ArabicSearch::where($s, 'name', $stage))
+                    ->orWhere(fn ($own) => $own->whereNull('circle_id')->whereHas('stage', fn ($s) => ArabicSearch::where($s, 'name', $stage)));
             });
         }
 
@@ -101,11 +103,11 @@ class getPeopleDirectory implements Tool
         $this->applySearch($query, $request);
 
         if ($circle = ($request['circle'] ?? null)) {
-            $query->whereHas('circles', fn ($q) => $q->where('name', 'like', '%'.$circle.'%'));
+            $query->whereHas('circles', fn ($q) => ArabicSearch::where($q, 'name', $circle));
         }
 
         if ($stage = ($request['stage'] ?? null)) {
-            $query->whereHas('circles.stage', fn ($q) => $q->where('name', 'like', '%'.$stage.'%'));
+            $query->whereHas('circles.stage', fn ($q) => ArabicSearch::where($q, 'name', $stage));
         }
 
         return $query->orderBy('name')->limit($limit)->get()->map(fn (Teacher $teacher) => [
@@ -128,7 +130,7 @@ class getPeopleDirectory implements Tool
         $this->applySearch($query, $request);
 
         if ($stage = ($request['stage'] ?? null)) {
-            $query->whereHas('stages', fn ($q) => $q->where('name', 'like', '%'.$stage.'%'));
+            $query->whereHas('stages', fn ($q) => ArabicSearch::where($q, 'name', $stage));
         }
 
         return $query->orderBy('name')->limit($limit)->get()->map(fn (Supervisor $supervisor) => [
@@ -168,8 +170,8 @@ class getPeopleDirectory implements Tool
     {
         if ($search = ($request['search'] ?? null)) {
             $query->where(function ($q) use ($search) {
-                $q->where('name', 'like', '%'.$search.'%')
-                    ->orWhere('email', 'like', '%'.$search.'%');
+                ArabicSearch::where($q, 'name', $search);
+                ArabicSearch::where($q, 'email', $search, 'or');
             });
         }
     }

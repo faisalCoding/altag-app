@@ -6,6 +6,7 @@ use App\Models\HadithText;
 use App\Models\Ode;
 use App\Models\StudentHadithPlan;
 use App\Models\StudentOdePlan;
+use App\Support\ArabicSearch;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
@@ -158,11 +159,11 @@ class getMutunPlans implements Tool
     private function applyPlanFilters($query, Request $request): void
     {
         if ($student = ($request['student'] ?? null)) {
-            $query->whereHas('student', fn ($q) => $q->where('name', 'like', '%'.$student.'%'));
+            $query->whereHas('student', fn ($q) => ArabicSearch::where($q, 'name', $student));
         }
 
         if ($circle = ($request['circle'] ?? null)) {
-            $query->whereHas('student.circle', fn ($q) => $q->where('name', 'like', '%'.$circle.'%'));
+            $query->whereHas('student.circle', fn ($q) => ArabicSearch::where($q, 'name', $circle));
         }
 
         if ($status = ($request['status'] ?? null)) {

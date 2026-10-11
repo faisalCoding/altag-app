@@ -6,6 +6,7 @@ use App\Models\Attendance;
 use App\Models\GamificationTeam;
 use App\Models\GamificationTrack;
 use App\Models\Leaderboard;
+use App\Support\ArabicSearch;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Illuminate\Support\Collection;
 use Laravel\Ai\Contracts\Tool;
@@ -41,7 +42,7 @@ class getCompetitionGroups implements Tool
             ], JSON_UNESCAPED_UNICODE);
         }
 
-        $competitions = Leaderboard::where('title', 'like', '%'.$title.'%')->get();
+        $competitions = ArabicSearch::where(Leaderboard::query(), 'title', $title)->get();
 
         if ($competitions->isEmpty()) {
             return json_encode([

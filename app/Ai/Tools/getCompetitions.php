@@ -8,6 +8,7 @@ use App\Models\Leaderboard;
 use App\Models\TeacherCompetition;
 use App\Services\LeaderboardService;
 use App\Services\TeacherCompetitionService;
+use App\Support\ArabicSearch;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Laravel\Ai\Contracts\Tool;
 use Laravel\Ai\Tools\Request;
@@ -58,7 +59,7 @@ class getCompetitions implements Tool
         $query = Leaderboard::with(['circle:id,name', 'circles:id,name', 'supervisor:id,name', 'criteria']);
 
         if ($title) {
-            $query->where('title', 'like', '%'.$title.'%');
+            ArabicSearch::where($query, 'title', $title);
         }
 
         $competitions = $query->orderByDesc('start_date')->get();
@@ -207,7 +208,7 @@ class getCompetitions implements Tool
         $query = TeacherCompetition::with(['supervisor:id,name', 'criteria', 'participants:id,name']);
 
         if ($title) {
-            $query->where('name', 'like', '%'.$title.'%');
+            ArabicSearch::where($query, 'name', $title);
         }
 
         $service = app(TeacherCompetitionService::class);

@@ -7,6 +7,7 @@ use App\Models\Student;
 use App\Models\Supervisor;
 use App\Models\Teacher;
 use App\Models\User;
+use App\Support\ArabicSearch;
 use App\Support\MagicLinkTray;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Illuminate\Database\Eloquent\Builder;
@@ -148,8 +149,8 @@ class showMagicLinks implements Tool
     {
         if ($search = ($request['search'] ?? null)) {
             $query->where(function ($q) use ($search) {
-                $q->where('name', 'like', '%'.$search.'%')
-                    ->orWhere('email', 'like', '%'.$search.'%');
+                ArabicSearch::where($q, 'name', $search);
+                ArabicSearch::where($q, 'email', $search, 'or');
             });
         }
 
@@ -158,18 +159,18 @@ class showMagicLinks implements Tool
 
         if ($circle) {
             $role === 'teacher'
-                ? $query->whereHas('circles', fn ($q) => $q->where('name', 'like', '%'.$circle.'%'))
-                : $query->whereHas('circle', fn ($q) => $q->where('name', 'like', '%'.$circle.'%'));
+                ? $query->whereHas('circles', fn ($q) => ArabicSearch::where($q, 'name', $circle))
+                : $query->whereHas('circle', fn ($q) => ArabicSearch::where($q, 'name', $circle));
         }
 
         if ($stage) {
             match ($role) {
-                'teacher' => $query->whereHas('circles.stage', fn ($q) => $q->where('name', 'like', '%'.$stage.'%')),
-                'supervisor' => $query->whereHas('stages', fn ($q) => $q->where('name', 'like', '%'.$stage.'%')),
-                'guardian' => $query->whereHas('students.circle.stage', fn ($q) => $q->where('name', 'like', '%'.$stage.'%')),
+                'teacher' => $query->whereHas('circles.stage', fn ($q) => ArabicSearch::where($q, 'name', $stage)),
+                'supervisor' => $query->whereHas('stages', fn ($q) => ArabicSearch::where($q, 'name', $stage)),
+                'guardian' => $query->whereHas('students.circle.stage', fn ($q) => ArabicSearch::where($q, 'name', $stage)),
                 default => $query->where(function ($q) use ($stage) {
-                    $q->whereHas('circle.stage', fn ($s) => $s->where('name', 'like', '%'.$stage.'%'))
-                        ->orWhereHas('stage', fn ($s) => $s->where('name', 'like', '%'.$stage.'%'));
+                    $q->whereHas('circle.stage', fn ($s) => ArabicSearch::where($s, 'name', $stage))
+                        ->orWhere(fn ($own) => $own->whereNull('circle_id')->whereHas('stage', fn ($s) => ArabicSearch::where($s, 'name', $stage)));
                 }),
             };
         }

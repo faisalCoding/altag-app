@@ -4,6 +4,8 @@ namespace App\Ai\Tools;
 
 use App\Models\Task;
 use App\Models\TaskCategory;
+use App\Models\User;
+use App\Support\ArabicSearch;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Laravel\Ai\Contracts\Tool;
 use Laravel\Ai\Tools\Request;
@@ -37,7 +39,7 @@ class getTasks implements Tool
         }
 
         if ($category = ($request['category'] ?? null)) {
-            $query->whereHas('category', fn ($q) => $q->where('name', 'like', '%'.$category.'%'));
+            $query->whereHas('category', fn ($q) => ArabicSearch::where($q, 'name', $category));
         }
 
         if ($dueFrom = ($request['due_from'] ?? null)) {
@@ -53,13 +55,14 @@ class getTasks implements Tool
                 ->where('status', '!=', 'completed');
         }
 
-        $tasks = $query->orderBy('due_date')->limit($limit)->get();
-
+        // Filtered in the query, so the limit counts only the assignee's own tasks. Every role
+        // lives in the users table, and older tasks name the assignee's class in full, so the
+        // match is on the person alone.
         if ($assignee = ($request['assignee'] ?? null)) {
-            $tasks = $tasks->filter(
-                fn (Task $task) => $task->assignedTo && str_contains((string) $task->assignedTo->name, (string) $assignee)
-            )->values();
+            $query->whereIn('assigned_to_id', ArabicSearch::where(User::query(), 'name', $assignee)->select('id'));
         }
+
+        $tasks = $query->orderBy('due_date')->limit($limit)->get();
 
         return json_encode([
             'returned' => $tasks->count(),

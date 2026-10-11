@@ -5,6 +5,7 @@ use App\Ai\Tools\getAcademicCalendar;
 use App\Ai\Tools\getAttendanceData;
 use App\Ai\Tools\getCompetitionGroups;
 use App\Ai\Tools\getCompetitions;
+use App\Ai\Tools\getDateAndTime;
 use App\Ai\Tools\getMutunPlans;
 use App\Ai\Tools\getOrganizationStructure;
 use App\Ai\Tools\getPeopleDirectory;
@@ -15,6 +16,7 @@ use App\Ai\Tools\showMagicLinks;
 use App\Models\AcademicCalendarEvent;
 use App\Models\Attendance;
 use App\Models\Circle;
+use App\Models\ExamLevel;
 use App\Models\GamificationTeam;
 use App\Models\GamificationTrack;
 use App\Models\Guardian;
@@ -33,7 +35,12 @@ use App\Models\TaskCategory;
 use App\Models\Teacher;
 use App\Models\TeacherCompetition;
 use App\Models\TeacherCompetitionCriterion;
+use App\Services\ExamReadiness;
+use App\Support\ArabicSearch;
 use App\Support\MagicLinkTray;
+use Carbon\Carbon;
+use Illuminate\JsonSchema\JsonSchemaTypeFactory;
+use Illuminate\Support\Facades\DB;
 use Laravel\Ai\Tools\Request;
 
 /**
@@ -156,7 +163,7 @@ it('returns a full student profile with plans, attendance and grades', function 
         'start_date' => '2026-07-01',
         'days_count' => 2,
         'status' => 'active',
-        'plan_type' => 'memorization',
+        'plan_type' => 'hifz_review',
         'active_days' => ['sunday'],
     ]);
     StudentPlanDay::create([
@@ -177,7 +184,7 @@ it('returns a full student profile with plans, attendance and grades', function 
     expect($result['identity']['guardian']['name'])->toBe('الوالد عمر')
         ->and($result['attendance']['حاضر'])->toBe(1)
         ->and($result['attendance']['غائب'])->toBe(1)
-        ->and($result['quran_plans'][0]['type'])->toBe('حفظ')
+        ->and($result['quran_plans'][0]['type'])->toBe('حفظ ومراجعة')
         ->and($result['quran_plans'][0]['completion_percentage'])->toBe(50)
         ->and($result['quran_plans'][0]['grades']['ممتاز'])->toBe(1);
 });
@@ -219,7 +226,7 @@ it('reports quran plan progress and grade distribution', function () {
         'student' => 'الطالب أنس',
         'circle' => 'حلقة النور',
         'teacher' => 'المعلم خالد',
-        'type' => 'مراجعة',
+        'type' => 'مراجعة فقط',
         'completion_percentage' => 75.0,
     ]);
     expect($result['plans'][0]['grades'])->toBe(['ممتاز' => 1, 'جيد' => 1, 'مقبول' => 1, 'لم يسمع' => 0])
@@ -236,7 +243,7 @@ it('excludes plans of other circles when filtered', function () {
         'start_date' => '2026-07-01',
         'days_count' => 1,
         'status' => 'active',
-        'plan_type' => 'memorization',
+        'plan_type' => 'hifz_review',
         'active_days' => ['sunday'],
     ]);
 
@@ -504,7 +511,7 @@ it('bounds attendance data by date and can summarize it', function () {
 
     expect($summary['matching_records'])->toBe(3)
         ->and($summary['summary']['المرحلة الأولى']['حلقة النور'])
-        ->toBe(['حاضر' => 1, 'غائب' => 1, 'متأخر' => 1, 'مستأذن' => 0]);
+        ->toBe(['حاضر' => 1, 'غائب' => 1, 'متأخر' => 1, 'مستأذن' => 0, 'الإجمالي' => 3]);
 });
 
 it('exposes every data tool to the assistant', function () {
@@ -596,4 +603,125 @@ it('refuses a role it has no sign-in route for', function () {
 
     expect($result['error'])->toContain('Unsupported')
         ->and($result)->not->toHaveKey('people');
+});
+
+it('folds the ways an Arabic name is written', function () {
+    expect(ArabicSearch::fold('أحمد'))->toBe(ArabicSearch::fold('احمد'))
+        ->and(ArabicSearch::fold('عائشة'))->toBe(ArabicSearch::fold('عائشه'))
+        ->and(ArabicSearch::fold('مصطفى'))->toBe(ArabicSearch::fold('مصطفي'))
+        ->and(ArabicSearch::fold('عبد الله'))->toBe(ArabicSearch::fold('عبدالله'))
+        ->and(ArabicSearch::fold('مُحَمَّد'))->toBe(ArabicSearch::fold('محمد'));
+
+    Student::factory()->create(['name' => 'عبدالله إبراهيم', 'circle_id' => $this->circle->id]);
+
+    expect(runTool(new getPeopleDirectory, ['role' => 'student', 'search' => 'عبد الله ابراهيم'])['people'][0]['name'])->toBe('عبدالله إبراهيم')
+        ->and(runTool(new getStudentProfile, ['student' => 'الطالب انس'])['identity']['name'])->toBe('الطالب أنس')
+        ->and(runTool(new getQuranPlans, ['circle' => 'حلقه النور'])['returned'])->toBe(0)
+        // A literal «%» typed by the manager is searched as itself, not as a wildcard.
+        ->and(runTool(new getPeopleDirectory, ['role' => 'student', 'search' => '%'])['people'])->toBeEmpty();
+});
+
+it('picks the student named in full over the longer names that contain it', function () {
+    Student::factory()->create(['name' => 'الطالب أنس الثاني', 'circle_id' => $this->circle->id]);
+
+    expect(runTool(new getStudentProfile, ['student' => 'الطالب أنس'])['identity']['name'])->toBe('الطالب أنس')
+        ->and(runTool(new getStudentProfile, ['student' => 'أنس']))->toHaveKey('ambiguous');
+});
+
+it('keeps the national id off the report and says where each exam stands', function () {
+    $this->student->update(['national_id' => '1234567890', 'birth_date' => now()->subYears(12)->toDateString()]);
+    $level = ExamLevel::create(['name' => 'جزء عم']);
+    ExamReadiness::nominate($this->student, $level->id, now('Asia/Riyadh')->addDays(10)->toDateString(), $this->teacher);
+
+    $output = (string) (new getStudentProfile)->handle(new Request(['student' => 'الطالب أنس']));
+    $result = json_decode($output, true);
+
+    expect($output)->not->toContain('1234567890')
+        ->and($result['identity']['age'])->toBe(12)
+        ->and($result['exams'][0]['status'])->toBe('مرشح')
+        ->and($result['exams'][0]['readiness'])->toStartWith('جاهزيته متوقعة');
+});
+
+it('reports the last days a student recited, with what they recited and the grade', function () {
+    $plan = StudentPlan::create([
+        'student_id' => $this->student->id, 'teacher_id' => $this->teacher->id, 'start_date' => '2026-07-01',
+        'days_count' => 2, 'status' => 'active', 'plan_type' => 'hifz_review', 'active_days' => ['sunday'],
+    ]);
+    StudentPlanDay::create(['student_plan_id' => $plan->id, 'date' => '2026-07-01', 'day_name' => 'الأحد', 'hifz_achievement' => 3, 'review_achievement' => 0]);
+    StudentPlanDay::create(['student_plan_id' => $plan->id, 'date' => '2026-07-02', 'day_name' => 'الاثنين', 'hifz_achievement' => 1]);
+    StudentPlanDay::create(['student_plan_id' => $plan->id, 'date' => '2026-07-05', 'day_name' => 'الخميس']);
+
+    $recent = runTool(new getStudentProfile, ['student' => 'الطالب أنس'])['recent_recitations'];
+
+    expect(array_column($recent, 'date'))->toBe(['2026-07-02', '2026-07-01'])
+        ->and($recent[0]['hifz']['grade'])->toBe('مقبول')
+        ->and($recent[0]['review'])->toBeNull()
+        ->and($recent[1]['review']['grade'])->toBe('لم يسمع')
+        ->and($recent[0])->toHaveKey('hifz.portion');
+});
+
+it('filters plans by their real kinds and names them as the site does', function () {
+    foreach (['hifz', 'hifz_review', 'review'] as $type) {
+        StudentPlan::create([
+            'student_id' => $this->student->id, 'teacher_id' => $this->teacher->id, 'start_date' => '2026-07-01',
+            'days_count' => 1, 'status' => 'active', 'plan_type' => $type, 'active_days' => ['sunday'],
+        ]);
+    }
+
+    expect(array_column(runTool(new getQuranPlans, ['plan_type' => 'hifz_review'])['plans'], 'type'))->toBe(['حفظ ومراجعة'])
+        ->and(array_column(runTool(new getQuranPlans, ['plan_type' => 'حفظ'])['plans'], 'type'))->toBe(['حفظ فقط'])
+        ->and(runTool(new getQuranPlans, ['plan_type' => 'review'])['plans'][0]['status'])->toBe('مفعّلة');
+});
+
+it('summarises attendance over every record, by student and by day', function () {
+    $other = Student::factory()->create(['name' => 'الطالب زيد', 'circle_id' => $this->circle->id]);
+
+    foreach ([
+        [$this->student, '2026-07-01', 'absent'], [$this->student, '2026-07-02', 'absent'],
+        [$other, '2026-07-01', 'present'], [$other, '2026-07-02', 'late'],
+    ] as [$student, $date, $status]) {
+        Attendance::create(['student_id' => $student->id, 'teacher_id' => $this->teacher->id, 'circle_id' => $this->circle->id, 'date' => $date, 'status' => $status]);
+    }
+
+    $byStudent = runTool(new getAttendanceData, ['summary' => true, 'group_by' => 'student', 'from' => '2026-07-01', 'to' => '2026-07-31']);
+
+    expect(array_column($byStudent['summary']['students'], 'student'))->toBe(['الطالب أنس', 'الطالب زيد'])
+        ->and($byStudent['summary']['students'][0]['غائب'])->toBe(2)
+        ->and($byStudent['summary']['students'][0]['circle'])->toBe('حلقة النور');
+
+    $byDate = runTool(new getAttendanceData, ['summary' => true, 'group_by' => 'date']);
+
+    expect($byDate['summary']['2026-07-01'])->toBe(['حاضر' => 1, 'غائب' => 1, 'متأخر' => 0, 'مستأذن' => 0, 'الإجمالي' => 2]);
+});
+
+it('counts every record in a summary, beyond the cap on the name-by-name list', function () {
+    $rows = collect(range(1, 3005))->map(fn ($i) => [
+        'student_id' => $this->student->id, 'teacher_id' => $this->teacher->id, 'circle_id' => $this->circle->id,
+        'date' => '2026-07-01 00:00:00', 'status' => 'present', 'created_at' => now(), 'updated_at' => now(),
+    ]);
+    $rows->chunk(500)->each(fn ($chunk) => DB::table('attendances')->insert($chunk->all()));
+
+    expect(runTool(new getAttendanceData, ['summary' => true])['summary']['المرحلة الأولى']['حلقة النور']['الإجمالي'])->toBe(3005)
+        ->and(runTool(new getAttendanceData, [])['returned_records'])->toBe(3000);
+});
+
+it('gives today in Riyadh with the Hijri date and the bounds of this and last week and month', function () {
+    Carbon::setTestNow('2026-10-14 09:00:00'); // A Wednesday in Riyadh.
+    AcademicCalendarEvent::create(['event_name' => 'الفصل الأول', 'start_date' => '2026-08-23', 'end_date' => '2026-12-31', 'is_attendance_period' => true, 'weekdays' => [0, 1, 2, 3, 4]]);
+
+    $today = json_decode((string) (new getDateAndTime)->handle(new Request([])), true);
+
+    expect($today['today'])->toBe('2026-10-14')
+        ->and($today['this_week'])->toBe(['from' => '2026-10-11', 'to' => '2026-10-17'])
+        ->and($today['last_week'])->toBe(['from' => '2026-10-04', 'to' => '2026-10-10'])
+        ->and($today['last_month'])->toBe(['from' => '2026-09-01', 'to' => '2026-09-30'])
+        ->and($today['hijri'])->toContain('١٤٤٨')
+        ->and(array_column($today['attendance_periods_today'], 'name'))->toBe(['الفصل الأول'])
+        ->and((new getDateAndTime)->schema(new JsonSchemaTypeFactory))->toBe([]);
+});
+
+it('keeps a calendar event that starts on the last day asked for', function () {
+    AcademicCalendarEvent::create(['event_name' => 'يوم مفتوح', 'start_date' => '2026-07-31', 'end_date' => '2026-07-31']);
+
+    expect(array_column(runTool(new getAcademicCalendar, ['from' => '2026-07-01', 'to' => '2026-07-31'])['events'], 'name'))->toContain('يوم مفتوح');
 });

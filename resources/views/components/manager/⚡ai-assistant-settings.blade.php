@@ -6,6 +6,7 @@ use App\Models\AiProviderCredential;
 use App\Models\Setting;
 use App\Support\AiSettings;
 use Flux\Flux;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Str;
 
 new class extends Component
@@ -144,12 +145,31 @@ new class extends Component
             $reply = KeyCheck::make()->prompt('ping', provider: $provider, model: $model, timeout: 30);
         } catch (\Throwable $e) {
             report($e);
-            Flux::toast('لم ينجح الاتصال بـ'.$label.': '.Str::limit($e->getMessage(), 180), variant: 'danger', duration: 10000);
+            Flux::toast('لم ينجح الاتصال بـ'.$label.': '.$this->providerReason($e), variant: 'danger', duration: 15000);
 
             return;
         }
 
         Flux::toast('يعمل مفتاح '.$label.'، وأجاب الموديل '.($reply->meta->model ?? $model ?? 'الافتراضي').'.', variant: 'success');
+    }
+
+    /**
+     * What the provider said was wrong, in full: the HTTP client's own message
+     * cuts the response body short, and the reason is usually at its end.
+     */
+    private function providerReason(\Throwable $e): string
+    {
+        for ($cause = $e; $cause !== null; $cause = $cause->getPrevious()) {
+            if ($cause instanceof RequestException && $cause->response !== null) {
+                $reason = $cause->response->json('error.message') ?? $cause->response->json('message');
+
+                if (is_string($reason) && $reason !== '') {
+                    return '('.$cause->response->status().') '.Str::limit($reason, 400);
+                }
+            }
+        }
+
+        return Str::limit($e->getMessage(), 300);
     }
 
     public function deleteKey(string $provider): void
