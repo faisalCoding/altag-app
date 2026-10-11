@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Manager\BackupController;
+use App\Http\Controllers\Manager\ExamBatchExportController;
 use App\Http\Controllers\Manager\RuleAcknowledgementPdfController;
 use App\Http\Controllers\ProgramSchedulePrintController;
 use App\Http\Controllers\Student\StudentPlanPrintController;
@@ -152,6 +153,8 @@ Route::middleware(['auth:manager', 'approved', 'page.enabled'])->prefix('manager
     Route::view('/role-permissions', 'manager.role-permissions')->name('role-permissions');
     Route::view('/circle-rules', 'manager.circle-rules')->name('circle-rules');
     Route::view('/exam-readiness', 'manager.exam-readiness')->name('exam-readiness');
+    Route::get('/exam-batches/{batch}/print', [ExamBatchExportController::class, 'print'])->name('exam-batches.print');
+    Route::get('/exam-batches/{batch}/csv', [ExamBatchExportController::class, 'csv'])->name('exam-batches.csv');
     Route::get('/circle-rules/acknowledgements/{acknowledgement}/pdf', [RuleAcknowledgementPdfController::class, 'show'])->name('circle-rules.pdf');
     Route::view('/forms', 'manager.forms')->name('forms');
     Route::get('/forms/create', fn () => view('manager.form-create'))->name('forms.create');

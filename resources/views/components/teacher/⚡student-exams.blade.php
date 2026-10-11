@@ -388,7 +388,7 @@ new class extends Component {
                 <flux:field>
                     <flux:label>{{ __('اليوم المتوقع لجاهزيته') }}</flux:label>
                     <livewire:shared.hijri-datepicker wire:model="expectedOn" label="" :min-date="$today" :placeholder="__('اختر التاريخ')" :wire:key="'expected-'.($nominationId ?? 'new')" />
-                    <flux:description>{{ __('لا يُدرج في الدفعات حتى تؤكد جاهزيته، ويصلك تذكير في ذلك اليوم.') }}</flux:description>
+                    <flux:description>{{ __('تؤكد جاهزيته حين يحين ذلك اليوم، ويصلك تذكير فيه.') }}</flux:description>
                     <flux:error name="expectedOn" />
                 </flux:field>
             @endif

@@ -24,8 +24,8 @@ beforeEach(function () {
     Carbon::setTestNow('2026-10-11 07:00:00');
 
     $this->level = ExamLevel::create(['name' => 'جزء عم']);
-    $this->middle = Stage::factory()->create(['name' => 'المتوسطة']);
-    $this->primary = Stage::factory()->create(['name' => 'الابتدائية']);
+    $this->middle = Stage::factory()->create(['name' => 'المتوسطة', 'position' => 1]);
+    $this->primary = Stage::factory()->create(['name' => 'الابتدائية', 'position' => 2]);
     $this->teacher = Teacher::factory()->create(['name' => 'المعلم خالد']);
 
     $student = function (string $name, Stage $stage) {
@@ -51,19 +51,24 @@ it('lists the ready apart from the expected, with who put them forward', functio
         ->and($list->instance()->expected->pluck('id')->all())->toBe([$this->expected->id]);
 
     $list->assertSee('رشّحه المعلم خالد')
-        ->assertSee('يُدرجون في الدفعات بعد أن يؤكد معلموهم جاهزيتهم.')
+        ->assertSee('لم يؤكد معلموهم جاهزيتهم بعد، ويمكنك تحديدهم وإدراجهم في الدفعة.')
         ->set('stageId', $this->primary->id)
         ->assertSee('يوسف')
         ->assertDontSee('سالم');
 });
 
-it('opens a batch on a day and hour for the students ticked, only the ready taken', function () {
+it('opens a batch on a day and hour for the students ticked, warned of one expected ready only after it', function () {
     $this->actingAs($this->manager, 'manager');
 
     Livewire::test(ExamReadinessList::class, ['role' => 'manager'])
         ->set('selected', [(string) $this->ready->id, (string) $this->expected->id])
         ->call('openNewBatch')
+        ->assertDontSee('تنبيه: جاهزية')
+        ->set('batchDate', '2026-10-26')
+        ->assertDontSee('تنبيه: جاهزية')
         ->set('batchDate', '2026-10-20')
+        ->assertSee('تنبيه: جاهزية')
+        ->assertSee('ماجد — متوقعة')
         ->set('batchTime', '16:30')
         ->set('batchLocation', 'قاعة الجمعية')
         ->call('createBatch')
@@ -76,8 +81,74 @@ it('opens a batch on a day and hour for the students ticked, only the ready take
     expect($batch->date_time->format('Y-m-d H:i'))->toBe('2026-10-20 16:30')
         ->and($batch->created_by)->toBe($this->manager->id)
         ->and($this->ready->fresh()->exam_batch_id)->toBe($batch->id)
-        ->and($this->expected->fresh()->status)->toBe('nominated')
-        ->and(AppNotification::where('type', 'exam_scheduled')->count())->toBe(1);
+        // Expected only, and seated all the same: the warning is no bar.
+        ->and($this->expected->fresh()->exam_batch_id)->toBe($batch->id)
+        ->and(AppNotification::where('type', 'exam_scheduled')->count())->toBe(2);
+});
+
+it('lists the ready by stage and circle, and ticks a stage or everyone at once', function () {
+    $this->actingAs($this->manager, 'manager');
+
+    $list = Livewire::test(ExamReadinessList::class, ['role' => 'manager']);
+
+    expect($list->instance()->readyGroups->pluck('name')->all())->toBe(['المتوسطة', 'الابتدائية'])
+        ->and($list->instance()->readyGroups->first()['circles']->first()['exams']->pluck('id')->all())->toBe([$this->ready->id]);
+
+    $list->assertSeeInOrder(['المتوسطة', 'سالم', 'الابتدائية', 'يوسف'])
+        ->assertSee('تحديد الجميع من كل المراحل والحلقات')
+        ->call('toggleMany', [$this->young->id])
+        ->assertSet('selected', [$this->young->id])
+        ->call('toggleMany', [$this->ready->id, $this->young->id])
+        ->assertSet('selected', [$this->young->id, $this->ready->id])
+        // All ticked already: the same toggle lets them all go.
+        ->call('toggleMany', [$this->ready->id, $this->young->id])
+        ->assertSet('selected', []);
+});
+
+it('warns before adding a student expected later to a batch already set', function () {
+    $this->actingAs($this->manager, 'manager');
+    $batch = ExamReadiness::createBatch('2026-10-20 16:30', null, null, [$this->young->id], $this->manager);
+
+    Livewire::test(ExamReadinessList::class, ['role' => 'manager'])
+        ->set('selected', [(string) $this->expected->id])
+        ->set('targetBatchId', $batch->id)
+        ->assertSee('تنبيه: جاهزية')
+        ->assertSee('موعد هذه الدفعة')
+        ->call('addToBatch');
+
+    expect($this->expected->fresh()->exam_batch_id)->toBe($batch->id);
+});
+
+it('prints a batch\'s names and exports them as CSV, by stage and circle', function () {
+    $this->actingAs($this->manager, 'manager');
+    $batch = ExamReadiness::createBatch('2026-10-20 16:30', 'قاعة الجمعية', null, [$this->young->id, $this->ready->id], $this->manager);
+    ExamReadiness::recordResult($this->ready->fresh(), 'passed', '97');
+
+    Livewire::test(ExamBatches::class)
+        ->assertSee(route('manager.exam-batches.print', $batch), false)
+        ->assertSee(route('manager.exam-batches.csv', $batch), false);
+
+    $this->get(route('manager.exam-batches.print', $batch))
+        ->assertSuccessful()
+        ->assertSee('كشف أسماء دفعة الاختبار')
+        ->assertSee('قاعة الجمعية')
+        ->assertSeeInOrder(['سالم', 'المتوسطة', 'تم التجاوز', '97', 'يوسف', 'الابتدائية']);
+
+    $csv = $this->get(route('manager.exam-batches.csv', $batch))->assertSuccessful()->streamedContent();
+    $lines = array_map('str_getcsv', explode("\n", trim(substr($csv, 3))));
+
+    expect(substr($csv, 0, 3))->toBe("\xEF\xBB\xBF")
+        ->and($lines[0])->toBe(['م', 'اسم الطالب', 'المرحلة', 'الحلقة', 'مستوى الاختبار', 'المعلم المرشِّح', 'الحالة', 'الدرجة'])
+        ->and(array_column(array_slice($lines, 1), 1))->toBe(['سالم', 'يوسف'])
+        ->and($lines[1][6])->toBe('تم التجاوز');
+});
+
+it('keeps a batch\'s names from anyone but the manager', function () {
+    $batch = ExamReadiness::createBatch('2026-10-20 16:30', null, null, [$this->young->id], $this->manager);
+    $this->actingAs(Supervisor::factory()->create(), 'supervisor');
+
+    $this->get(route('manager.exam-batches.csv', $batch))->assertRedirect();
+    $this->get(route('manager.exam-batches.print', $batch))->assertRedirect();
 });
 
 it('refuses a batch on a day gone by, and adds students to a batch already set', function () {
@@ -158,6 +229,25 @@ it('draws the manager\'s page with both tabs', function () {
 
     $this->get(route('manager.exam-readiness'))
         ->assertSuccessful()
+        ->assertSee('دفعات الاختبارات')
         ->assertSee('جاهزون للاختبار')
         ->assertSee('الدفعات');
+});
+
+it('keeps each stage whole on the sheet when two stages share a place', function () {
+    $this->primary->update(['position' => 1]);
+    $circle = fn (string $name, Stage $stage) => Circle::factory()->create(['name' => $name, 'stage_id' => $stage->id]);
+    $put = fn (string $name, Circle $circle) => ExamReadiness::nominate(Student::factory()->create(['name' => $name, 'circle_id' => $circle->id]), $this->level->id, null, $this->teacher);
+
+    // Circle names that would interleave the two stages if sorted by name alone.
+    $exams = [
+        $put('أ', $circle('حلقة ١', $this->middle)),
+        $put('ب', $circle('حلقة ٢', $this->primary)),
+        $put('ج', $circle('حلقة ٣', $this->middle)),
+    ];
+    $batch = ExamReadiness::createBatch('2026-10-20 16:30', null, null, array_map(fn ($exam) => $exam->id, $exams), $this->manager);
+
+    $stages = $batch->roster()->map(fn ($exam) => $exam->student->circle->stage_id)->all();
+
+    expect($stages)->toBe([$this->middle->id, $this->middle->id, $this->primary->id]);
 });

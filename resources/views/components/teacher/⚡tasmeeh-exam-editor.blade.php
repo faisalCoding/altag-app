@@ -384,7 +384,7 @@ new class extends Component {
                                     :placeholder="__('اختر التاريخ')"
                                     :wire:key="'expected-'.$studentId"
                                 />
-                                <flux:description>{{ __('لا يُدرج في الدفعات حتى تؤكد جاهزيته، ويصلك تذكير في ذلك اليوم.') }}</flux:description>
+                                <flux:description>{{ __('تؤكد جاهزيته حين يحين ذلك اليوم، ويصلك تذكير فيه.') }}</flux:description>
                                 <flux:error name="expectedOn" />
                             </flux:field>
                         @endif

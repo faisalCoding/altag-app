@@ -1,4 +1,4 @@
-<x-layouts.role-shell :title="__('جاهزية الاختبارات')">
+<x-layouts.role-shell :title="__('دفعات الاختبارات')">
     <x-slot:sidebar>
         @include('manager.sidebar-nav')
     </x-slot:sidebar>
@@ -6,8 +6,8 @@
     {{-- Both tabs stay mounted: a batch made in one shows at once in the other. --}}
     <div class="space-y-5" x-data="{ tab: new URLSearchParams(location.search).get('tab') === 'batches' ? 'batches' : 'readiness' }">
         <div class="space-y-1">
-            <flux:heading size="xl" level="1">{{ __('جاهزية الاختبارات') }}</flux:heading>
-            <flux:subheading>{{ __('يرشّح المعلمون طلابهم، وتجمع الجاهزين منهم في دفعات تحدد موعدها.') }}</flux:subheading>
+            <flux:heading size="xl" level="1">{{ __('دفعات الاختبارات') }}</flux:heading>
+            <flux:subheading>{{ __('يرشّح المعلمون طلابهم، وتجمعهم في دفعات تحدد موعدها، وتطبع أسماءها أو تصدّرها.') }}</flux:subheading>
         </div>
 
         <div class="inline-flex rounded-xl bg-zinc-100 dark:bg-zinc-800 p-1 gap-1">

@@ -97,7 +97,7 @@ class ExamBatches extends Component
 
         if ($exam && $exam->status === StudentExam::SCHEDULED) {
             ExamReadiness::unseat($exam);
-            Flux::toast('أُخرج '.$exam->student?->name.' من الدفعة، وعاد إلى الجاهزين.', variant: 'success');
+            Flux::toast('أُخرج '.$exam->student?->name.' من الدفعة، وعاد إلى قائمة المرشحين.', variant: 'success');
         }
 
         unset($this->batch, $this->batches);

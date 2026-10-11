@@ -117,16 +117,18 @@ final class ExamReadiness
     }
 
     /**
-     * Seat ready students in a batch: each exam takes the batch's day and
-     * place, and the student and guardian are told. Students not confirmed
-     * ready, or seated already, are left out.
+     * Seat students put forward in a batch: each exam takes the batch's day
+     * and place, and the student and guardian are told. The manager may seat
+     * a student only expected to be ready too — the batch is their call —
+     * and the teacher's confirmation is then no longer waited on. Students
+     * seated already, or whose exam has closed, are left out.
      *
      * @param  array<int, int>  $examIds
      * @return int how many were seated
      */
     public static function seat(ExamBatch $batch, array $examIds): int
     {
-        $exams = StudentExam::nominated()->whereNotNull('ready_at')->whereKey($examIds)->with('examLevel', 'student')->get();
+        $exams = StudentExam::nominated()->whereKey($examIds)->with('examLevel', 'student')->get();
 
         DB::transaction(fn () => $exams->each(fn (StudentExam $exam) => $exam->update([
             'status' => StudentExam::SCHEDULED,
@@ -173,7 +175,9 @@ final class ExamReadiness
     }
 
     /**
-     * Take a student out of a batch: back among the ready, with no day.
+     * Take a student out of a batch: back among those put forward, with no
+     * day — ready, or expected by their day if seated before the teacher
+     * confirmed them.
      */
     public static function unseat(StudentExam $exam): void
     {
@@ -186,7 +190,8 @@ final class ExamReadiness
             'exam_batch_id' => null,
             'date_time' => null,
             'location' => null,
-            'ready_at' => $exam->ready_at ?? now(),
+            // Back where they stood: ready, or still expected by their day.
+            'ready_at' => $exam->ready_at ?? ($exam->expected_ready_on === null ? now() : null),
         ]);
 
         self::tell($exam, 'exam_unscheduled', 'تأجيل اختبار', 'أُلغي موعد اختبارك، وسيُحدَّد لك موعد جديد.');

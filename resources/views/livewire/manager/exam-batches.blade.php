@@ -15,24 +15,30 @@
                     $past = $row->date_time->toDateString() < $today;
                     $complete = $row->exams_count > 0 && $row->recorded_count === $row->exams_count;
                 @endphp
-                <button type="button" wire:key="batch-{{ $row->id }}" wire:click="openBatch({{ $row->id }})"
-                    class="w-full flex flex-wrap items-center gap-3 p-4 text-start hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
-                    <div class="size-11 shrink-0 rounded-xl flex items-center justify-center {{ $past ? 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800' : 'bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300' }}">
-                        <flux:icon icon="academic-cap" class="size-5" />
-                    </div>
-                    <div class="flex-1 min-w-[12rem]">
-                        <div class="font-bold text-zinc-900 dark:text-white">{{ ExamReadiness::when($row) }}</div>
-                        <div class="text-xs text-zinc-500">{{ $ar($row->exams_count) }} {{ __('طالب') }} · {{ __('رُصدت') }} {{ $ar($row->recorded_count) }}</div>
-                    </div>
-                    @if($complete)
-                        <flux:badge size="sm" color="emerald">{{ __('مكتملة') }}</flux:badge>
-                    @elseif($past)
-                        <flux:badge size="sm" color="amber">{{ __('بانتظار النتائج') }}</flux:badge>
-                    @else
-                        <flux:badge size="sm" color="indigo">{{ __('قادمة') }}</flux:badge>
+                <div wire:key="batch-{{ $row->id }}" class="flex flex-wrap items-center gap-2 p-4 hover:bg-zinc-50 dark:hover:bg-zinc-800/50" data-batch-row>
+                    <button type="button" wire:click="openBatch({{ $row->id }})" class="flex flex-1 min-w-[16rem] flex-wrap items-center gap-3 text-start">
+                        <div class="size-11 shrink-0 rounded-xl flex items-center justify-center {{ $past ? 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800' : 'bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300' }}">
+                            <flux:icon icon="academic-cap" class="size-5" />
+                        </div>
+                        <div class="flex-1 min-w-[12rem]">
+                            <div class="font-bold text-zinc-900 dark:text-white">{{ ExamReadiness::when($row) }}</div>
+                            <div class="text-xs text-zinc-500">{{ $ar($row->exams_count) }} {{ __('طالب') }} · {{ __('رُصدت') }} {{ $ar($row->recorded_count) }}</div>
+                        </div>
+                        @if($complete)
+                            <flux:badge size="sm" color="emerald">{{ __('مكتملة') }}</flux:badge>
+                        @elseif($past)
+                            <flux:badge size="sm" color="amber">{{ __('بانتظار النتائج') }}</flux:badge>
+                        @else
+                            <flux:badge size="sm" color="indigo">{{ __('قادمة') }}</flux:badge>
+                        @endif
+                    </button>
+                    @if($row->exams_count > 0)
+                        @include('livewire.manager.partials.exam-batch-exports', ['batch' => $row])
                     @endif
-                    <flux:icon icon="chevron-left" class="size-4 text-zinc-400" />
-                </button>
+                    <button type="button" wire:click="openBatch({{ $row->id }})" aria-label="{{ __('فتح الدفعة') }}" class="p-1 text-zinc-400 hover:text-zinc-600">
+                        <flux:icon icon="chevron-left" class="size-4" />
+                    </button>
+                </div>
             @empty
                 <p class="p-8 text-center text-sm text-zinc-500">{{ __('لا دفعات بعد. حدّد الجاهزين في تبويب «الجاهزية» ثم أنشئ لهم دفعة.') }}</p>
             @endforelse
@@ -46,6 +52,9 @@
                     <div class="text-sm text-zinc-500 mt-0.5">{{ $batch->notes }}</div>
                 @endif
             </div>
+            @if($batch->exams->isNotEmpty())
+                @include('livewire.manager.partials.exam-batch-exports', ['batch' => $batch])
+            @endif
             <flux:button size="sm" icon="pencil-square" wire:click="openEdit">{{ __('تعديل الموعد') }}</flux:button>
             @if($batch->exams->isEmpty())
                 <flux:button size="sm" variant="danger" icon="trash" wire:click="deleteBatch" wire:confirm="{{ __('تُحذف هذه الدفعة الفارغة. متابعة؟') }}">{{ __('حذف') }}</flux:button>
@@ -78,7 +87,7 @@
                     </span>
                     @if($exam->status === StudentExam::SCHEDULED)
                         <flux:button size="xs" variant="ghost" icon="x-mark" class="text-rose-500" wire:click="unseat({{ $exam->id }})"
-                            wire:confirm="{{ __('يُخرج الطالب من الدفعة ويعود إلى الجاهزين، ويُبلَّغ بإلغاء الموعد. متابعة؟') }}" aria-label="{{ __('إخراج من الدفعة') }}" />
+                            wire:confirm="{{ __('يُخرج الطالب من الدفعة ويعود إلى قائمة المرشحين، ويُبلَّغ بإلغاء الموعد. متابعة؟') }}" aria-label="{{ __('إخراج من الدفعة') }}" />
                     @else
                         <span></span>
                     @endif

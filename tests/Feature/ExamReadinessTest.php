@@ -70,7 +70,7 @@ it('lets the teacher change or take back a nomination until it is seated', funct
         ->and(StudentExam::count())->toBe(1);
 });
 
-it('seats only confirmed students in a batch, and tells them and their guardian the day', function () {
+it('seats students put forward in a batch, and tells them and their guardian the day', function () {
     $ali = ExamReadiness::nominate($this->ali, $this->level->id, null, $this->teacher);
     $omar = ExamReadiness::nominate($this->omar, $this->level->id, '2026-10-25', $this->teacher);
 
@@ -80,17 +80,18 @@ it('seats only confirmed students in a batch, and tells them and their guardian 
         ->and($ali->fresh()->exam_batch_id)->toBe($batch->id)
         ->and($ali->fresh()->date_time->format('Y-m-d H:i'))->toBe('2026-10-20 16:30')
         ->and($ali->fresh()->location)->toBe('قاعة الجمعية')
-        // Expected, not confirmed: left out.
-        ->and($omar->fresh()->status)->toBe('nominated');
+        // Only expected, but the manager's call: seated all the same.
+        ->and($omar->fresh()->status)->toBe('pending')
+        ->and($omar->fresh()->exam_batch_id)->toBe($batch->id);
 
-    $note = AppNotification::where('recipient_type', 'student')->sole();
+    $note = AppNotification::where('recipient_type', 'student')->where('recipient_id', $this->ali->id)->sole();
 
     expect($note->recipient_id)->toBe($this->ali->id)
         ->and($note->body)->toContain('جزء عم')->toContain('الساعة 4:30 م')->toContain('قاعة الجمعية')
         ->and(GuardianNotification::where('guardian_id', $this->guardian->id)->where('type', 'exam_scheduled')->count())->toBe(1);
 
-    ExamReadiness::confirmReady($omar->fresh());
-    expect(ExamReadiness::seat($batch, [$omar->id]))->toBe(1);
+    // Seated already: not seated twice.
+    expect(ExamReadiness::seat($batch, [$omar->id]))->toBe(0);
 });
 
 it('moves a batch\'s students with it, and puts a student taken out back among the ready', function () {
@@ -107,6 +108,17 @@ it('moves a batch\'s students with it, and puts a student taken out back among t
 
     expect($zaid->fresh()->only(['status', 'exam_batch_id', 'date_time']))->toBe(['status' => 'nominated', 'exam_batch_id' => null, 'date_time' => null])
         ->and($zaid->fresh()->isReady())->toBeTrue();
+});
+
+it('puts a student seated while only expected back to their expected day when taken out', function () {
+    $omar = ExamReadiness::nominate($this->omar, $this->level->id, '2026-10-25', $this->teacher);
+    ExamReadiness::createBatch('2026-10-20 16:30', null, null, [$omar->id], null);
+
+    ExamReadiness::unseat($omar->fresh());
+
+    expect($omar->fresh()->status)->toBe('nominated')
+        ->and($omar->fresh()->isReady())->toBeFalse()
+        ->and($omar->fresh()->expected_ready_on->toDateString())->toBe('2026-10-25');
 });
 
 it('puts a student absent from a batch forward again, ready, for the same level', function () {

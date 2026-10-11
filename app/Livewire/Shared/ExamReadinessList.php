@@ -19,12 +19,13 @@ use Livewire\Component;
 
 /**
  * The students put forward for the association's exam: those their teachers
- * have ready, and those only expected to be.
+ * have ready, by stage and circle, and those only expected to be.
  *
- * The manager seats the ready ones in a dated batch — a new one or one
- * already set. A student only expected is listed apart and cannot be seated
- * until the teacher confirms them. A supervisor reads the same lists for the
- * stages they oversee, and seats no one.
+ * The manager ticks students — one by one, a circle, a stage or every one
+ * ready — and seats them in a dated batch, a new one or one already set. A
+ * student only expected may be ticked too; when their expected day falls
+ * after the batch's, the manager is warned before seating them. A supervisor
+ * reads the same lists for the stages they oversee, and seats no one.
  */
 class ExamReadinessList extends Component
 {
@@ -35,7 +36,7 @@ class ExamReadinessList extends Component
 
     public ?int $stageId = null;
 
-    /** @var array<int, int|string> the ready exams ticked for a batch */
+    /** @var array<int, int|string> the exams ticked for a batch, ready or expected */
     public array $selected = [];
 
     public ?string $batchDate = null;
@@ -63,6 +64,26 @@ class ExamReadinessList extends Component
     public function updatedStageId(): void
     {
         $this->selected = [];
+    }
+
+    /**
+     * Tick every one of these students, or, when all are ticked already,
+     * none of them: a circle, a stage, or everyone ready.
+     *
+     * @param  array<int, int|string>  $examIds
+     */
+    public function toggleMany(array $examIds): void
+    {
+        if (! $this->mayBatch()) {
+            return;
+        }
+
+        $ids = array_map('intval', $examIds);
+        $ticked = array_map('intval', $this->selected);
+
+        $this->selected = array_values(array_diff($ids, $ticked) === []
+            ? array_diff($ticked, $ids)
+            : array_unique([...$ticked, ...$ids]));
     }
 
     public function openNewBatch(): void
@@ -148,11 +169,73 @@ class ExamReadinessList extends Component
         return $this->nominations()->whereNotNull('ready_at')->orderBy('ready_at')->get();
     }
 
+    /**
+     * The ready, by stage — in the stages' own order — then by circle.
+     *
+     * @return Collection<int, array{name: string, ids: array<int, int>, circles: Collection<int, array{name: string, ids: array<int, int>, exams: Collection<int, StudentExam>}>}>
+     */
+    #[Computed]
+    public function readyGroups(): Collection
+    {
+        return $this->ready
+            ->groupBy(fn (StudentExam $exam) => $exam->student?->circle?->stage_id ?? 0)
+            ->sortBy(fn (Collection $exams) => ExamBatch::stageOrder($exams->first()))
+            ->map(fn (Collection $exams) => [
+                'name' => $exams->first()->student?->circle?->stage?->name ?? 'بلا مرحلة',
+                'ids' => $exams->modelKeys(),
+                'circles' => $exams
+                    ->groupBy(fn (StudentExam $exam) => $exam->student?->circle_id ?? 0)
+                    ->sortBy(fn (Collection $circle) => $circle->first()->student?->circle?->name ?? "\u{10FFFF}")
+                    ->map(fn (Collection $circle) => [
+                        'name' => $circle->first()->student?->circle?->name ?? 'بلا حلقة',
+                        'ids' => $circle->modelKeys(),
+                        'exams' => $circle->sortBy(fn (StudentExam $exam) => $exam->student?->name)->values(),
+                    ])
+                    ->values(),
+            ])
+            ->values();
+    }
+
     /** @return Collection<int, StudentExam> */
     #[Computed]
     public function expected(): Collection
     {
         return $this->nominations()->whereNull('ready_at')->orderBy('expected_ready_on')->get();
+    }
+
+    /**
+     * The ticked students expected ready only after the day given — the new
+     * batch's, or the one they would be added to.
+     *
+     * @return Collection<int, StudentExam>
+     */
+    public function lateFor(?string $day): Collection
+    {
+        if (! filled($day)) {
+            return collect();
+        }
+
+        $ticked = array_map('intval', $this->selected);
+
+        return $this->expected
+            ->filter(fn (StudentExam $exam) => in_array($exam->id, $ticked, true)
+                && $exam->expected_ready_on !== null
+                && $exam->expected_ready_on->toDateString() > $day)
+            ->values();
+    }
+
+    /** @return Collection<int, StudentExam> */
+    #[Computed]
+    public function lateForNewBatch(): Collection
+    {
+        return $this->lateFor($this->batchDate);
+    }
+
+    /** @return Collection<int, StudentExam> */
+    #[Computed]
+    public function lateForTarget(): Collection
+    {
+        return $this->lateFor($this->upcomingBatches->firstWhere('id', $this->targetBatchId)?->date_time?->toDateString());
     }
 
     /** @return Collection<int, ExamBatch> */
@@ -180,7 +263,7 @@ class ExamReadinessList extends Component
         return StudentExam::nominated()
             ->when($this->levelId, fn ($q) => $q->where('exam_level_id', $this->levelId))
             ->when($stageIds !== null, fn ($q) => $q->whereHas('student.circle', fn ($c) => $c->whereIn('stage_id', $stageIds)))
-            ->with('student:id,name,circle_id', 'student.circle:id,name,stage_id', 'student.circle.stage:id,name', 'examLevel:id,name', 'nominator:id,name');
+            ->with('student:id,name,circle_id', 'student.circle:id,name,stage_id', 'student.circle.stage:id,name,position', 'examLevel:id,name', 'nominator:id,name');
     }
 
     /**
@@ -196,16 +279,19 @@ class ExamReadinessList extends Component
             : null;
     }
 
-    /** @return array<int, int> the ticked exams still listed as ready */
+    /** @return array<int, int> the ticked exams still listed, ready or expected */
     private function selectedIds(): array
     {
-        return $this->ready->modelKeys() === [] ? [] : array_values(array_intersect($this->ready->modelKeys(), array_map('intval', $this->selected)));
+        return array_values(array_intersect(
+            [...$this->ready->modelKeys(), ...$this->expected->modelKeys()],
+            array_map('intval', $this->selected),
+        ));
     }
 
     private function seated(ExamBatch $batch, int $count): void
     {
         $this->selected = [];
-        unset($this->ready, $this->upcomingBatches);
+        unset($this->ready, $this->readyGroups, $this->expected, $this->upcomingBatches);
 
         Flux::toast('جُدول '.HijriDate::arabicDigits($count).' في دفعة '.ExamReadiness::when($batch).'، وأُبلغ الطلاب وأولياء أمورهم.', variant: 'success');
         $this->dispatch('exam-batch-saved');

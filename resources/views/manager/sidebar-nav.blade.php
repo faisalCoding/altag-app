@@ -93,7 +93,7 @@
     @endif
     <flux:sidebar.item class="[&_svg]:bg-[#0ea5e9] hover:[&_svg]:bg-[#0284c7]" icon="clipboard-document-list" :href="route('manager.exam-readiness')"
         :current="request()->routeIs('manager.exam-readiness')" wire:navigate>
-        جاهزية الاختبارات
+        دفعات الاختبارات
     </flux:sidebar.item>
 </flux:sidebar.group>
 <flux:sidebar.group heading="التقارير" class="grid">
