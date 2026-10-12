@@ -113,7 +113,7 @@ it('sums each circle and the academy over the range', function () {
         ->and($grid['days']['2026-07-05']['rate'])->toBe(67)
         ->and($grid['days']['2026-07-07']['missing'])->toBe(1)
         ->and($grid['summary'])->toBe([
-            'rate' => 80, 'missing' => 1, 'missing_circles' => 1, 'unmarked' => 2,
+            'rate' => 80, 'present' => 4, 'counted' => 5, 'missing' => 1, 'missing_circles' => 1, 'unmarked' => 2,
             'worst' => ['name' => 'حلقة الفاروق', 'rate' => 80],
         ]);
 });
@@ -123,7 +123,7 @@ it('works the line and the summary out for the stages picked', function () {
 
     expect(AttendanceReportGrid::select($grid, [$this->middle->id])['summary']['rate'])->toBe(80)
         ->and(AttendanceReportGrid::select($grid, [(string) $this->primary->id])['summary'])
-        ->toBe(['rate' => null, 'missing' => 0, 'missing_circles' => 0, 'unmarked' => 0, 'worst' => null])
+        ->toBe(['rate' => null, 'present' => 0, 'counted' => 0, 'missing' => 0, 'missing_circles' => 0, 'unmarked' => 0, 'worst' => null])
         ->and(AttendanceReportGrid::select($grid, [$this->primary->id])['days']['2026-07-07']['missing'])->toBe(0)
         ->and(AttendanceReportGrid::select($grid, [])['days']['2026-07-07']['missing'])->toBe(1);
 });
@@ -142,6 +142,42 @@ it('draws the day cells as links to the names behind them', function () {
         ->assertSee('٢ لم يُسجَّل')
         ->assertSee('data-circle-rate="80"', false)
         ->assertSee(route('manager.attendance-list', ['circleId' => $this->circle->id, 'date' => '2026-07-05']), false);
+});
+
+/*
+ * The counts each rate is made of, beside it: a circle's over the range, a
+ * day's over the circles, the period's over all — present of those counted
+ * (present or absent), so the two always agree.
+ */
+it('shows beside every total rate the present and the counted it is made of', function () {
+    $this->actingAs(Manager::factory()->create(), 'manager');
+
+    $html = Livewire::test(AttendanceReports::class)
+        ->set('fromDate', '2026-07-04')
+        ->set('toDate', '2026-07-09')
+        ->html();
+
+    // The circle: 4 present of 5 counted, 80٪, with the 2 left unmarked said.
+    expect($html)->toMatch('/data-circle-count>٤ \/ ٥</')
+        ->toContain('٢ لم يُسجَّل')
+        // Sunday 2 of 3, Monday 2 of 2; a day with nothing counted shows no count.
+        ->toMatch('/data-day-count[^\n]*>٢ \/ ٣</')
+        ->toMatch('/data-day-count[^\n]*>٢ \/ ٢</')
+        ->toMatch('/data-day-count[^\n]*style="display: none"\s*>٠ \/ ٠</')
+        ->toMatch('/data-total-count[^\n]*>٤ \/ ٥</')
+        ->toContain('٤</span> حاضراً من <span x-text="ar(summary.counted)">٥');
+
+    $sheet = view('pdf.attendance-report', [
+        'grid' => grid(),
+        'fromDate' => '2026-07-04',
+        'toDate' => '2026-07-09',
+        'stageNames' => 'كل المراحل',
+    ])->render();
+
+    expect($sheet)->toContain('<b>٤ / ٥</b>')
+        ->toContain('<span class="sub">٢ / ٣</span>')
+        ->toContain('(٤ من ٥)')
+        ->toContain('غياب ١، تأخر ١، ٢ لم يُسجَّل، ١ بلا تحضير');
 });
 
 it('asks the circle\'s teacher over WhatsApp to take a missed roll, with a link onto that day', function () {

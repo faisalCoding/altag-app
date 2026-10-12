@@ -103,6 +103,7 @@
 
         tfoot td { background-color: #f4f4f5; font-weight: bold; }
         tfoot .namecol { color: {{ $brandDark }}; }
+        tfoot .sub { font-size: 7px; font-weight: normal; color: #52525b; }
 
         .foot { font-size: 7px; color: #a1a1aa; text-align: center; }
     </style>
@@ -133,7 +134,7 @@
 
 <table class="summary">
     <tr>
-        <td>نسبة الحضور: <b>{{ $percent($summary['rate']) }}</b></td>
+        <td>نسبة الحضور: <b>{{ $percent($summary['rate']) }}</b>@if ($summary['counted'] > 0) ({{ $ar($summary['present']) }} من {{ $ar($summary['counted']) }})@endif</td>
         <td>أيام دوام بلا تحضير: <b>{{ $ar($summary['missing']) }}</b></td>
         <td>طلاب لم يُسجَّلوا: <b>{{ $ar($summary['unmarked']) }}</b></td>
         <td>أكثر حلقة غياباً: <b>{{ $summary['worst'] ? $summary['worst']['name'].' ('.$percent($summary['worst']['rate']).')' : '—' }}</b></td>
@@ -199,7 +200,15 @@
 
                     <td class="totalcol">
                         <span class="big">{{ $percent($row['totals']['rate']) }}</span><br>
-                        <span class="sub">غياب {{ $ar($row['totals']['absent']) }}، تأخر {{ $ar($row['totals']['late']) }}@if ($row['totals']['missing'] > 0)، {{ $ar($row['totals']['missing']) }} بلا تحضير@endif</span>
+                        @if ($row['totals']['counted'] > 0)
+                            <b>{{ $ar($row['totals']['present']) }} / {{ $ar($row['totals']['counted']) }}</b><br>
+                        @endif
+                        <span class="sub">{{ collect([
+                            'غياب '.$ar($row['totals']['absent']),
+                            'تأخر '.$ar($row['totals']['late']),
+                            $row['totals']['unmarked'] > 0 ? $ar($row['totals']['unmarked']).' لم يُسجَّل' : null,
+                            $row['totals']['missing'] > 0 ? $ar($row['totals']['missing']).' بلا تحضير' : null,
+                        ])->filter()->implode('، ') }}</span>
                     </td>
                 </tr>
             @endforeach
@@ -217,15 +226,25 @@
             <tr>
                 <td class="namecol">المجمع</td>
                 @foreach ($dates as $date)
-                    <td>{{ $percent($grid['days'][$date]['rate']) }}</td>
+                    <td>
+                        {{ $percent($grid['days'][$date]['rate']) }}
+                        @if ($grid['days'][$date]['counted'] > 0)
+                            <br><span class="sub">{{ $ar($grid['days'][$date]['present']) }} / {{ $ar($grid['days'][$date]['counted']) }}</span>
+                        @endif
+                    </td>
                 @endforeach
-                <td class="totalcol"><span class="big">{{ $percent($summary['rate']) }}</span></td>
+                <td class="totalcol">
+                    <span class="big">{{ $percent($summary['rate']) }}</span>
+                    @if ($summary['counted'] > 0)
+                        <br><b>{{ $ar($summary['present']) }} / {{ $ar($summary['counted']) }}</b>
+                    @endif
+                </td>
             </tr>
         </tfoot>
     @endif
 </table>
 
-<p class="foot">طُبع في {{ HijriDate::full(now('Asia/Riyadh')) }} — الخلية: الحاضرون (والمتأخرون) من الطلاب المشاركين، والمستأذن خارجها — الرمادي ليس يوم دوام</p>
+<p class="foot">طُبع في {{ HijriDate::full(now('Asia/Riyadh')) }} — الخلية: الحاضرون (والمتأخرون) من الطلاب المشاركين، والمستأذن خارجها — تحت كل نسبة في المجاميع: الحاضرون من المحسوبين فيها (الحاضر والغائب) — الرمادي ليس يوم دوام</p>
 
 </body>
 

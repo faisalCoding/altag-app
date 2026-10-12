@@ -94,15 +94,17 @@
                 const rows = this.circles.filter((c) => this.shown(c.stage))
                 const sum = (key) => rows.reduce((total, c) => total + c[key], 0)
                 const worst = rows.filter((c) => c.rate !== null && c.rate < 100 && c.counted >= 5).sort((a, b) => a.rate - b.rate)[0] ?? null
-                return { rate: this.rate(sum('present'), sum('counted')), missing: sum('missing'), missingCircles: rows.filter((c) => c.missing > 0).length, unmarked: sum('unmarked'), worst }
+                return { rate: this.rate(sum('present'), sum('counted')), present: sum('present'), counted: sum('counted'), missing: sum('missing'), missingCircles: rows.filter((c) => c.missing > 0).length, unmarked: sum('unmarked'), worst }
             },
             day(date) {
                 let present = 0, counted = 0, missing = 0
                 for (const [stage, dates] of Object.entries(this.days)) {
                     if (this.shown(stage)) { present += dates[date].present; counted += dates[date].counted; missing += dates[date].missing }
                 }
-                return { rate: this.rate(present, counted), missing }
+                return { rate: this.rate(present, counted), present, counted, missing }
             },
+            // What a rate is made of: the present, then of how many.
+            count(total) { return this.ar(total.present) + ' / ' + this.ar(total.counted) },
         }">
 
     {{-- ─────────── تصفية المراحل ─────────── --}}
@@ -150,6 +152,9 @@
                 <div class="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4">
                     <div class="text-xs text-zinc-500">نسبة الحضور</div>
                     <div class="mt-1 text-2xl font-black {{ $rateText($summary['rate']) }}" x-bind:class="tone(summary.rate)" x-text="pct(summary.rate)">{{ $summary['rate'] === null ? '—' : $ar($summary['rate']).'٪' }}</div>
+                    <div class="text-xs text-zinc-400" x-show="summary.counted > 0" @if ($summary['counted'] === 0) style="display: none" @endif>
+                        <span x-text="ar(summary.present)">{{ $ar($summary['present']) }}</span> حاضراً من <span x-text="ar(summary.counted)">{{ $ar($summary['counted']) }}</span>
+                    </div>
                 </div>
                 <div class="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4" data-summary-missing="{{ $summary['missing'] }}">
                     <div class="text-xs text-zinc-500">أيام دوام بلا تحضير</div>
@@ -263,7 +268,14 @@
                                     @endforeach
                                     <td class="bg-zinc-50 dark:bg-zinc-800/50 px-2 py-1.5 text-center" data-circle-rate="{{ $totals['rate'] ?? 'none' }}">
                                         <div class="text-base font-black {{ $rateText($totals['rate']) }}">{{ $totals['rate'] === null ? '—' : $ar($totals['rate']).'٪' }}</div>
+                                        @if ($totals['counted'] > 0)
+                                            <div class="text-xs font-bold text-zinc-600 dark:text-zinc-300 whitespace-nowrap" data-circle-count>{{ $ar($totals['present']) }} / {{ $ar($totals['counted']) }}</div>
+                                        @endif
                                         <div class="text-[10px] text-zinc-500 whitespace-nowrap">غياب {{ $ar($totals['absent']) }}، تأخر {{ $ar($totals['late']) }}</div>
+                                        {{-- Left out of the count, as they are of each day's rate. --}}
+                                        @if ($totals['unmarked'] > 0)
+                                            <div class="text-[10px] text-zinc-500 whitespace-nowrap">{{ $ar($totals['unmarked']) }} لم يُسجَّل</div>
+                                        @endif
                                         @if ($totals['missing'] > 0)
                                             <div class="text-[10px] font-bold text-rose-600 dark:text-rose-400 whitespace-nowrap">{{ $ar($totals['missing']) }} بلا تحضير</div>
                                         @endif
@@ -285,6 +297,7 @@
                                 @endphp
                                 <td class="bg-zinc-100 dark:bg-zinc-800 px-1 py-1.5 text-center" x-data="{ get total() { return day('{{ $day['date'] }}') } }">
                                     <div class="text-[13px] {{ $rateText($total['rate']) }}" x-bind:class="tone(total.rate)" x-text="pct(total.rate)">{{ $total['rate'] === null ? '—' : $ar($total['rate']).'٪' }}</div>
+                                    <div class="text-[11px] text-zinc-600 dark:text-zinc-300 whitespace-nowrap" data-day-count x-show="total.counted > 0" x-text="count(total)" @if ($total['counted'] === 0) style="display: none" @endif>{{ $ar($total['present']) }} / {{ $ar($total['counted']) }}</div>
                                     <div class="text-[10px] text-rose-600 dark:text-rose-400" x-show="total.missing > 0" @if ($total['missing'] === 0) style="display: none" @endif>
                                         <span x-text="ar(total.missing)">{{ $ar($total['missing']) }}</span> بلا تحضير
                                     </div>
@@ -292,6 +305,7 @@
                             @endforeach
                             <td class="bg-zinc-200 dark:bg-zinc-700 px-2 py-1.5 text-center">
                                 <div class="text-base font-black {{ $rateText($summary['rate']) }}" x-bind:class="tone(summary.rate)" x-text="pct(summary.rate)">{{ $summary['rate'] === null ? '—' : $ar($summary['rate']).'٪' }}</div>
+                                <div class="text-xs text-zinc-700 dark:text-zinc-200 whitespace-nowrap" data-total-count x-show="summary.counted > 0" x-text="count(summary)" @if ($summary['counted'] === 0) style="display: none" @endif>{{ $ar($summary['present']) }} / {{ $ar($summary['counted']) }}</div>
                             </td>
                         </tr>
                     </tfoot>
@@ -307,6 +321,7 @@
                 <span class="flex items-center gap-1.5"><span class="att-off !size-3 !rounded-sm border border-zinc-300"></span>ليس يوم دوام</span>
                 <span class="flex items-center gap-1.5"><span class="size-3 rounded-sm border-2 border-dashed border-rose-400"></span>يوم دوام لم يُحضَّر (اضغطه لتذكير المعلم عبر واتساب)</span>
                 <span>الخلية: الحاضرون (والمتأخرون) من الطلاب المشاركين، والمستأذن خارجها. اضغطها لترى الأسماء.</span>
+                <span>تحت كل نسبة في المجاميع: الحاضرون من المحسوبين فيها (الحاضر والغائب).</span>
             </div>
         @endif
     </div>

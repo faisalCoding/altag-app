@@ -25,7 +25,7 @@ final class AttendanceReportGrid
 {
     /**
      * @param  array<int, int|string>  $stageIds  none means every stage
-     * @return array{dates: array<int, array{date: string, today: bool, future: bool}>, groups: array<int, array{stage_id: int, stage: string, circles: array<int, array{circle: Circle, stage_id: int, cells: array<string, array<string, mixed>>, totals: array<string, mixed>}>}>, days_by_stage: array<int, array<string, array{present: int, counted: int, missing: int}>>, days: array<string, array{rate: ?int, present: int, counted: int, missing: int}>, summary: array{rate: ?int, missing: int, missing_circles: int, unmarked: int, worst: ?array{name: string, rate: int}}}
+     * @return array{dates: array<int, array{date: string, today: bool, future: bool}>, groups: array<int, array{stage_id: int, stage: string, circles: array<int, array{circle: Circle, stage_id: int, cells: array<string, array<string, mixed>>, totals: array<string, mixed>}>}>, days_by_stage: array<int, array<string, array{present: int, counted: int, missing: int}>>, days: array<string, array{rate: ?int, present: int, counted: int, missing: int}>, summary: array{rate: ?int, present: int, counted: int, missing: int, missing_circles: int, unmarked: int, worst: ?array{name: string, rate: int}}}
      */
     public static function build(string $from, string $to, array $stageIds = []): array
     {
@@ -145,13 +145,13 @@ final class AttendanceReportGrid
     /**
      * The academy's line and summary over the chosen stages — all of them when
      * none is chosen: each day's rate and missed roll calls, and the period's
-     * rate, missed roll calls, unmarked students and the circle that missed
-     * most. The page works the same out in the browser as stages are picked
+     * rate — with the present and the counted it is made of — missed roll
+     * calls, unmarked students and the circle that missed most. The page works the same out in the browser as stages are picked
      * (see the report's view), so a pick costs no request.
      *
      * @param  array{dates: array<int, array{date: string}>, groups: array<int, array{stage_id: int, circles: array<int, array<string, mixed>>}>, days_by_stage: array<int, array<string, array{present: int, counted: int, missing: int}>>}  $grid
      * @param  array<int, int|string>  $stageIds
-     * @return array{days: array<string, array{rate: ?int, present: int, counted: int, missing: int}>, summary: array{rate: ?int, missing: int, missing_circles: int, unmarked: int, worst: ?array{name: string, rate: int}}}
+     * @return array{days: array<string, array{rate: ?int, present: int, counted: int, missing: int}>, summary: array{rate: ?int, present: int, counted: int, missing: int, missing_circles: int, unmarked: int, worst: ?array{name: string, rate: int}}}
      */
     public static function select(array $grid, array $stageIds): array
     {
@@ -185,6 +185,8 @@ final class AttendanceReportGrid
             'days' => $days,
             'summary' => [
                 'rate' => self::rate($rows->sum('totals.present'), $rows->sum('totals.counted')),
+                'present' => $rows->sum('totals.present'),
+                'counted' => $rows->sum('totals.counted'),
                 'missing' => $rows->sum('totals.missing'),
                 'missing_circles' => $rows->filter(fn (array $row) => $row['totals']['missing'] > 0)->count(),
                 'unmarked' => $rows->sum('totals.unmarked'),
