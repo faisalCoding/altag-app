@@ -14,7 +14,8 @@
             </div>
         </div>
 
-        <div class="flex items-center gap-3">
+        <div class="flex items-center gap-3 flex-wrap">
+            <x-competition-week-select :weeks="$weeks" wire:model.live="week" />
             <div class="w-36">
                 <flux:select wire:model.live="topCount" size="sm">
                     <flux:select.option value="3">{{ __('أفضل 3') }}</flux:select.option>

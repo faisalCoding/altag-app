@@ -8,6 +8,9 @@ use Carbon\Carbon;
 new class extends Component {
     use \App\Concerns\BooksTasmeehTurns;
 
+    /** The week of the competition its standings are over; empty for all its days. */
+    public string $standingsWeek = '';
+
     public function with()
     {
         $student = Auth::guard('student')->user();
@@ -151,9 +154,11 @@ new class extends Component {
 
         // The competition was resolved at the top; a themed one has returned already.
         $leaderboardStandings = [];
+        $standingsWeeks = [];
         if ($leaderboard) {
             $service = new \App\Services\LeaderboardService();
-            $leaderboardStandings = $service->getStandings($leaderboard);
+            $standingsWeeks = \App\Support\CompetitionWeeks::of($leaderboard);
+            $leaderboardStandings = $service->getStandings($leaderboard, \App\Support\CompetitionWeeks::find($leaderboard, $this->standingsWeek));
         }
 
         $activeGamification = null;
@@ -371,6 +376,7 @@ new class extends Component {
             'lateness' => $lateness,
             'leaderboard' => $leaderboard,
             'leaderboardStandings' => $leaderboardStandings,
+            'standingsWeeks' => $standingsWeeks,
             'lastDayStats' => $lastDayStats,
             'turnWindow' => $turnWindow,
             'studentTurn' => $studentTurn,
@@ -1977,6 +1983,8 @@ new class extends Component {
                                         @endif
                                     </div>
                                 </div>
+
+                                <x-competition-week-select :weeks="$standingsWeeks" wire:model.live="standingsWeek" />
 
                                 @php
                                     $top3 = $leaderboardStandings->take(3)->values();

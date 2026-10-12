@@ -12,6 +12,9 @@ new class extends Component {
     use \App\Concerns\BooksTasmeehTurns;
 
     public $profile_image_file = null;
+
+    /** The week of the competition the leaderboard shows; empty for all its days. */
+    public string $standingsWeek = '';
     public array $targetTeams = [];
     public array $targetDates = [];
     public string $teamColor = '#4f46e5';
@@ -898,11 +901,22 @@ new class extends Component {
         // Leaderboard standings
         $leaderboardStandings = [];
         $standingsByTrack = collect();
+        $standingsWeeks = [];
         if ($activeGamification) {
             $service = new \App\Services\LeaderboardService();
             $leaderboardStandings = $service->getStandings($activeGamification);
             // Grouped from the standings above, not worked out a second time.
             $standingsByTrack = $service->getStandingsByTrack($activeGamification, $leaderboardStandings);
+            $standingsWeeks = \App\Support\CompetitionWeeks::of($activeGamification);
+        }
+
+        // The leaderboard may show one week; the student's own rank — on the
+        // stats bar and their team's page — stays the whole competition's.
+        $shownStandings = $leaderboardStandings;
+        $shownByTrack = $standingsByTrack;
+        if ($activeGamification && ($chosenWeek = \App\Support\CompetitionWeeks::find($activeGamification, $this->standingsWeek))) {
+            $shownStandings = $service->getStandings($activeGamification, $chosenWeek);
+            $shownByTrack = $service->getStandingsByTrack($activeGamification, $shownStandings);
         }
 
         // The student's own rank: within their track when tracks exist, otherwise
@@ -1150,6 +1164,9 @@ new class extends Component {
             'teamColor' => $teamColor,
             'leaderboardStandings' => $leaderboardStandings,
             'standingsByTrack' => $standingsByTrack,
+            'shownStandings' => $shownStandings,
+            'shownByTrack' => $shownByTrack,
+            'standingsWeeks' => $standingsWeeks,
             'studentRank' => $studentRank,
             'studentRankTotal' => $studentRankTotal,
             'studentRankScope' => $studentRankScope,
@@ -2848,24 +2865,25 @@ new class extends Component {
                     </svg>
                     {{ __('لوحة المتصدرين') }}
                 </flux:heading>
+                <x-competition-week-select :weeks="$standingsWeeks" wire:model.live="standingsWeek" />
 
-                @if(empty($leaderboardStandings))
+                @if(empty($shownStandings))
                     <div class="text-center py-12 bg-slate-50 border border-slate-200 rounded-2xl">
                         <flux:icon icon="presentation-chart-line" class="size-10 mx-auto text-slate-400 mb-3" />
                         <h4 class="font-bold text-slate-500 text-sm">{{ __('لا توجد نتائج لعرضها') }}</h4>
                     </div>
-                @elseif($standingsByTrack->isNotEmpty())
+                @elseif($shownByTrack->isNotEmpty())
                     {{-- Standings divided into tracks, each with its own ranking --}}
                     @php
                         $myTrackKey = null;
-                        foreach ($standingsByTrack as $gi => $g) {
+                        foreach ($shownByTrack as $gi => $g) {
                             foreach ($g['standings'] as $s) {
                                 if ($s['student']->id === $student->id) { $myTrackKey = $gi; break 2; }
                             }
                         }
                     @endphp
                     <div class="space-y-3">
-                        @foreach($standingsByTrack as $gi => $group)
+                        @foreach($shownByTrack as $gi => $group)
                             <div x-data="{ open: {{ $gi === $myTrackKey ? 'true' : 'false' }} }" class="bg-white border {{ $gi === $myTrackKey ? 'border-team-primary' : 'border-slate-200' }} rounded-2xl overflow-hidden shadow-sm">
                                 <button type="button" @click="open = !open" class="w-full flex items-center justify-between gap-3 p-4 hover:bg-slate-50/50">
                                     <div class="flex items-center gap-2.5 min-w-0">
@@ -2909,7 +2927,7 @@ new class extends Component {
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-slate-100">
-                                    @foreach($leaderboardStandings as $index => $standing)
+                                    @foreach($shownStandings as $index => $standing)
                                         @php $rank = $index + 1; $isMe = $standing['student']->id === $student->id; @endphp
                                         <x-student.partials.leaderboard-row :standing="$standing" :rank="$rank" :is-me="$isMe" />
                                     @endforeach

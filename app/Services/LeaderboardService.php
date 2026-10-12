@@ -11,12 +11,20 @@ use App\Models\Student;
 use App\Models\StudentHadithAchievement;
 use App\Models\StudentOdeAchievement;
 use App\Models\StudentPlanDay;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 class LeaderboardService
 {
-    public function getDetailedStandings(Leaderboard $leaderboard)
+    /**
+     * The competition's standings, over all its days — or over one week of
+     * them (CompetitionWeeks), every score counted by the day its work was
+     * done, as the whole competition counts it.
+     *
+     * @param  array{from: string, to: string}|null  $week
+     */
+    public function getDetailedStandings(Leaderboard $leaderboard, ?array $week = null)
     {
         $isGamification = $leaderboard->competition_type === 'gamification';
         $relations = ['circle'];
@@ -45,6 +53,12 @@ class LeaderboardService
         $endDate = $leaderboard->end_date ? $leaderboard->end_date->endOfDay() : now()->endOfDay();
         $settings = $leaderboard->settings ?? [];
 
+        // A week: the days it shares with the competition.
+        if ($week !== null) {
+            $startDate = max($startDate->copy(), Carbon::parse($week['from'])->startOfDay());
+            $endDate = min($endDate->copy(), Carbon::parse($week['to'])->endOfDay());
+        }
+
         $isGamification = $leaderboard->competition_type === 'gamification';
 
         if ($isGamification) {
@@ -57,6 +71,10 @@ class LeaderboardService
             // Points from work graded outside the competition window (e.g. a teacher
             // back-grading pre-competition days) do not belong to this competition.
             $transactions = GamificationService::filterTransactionsWithinWindow($transactions, $leaderboard);
+
+            if ($week !== null) {
+                $transactions = GamificationService::filterTransactionsBetween($transactions, $week['from'], $week['to']);
+            }
 
             // Pre-fetch related models to avoid N+1 queries
             $planDayIds = $transactions->where('reference_type', 'App\Models\StudentPlanDay')
@@ -93,6 +111,7 @@ class LeaderboardService
          */
         $extraPointsByStudent = DB::table('leaderboard_extra_points')
             ->where('leaderboard_id', $leaderboard->id)
+            ->when($week, fn ($query) => $query->whereBetween('date', [$week['from'], $week['to']]))
             ->get()
             ->groupBy('student_id');
 
@@ -185,6 +204,7 @@ class LeaderboardService
                     ->join('leaderboard_criteria', 'leaderboard_scores.leaderboard_criterion_id', '=', 'leaderboard_criteria.id')
                     ->where('leaderboard_scores.leaderboard_id', $leaderboard->id)
                     ->where('leaderboard_scores.student_id', $student->id)
+                    ->when($week, fn ($query) => $query->whereBetween('leaderboard_scores.date', [$week['from'], $week['to']]))
                     ->select('leaderboard_criteria.id as criterion_id', 'leaderboard_criteria.name', 'leaderboard_criteria.points')
                     ->get();
 
@@ -398,10 +418,14 @@ class LeaderboardService
         });
     }
 
-    // Proxy for original getStandings to not break student dashboard
-    public function getStandings(Leaderboard $leaderboard)
+    /**
+     * Proxy for original getStandings to not break student dashboard.
+     *
+     * @param  array{from: string, to: string}|null  $week
+     */
+    public function getStandings(Leaderboard $leaderboard, ?array $week = null)
     {
-        return $this->getDetailedStandings($leaderboard);
+        return $this->getDetailedStandings($leaderboard, $week);
     }
 
     /**

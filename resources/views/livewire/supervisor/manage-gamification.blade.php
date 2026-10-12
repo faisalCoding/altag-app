@@ -944,6 +944,10 @@
                                 شاشة العرض (بروجكتر)
                             </flux:button>
                         </div>
+                        <div class="sm:w-64">
+                            <flux:label class="mb-1">ترتيب خلال</flux:label>
+                            <x-competition-week-select :weeks="$standingsWeeks" wire:model.live="standingsWeek" />
+                        </div>
                         <div class="sm:w-56"><livewire:shared.hijri-datepicker wire:model.live="standingsDate" label="اليوم (هجري)" /></div>
                     </div>
                 </div>

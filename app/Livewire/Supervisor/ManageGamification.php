@@ -23,6 +23,7 @@ use App\Services\GamificationRecalculator;
 use App\Services\GamificationService;
 use App\Services\GamificationThemeService;
 use App\Services\LeaderboardService;
+use App\Support\CompetitionWeeks;
 use Flux\Flux;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -92,6 +93,9 @@ class ManageGamification extends Component
 
     // Student standings ("مراكز الطلاب") State
     public string $standingsDate = '';
+
+    /** The week of the competition the standings are over; empty for all its days. */
+    public string $standingsWeek = '';
 
     #[Locked]
     public ?int $achievementsStudentId = null;
@@ -2648,16 +2652,19 @@ class ManageGamification extends Component
 
         // Student standings ("مراكز الطلاب") — only computed when the tab is open.
         $standingsGroups = [];
+        $standingsWeeks = [];
         $achievementsByDay = [];
         $achievementsStudentName = null;
 
         if ($this->activeTab === 'standings') {
             $service = new LeaderboardService;
-            $groups = $service->getStandingsByTrack($this->competition);
+            $standingsWeeks = CompetitionWeeks::of($this->competition);
+            $standings = $service->getDetailedStandings($this->competition, CompetitionWeeks::find($this->competition, $this->standingsWeek));
+            $groups = $service->getStandingsByTrack($this->competition, $standings);
 
             // No tracks defined → fall back to a single, flat overall ranking.
             if ($groups->isEmpty()) {
-                $flat = $service->getDetailedStandings($this->competition)
+                $flat = $standings
                     ->map(function ($row) {
                         $row['track_rank'] = $row['rank'];
 
@@ -2694,6 +2701,7 @@ class ManageGamification extends Component
         }
 
         return view('livewire.supervisor.manage-gamification', [
+            'standingsWeeks' => $standingsWeeks,
             'milestones' => $milestones,
             'dbBadges' => $dbBadges,
             'dbTeams' => $dbTeams,

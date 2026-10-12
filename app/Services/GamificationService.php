@@ -3834,6 +3834,25 @@ class GamificationService
     }
 
     /**
+     * Keep only the transactions whose work falls between two days ('Y-m-d',
+     * both counted) — a week of the competition's standings — dated as the
+     * standings date them (resolveTransactionDates()).
+     *
+     * @param  \Illuminate\Support\Collection<int, mixed>  $transactions
+     * @return \Illuminate\Support\Collection<int, mixed>
+     */
+    public static function filterTransactionsBetween($transactions, string $from, string $to)
+    {
+        if ($transactions->isEmpty()) {
+            return $transactions;
+        }
+
+        $dates = self::resolveTransactionDates($transactions);
+
+        return $transactions->filter(fn ($tx) => $dates[$tx->id] >= $from && $dates[$tx->id] <= $to)->values();
+    }
+
+    /**
      * Every earned achievement for the leaderboard's students, resolved to the day
      * its work was graded (matching how points are earned) and grouped by student
      * then date. Earnings whose work falls outside the competition window are

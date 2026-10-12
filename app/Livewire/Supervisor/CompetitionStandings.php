@@ -4,6 +4,7 @@ namespace App\Livewire\Supervisor;
 
 use App\Models\Leaderboard;
 use App\Services\LeaderboardService;
+use App\Support\CompetitionWeeks;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Url;
@@ -16,6 +17,10 @@ class CompetitionStandings extends Component
 
     #[Url]
     public int $topCount = 3;
+
+    /** The week of the competition the standings are over; empty for all its days. */
+    #[Url(as: 'week')]
+    public string $week = '';
 
     public function mount(int $competitionId): void
     {
@@ -31,11 +36,11 @@ class CompetitionStandings extends Component
             ->findOrFail($this->competitionId);
 
         $service = new LeaderboardService;
-        $standingsByTrack = $service->getStandingsByTrack($leaderboard);
+        $chosenWeek = CompetitionWeeks::find($leaderboard, $this->week);
+        $flat = $service->getDetailedStandings($leaderboard, $chosenWeek);
+        $standingsByTrack = $service->getStandingsByTrack($leaderboard, $flat);
 
         if ($standingsByTrack->isEmpty()) {
-            $flat = $service->getDetailedStandings($leaderboard);
-
             if ($flat->isNotEmpty()) {
                 $standingsByTrack = collect([[
                     'id' => null,
@@ -54,6 +59,7 @@ class CompetitionStandings extends Component
 
         return view('livewire.supervisor.competition-standings', [
             'leaderboard' => $leaderboard,
+            'weeks' => CompetitionWeeks::of($leaderboard),
             'topByTrack' => $topByTrack,
         ]);
     }
