@@ -9,9 +9,11 @@ use App\Models\StudentPlanDay;
 use App\Models\Surah;
 use App\Models\Teacher;
 use App\Services\PlanDayAttempts;
+use App\Services\TasmeehChangeService;
 use App\Support\TasmeehPayload;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Livewire\Livewire;
 
 uses(RefreshDatabase::class);
@@ -254,4 +256,28 @@ it('shows every active plan at once, with no plan to pick', function () {
         ->not->toContain('quran-plan-'.$stopped->id)
         ->not->toContain('اختر الخطة')
         ->and(substr_count($html, 'اليوم السابق'))->toBe(1);
+});
+
+/**
+ * The card keeps a grade it gave over a redraw that began before the save
+ * answered — the date changed a moment earlier — and lets it go when the
+ * save was refused. It reads which from what the save returns.
+ */
+it('tells the card whether a grade was saved, and keeps what the page gave over a redraw', function () {
+    sessionCard('2026-07-08')->call('saveAchievement', $this->day->id, 'hifz', 3)->assertReturned(true);
+
+    // Held by the phone: the card waits its few seconds — on a running clock,
+    // which a frozen one would never let pass — and gives up.
+    Carbon::setTestNow();
+    $lock = Cache::lock(TasmeehChangeService::dayLockKey($this->day->id), 10);
+    $lock->get();
+
+    sessionCard('2026-07-08')->call('saveAchievement', $this->day->id, 'hifz', 2)->assertReturned(false);
+
+    $lock->release();
+
+    $html = sessionCard('2026-07-08')->html();
+
+    expect($html)->toContain('keepGiven(true)')
+        ->toContain('window.tasmeehGivenGrades');
 });

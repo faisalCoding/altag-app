@@ -129,7 +129,7 @@ new class extends Component {
             // The phone is writing this day right now; nothing was saved.
             Flux::toast('لم يُحفظ التقييم: يجري تعديل هذا اليوم من جهاز آخر، أعد المحاولة.', variant: 'danger');
 
-            return;
+            return false;
         }
 
         Flux::toast('تم حفظ التقييم', variant: 'success');
@@ -137,6 +137,9 @@ new class extends Component {
         // The button already shows the new grade, and nothing else on screen
         // depends on it. Re-rendering would resend every day of every plan.
         $this->skipRender();
+
+        // Whether it was saved, for the card to keep the grade over a redraw.
+        return true;
     }
 
     public function saveOdeAchievement($pathDayId, $type, $value)
@@ -145,7 +148,7 @@ new class extends Component {
 
         if (! $this->student->memorisesOdes()) {
             Flux::toast('المنظومات مُخفاة في مرحلة هذا الطالب', variant: 'danger');
-            return;
+            return false;
         }
 
         // Find the student's active ode plan
@@ -155,7 +158,7 @@ new class extends Component {
 
         if (!$activeOdePlan) {
             Flux::toast('لا توجد خطة منظومة نشطة لهذا الطالب', variant: 'danger');
-            return;
+            return false;
         }
 
         abort_unless(OdePathDay::whereKey($pathDayId)->where('ode_path_id', $activeOdePlan->ode_path_id)->exists(), 404);
@@ -205,6 +208,8 @@ new class extends Component {
 
         // Same reason as saveAchievement: the button already shows the grade.
         $this->skipRender();
+
+        return true;
     }
 
     public function saveHadithAchievement($pathDayId, $type, $value)
@@ -213,7 +218,7 @@ new class extends Component {
 
         if (! $this->student->memorisesHadith()) {
             Flux::toast('المتون مُخفاة في مرحلة هذا الطالب', variant: 'danger');
-            return;
+            return false;
         }
 
         // Find the student's active hadith plan
@@ -223,7 +228,7 @@ new class extends Component {
 
         if (!$activeHadithPlan) {
             Flux::toast('لا توجد خطة حديث نشطة لهذا الطالب', variant: 'danger');
-            return;
+            return false;
         }
 
         abort_unless(\App\Models\HadithPathDay::whereKey($pathDayId)->where('hadith_path_id', $activeHadithPlan->hadith_path_id)->exists(), 404);
@@ -273,6 +278,8 @@ new class extends Component {
 
         // Same reason as saveAchievement: the button already shows the grade.
         $this->skipRender();
+
+        return true;
     }
 
     // --- Path & track enrollment (teacher, permission-gated) -------------------
@@ -1012,6 +1019,8 @@ new class extends Component {
             standingIn: @js($standingIn),
 
             init() {
+                {{-- Runs again on every redraw, which brings the days as the server last read them. --}}
+                this.keepGiven(true);
                 this.$watch('$wire.gradedAtDate', (newVal) => {
                     {{-- Each part opens on a day graded on the date picked, as on opening; else the day the plan set for it. --}}
                     for (const part of ['hifz', 'review']) {
@@ -1079,8 +1088,22 @@ new class extends Component {
             },
             setGrade(part, value) {
                 const day = this.dayOf(part);
-                const session = this.session(part);
+                const date = this.gradingDate();
                 const v = this.grade(part) === value ? null : value;
+                const given = (window.tasmeehGivenGrades ??= {});
+                const key = ['quran', day.id, part, date].join('|');
+                const entry = given[key] = { value: v, until: null };
+
+                this.applyGrade(day, part, date, v);
+
+                this.syncing = part;
+                this.$wire.saveAchievement(day.id, part, v)
+                    .then(saved => saved === false ? this.forgetGiven(key, entry) : this.keptGiven(entry))
+                    .catch(() => this.forgetGiven(key, entry))
+                    .finally(() => this.syncing = null);
+            },
+            applyGrade(day, part, date, v) {
+                const session = day[part].sessions.find(s => s.date === date);
 
                 if (session) {
                     session.grade = v;
@@ -1088,11 +1111,48 @@ new class extends Component {
                         day[part].sessions = day[part].sessions.filter(s => s !== session);
                     }
                 } else if (v !== null) {
-                    day[part].sessions.push({ date: this.gradingDate(), grade: v, recited_range: null });
+                    day[part].sessions.push({ date, grade: v, recited_range: null });
                 }
+            },
+            {{--
+                The grades given here, laid again over the days. A redraw begun
+                before a save answered — the date changed a moment earlier —
+                brings the days as they were, and would undo the grade the
+                teacher just gave until the page was reloaded. Fresh from the
+                server, a grade it already holds is forgotten; and one saved a
+                while ago is too, so that a later change — from the phone —
+                is not hidden behind it.
+            --}}
+            keepGiven(fromServer) {
+                const given = (window.tasmeehGivenGrades ??= {});
 
-                this.syncing = part;
-                this.$wire.saveAchievement(day.id, part, v).finally(() => this.syncing = null);
+                for (const [key, entry] of Object.entries(given)) {
+                    const [kind, dayId, part, date] = key.split('|');
+                    const day = kind === 'quran' ? this.quranDays.find(d => d.id == dayId) : null;
+
+                    if (entry.until !== null && entry.until < Date.now()) {
+                        delete given[key];
+                    } else if (! day) {
+                        continue;
+                    } else if (fromServer && (day[part].sessions.find(s => s.date === date)?.grade ?? null) === entry.value) {
+                        delete given[key];
+                    } else {
+                        this.applyGrade(day, part, date, entry.value);
+                    }
+                }
+            },
+            {{-- Saved: held a little longer, for a redraw already on its way with the days from before. --}}
+            keptGiven(entry) {
+                entry.until = Date.now() + 15000;
+                this.keepGiven(false);
+            },
+            {{-- Refused: let it go — unless the teacher has since given another. --}}
+            forgetGiven(key, entry) {
+                const given = (window.tasmeehGivenGrades ??= {});
+
+                if (given[key] === entry) {
+                    delete given[key];
+                }
             },
             {{-- The grade's colours, as on its button above: ممتاز green, جيد blue, مقبول amber, لم يسمع red. --}}
             gradeTone(grade) {
@@ -1265,11 +1325,53 @@ new class extends Component {
             odeDays: @js(\App\Support\TasmeehPayload::odeDays($odeDays)),
 
             init() {
+                this.keepGiven(true);
                 this.$watch('$wire.gradedAtDate', (newVal) => {
                     if (this.odeDateToDayIdMap[newVal]) {
                         this.activeOdeDayId = this.odeDateToDayIdMap[newVal];
                     }
                 });
+            },
+            {{-- As with the Quran days: a grade given here outlives a redraw that began before its save answered. --}}
+            setGrade(part, value) {
+                const day = this.currentOdeDay();
+                const given = (window.tasmeehGivenGrades ??= {});
+                const key = ['ode', day.id, part].join('|');
+                const entry = given[key] = { value, until: null };
+
+                day[part].achievement = value;
+                this.syncing = part;
+                this.$wire.saveOdeAchievement(day.id, part, value)
+                    .then(saved => saved === false ? this.forgetGiven(key, entry) : this.keptGiven(entry))
+                    .catch(() => this.forgetGiven(key, entry))
+                    .finally(() => this.syncing = null);
+            },
+            keepGiven(fromServer) {
+                const given = (window.tasmeehGivenGrades ??= {});
+
+                for (const [key, entry] of Object.entries(given)) {
+                    const [kind, dayId, part] = key.split('|');
+                    const day = kind === 'ode' ? this.odeDays.find(d => d.id == dayId) : null;
+
+                    if (entry.until !== null && entry.until < Date.now()) {
+                        delete given[key];
+                    } else if (day && fromServer && day[part].achievement === entry.value) {
+                        delete given[key];
+                    } else if (day) {
+                        day[part].achievement = entry.value;
+                    }
+                }
+            },
+            keptGiven(entry) {
+                entry.until = Date.now() + 15000;
+                this.keepGiven(false);
+            },
+            forgetGiven(key, entry) {
+                const given = (window.tasmeehGivenGrades ??= {});
+
+                if (given[key] === entry) {
+                    delete given[key];
+                }
             },
             currentOdeDay() {
                 return this.odeDays.find(day => day.id == this.activeOdeDayId) ?? null;
@@ -1348,7 +1450,7 @@ new class extends Component {
                                 <div class="grid grid-cols-4 gap-1.5">
                                     @foreach ($gradeChoices as $choice)
                                         <button type="button"
-                                            @click="const d = currentOdeDay(); d.{{ $part }}.achievement = {{ $choice['js'] }}; syncing = '{{ $part }}'; $wire.saveOdeAchievement(d.id, '{{ $part }}', {{ $choice['js'] }}).finally(() => syncing = null)"
+                                            @click="setGrade('{{ $part }}', {{ $choice['js'] }})"
                                             class="py-2.5 rounded-lg border-2 transition-all font-bold text-center text-xs"
                                             :class="currentOdeDay()?.{{ $part }}.achievement === {{ $choice['js'] }} ? '{{ $choice['active'] }}' : '{{ $choice['inactive'] }}'">{{ $choice['label'] }}</button>
                                     @endforeach
@@ -1484,11 +1586,53 @@ new class extends Component {
             hadithDays: @js(\App\Support\TasmeehPayload::hadithDays($hadithDays)),
 
             init() {
+                this.keepGiven(true);
                 this.$watch('$wire.gradedAtDate', (newVal) => {
                     if (this.hadithDateToDayIdMap[newVal]) {
                         this.activeHadithDayId = this.hadithDateToDayIdMap[newVal];
                     }
                 });
+            },
+            {{-- As with the Quran days: a grade given here outlives a redraw that began before its save answered. --}}
+            setGrade(part, value) {
+                const day = this.currentHadithDay();
+                const given = (window.tasmeehGivenGrades ??= {});
+                const key = ['hadith', day.id, part].join('|');
+                const entry = given[key] = { value, until: null };
+
+                day[part].achievement = value;
+                this.syncing = part;
+                this.$wire.saveHadithAchievement(day.id, part, value)
+                    .then(saved => saved === false ? this.forgetGiven(key, entry) : this.keptGiven(entry))
+                    .catch(() => this.forgetGiven(key, entry))
+                    .finally(() => this.syncing = null);
+            },
+            keepGiven(fromServer) {
+                const given = (window.tasmeehGivenGrades ??= {});
+
+                for (const [key, entry] of Object.entries(given)) {
+                    const [kind, dayId, part] = key.split('|');
+                    const day = kind === 'hadith' ? this.hadithDays.find(d => d.id == dayId) : null;
+
+                    if (entry.until !== null && entry.until < Date.now()) {
+                        delete given[key];
+                    } else if (day && fromServer && day[part].achievement === entry.value) {
+                        delete given[key];
+                    } else if (day) {
+                        day[part].achievement = entry.value;
+                    }
+                }
+            },
+            keptGiven(entry) {
+                entry.until = Date.now() + 15000;
+                this.keepGiven(false);
+            },
+            forgetGiven(key, entry) {
+                const given = (window.tasmeehGivenGrades ??= {});
+
+                if (given[key] === entry) {
+                    delete given[key];
+                }
             },
             currentHadithDay() {
                 return this.hadithDays.find(day => day.id == this.activeHadithDayId) ?? null;
@@ -1564,7 +1708,7 @@ new class extends Component {
                                 <div class="grid grid-cols-4 gap-1.5">
                                     @foreach ($gradeChoices as $choice)
                                         <button type="button"
-                                            @click="const d = currentHadithDay(); d.{{ $part }}.achievement = {{ $choice['js'] }}; syncing = '{{ $part }}'; $wire.saveHadithAchievement(d.id, '{{ $part }}', {{ $choice['js'] }}).finally(() => syncing = null)"
+                                            @click="setGrade('{{ $part }}', {{ $choice['js'] }})"
                                             class="py-2.5 rounded-lg border-2 transition-all font-bold text-center text-xs"
                                             :class="currentHadithDay()?.{{ $part }}.achievement === {{ $choice['js'] }} ? '{{ $choice['active'] }}' : '{{ $choice['inactive'] }}'">{{ $choice['label'] }}</button>
                                     @endforeach
