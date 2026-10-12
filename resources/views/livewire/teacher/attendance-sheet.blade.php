@@ -41,7 +41,13 @@ a reason — enforced here for the prompt, and again on the server for real.
     $blockedReasons = $this->blockedReasons;
 @endphp
 
-<div dir="rtl"
+<div>
+{{-- The scope is one step in, on an element with a key of its own. Loaded
+     behind the page (defer, lazy), this component takes the place of a
+     placeholder that keeps its root element: x-data put on that root came
+     after the children inside it, which found nothing, failed, and never ran
+     again. An element added whole brings its scope ahead of them. --}}
+<div dir="rtl" wire:key="attendance-sheet-scope"
     x-data="{
         today: @js($today),
         baseline: @js((object) $baseline),
@@ -557,4 +563,5 @@ a reason — enforced here for the prompt, and again on the server for real.
             </div>
         </div>
     </flux:modal>
+</div>
 </div>

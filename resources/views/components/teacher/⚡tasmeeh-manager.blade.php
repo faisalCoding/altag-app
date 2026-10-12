@@ -231,7 +231,13 @@ Alpine state:
 activeStudentId — tracks which student is being viewed entirely on the client
 hifz/review — local state per day card for instant visual feedback
 --}}
-<div class="space-y-6" x-data="{
+<div>
+{{-- The scope is one step in, on an element with a key of its own. Loaded
+     behind the page (defer, lazy), this component takes the place of a
+     placeholder that keeps its root element: x-data put on that root came
+     after the children inside it, which found nothing, failed, and never ran
+     again. An element added whole brings its scope ahead of them. --}}
+<div class="space-y-6" wire:key="tasmeeh-manager-scope" x-data="{
         activeStudentId: null,
         openSection: 1,
         selectStudent(id) {
@@ -426,4 +432,5 @@ hifz/review — local state per day card for instant visual feedback
 
     {{-- The one exam editor every box on the page opens, in the list and in the cards. --}}
     <livewire:teacher.tasmeeh-exam-editor wire:key="tasmeeh-exam-editor" />
+</div>
 </div>

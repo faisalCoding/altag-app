@@ -740,7 +740,13 @@ new class extends Component {
 };
 ?>
 
-<div class="space-y-6" x-data="{
+<div>
+{{-- The scope is one step in, on an element with a key of its own. Loaded
+     behind the page (defer, lazy), this component takes the place of a
+     placeholder that keeps its root element: x-data put on that root came
+     after the children inside it, which found nothing, failed, and never ran
+     again. An element added whole brings its scope ahead of them. --}}
+<div class="space-y-6" wire:key="plan-creator-scope" x-data="{
         wizardStep:    $wire.entangle('step'),
         userLevel:     '{{ $userLevel }}',
         days:          $wire.entangle('planDays'),
@@ -1764,4 +1770,5 @@ new class extends Component {
             </div>
         </flux:modal>
     </div>
+</div>
 </div>

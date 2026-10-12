@@ -10,7 +10,13 @@ studentOrder — @entangle ordered IDs for navigation
 
 Livewire fires only on: markStatus | updateStatus | markAllPresent | loadStudents | exportCsv
 --}}
-<div class="space-y-6" dir="rtl" x-data="{
+<div>
+{{-- The scope is one step in, on an element with a key of its own. Loaded
+     behind the page (defer, lazy), this component takes the place of a
+     placeholder that keeps its root element: x-data put on that root came
+     after the children inside it, which found nothing, failed, and never ran
+     again. An element added whole brings its scope ahead of them. --}}
+<div class="space-y-6" dir="rtl" wire:key="attendance-scope" x-data="{
          mode: 'list',
          currentIndex: 0,
          filterStatus: 'all',
@@ -670,4 +676,5 @@ Livewire fires only on: markStatus | updateStatus | markAllPresent | loadStudent
             </div>
         </div>
     </flux:modal>
+</div>
 </div>

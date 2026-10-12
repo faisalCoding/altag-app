@@ -499,7 +499,13 @@ new class extends Component {
 {{-- The roll is what a teacher opens this tab to read, so it leads; the
      form to add more waits behind a button — open from the start only for a
      circle with nobody in it yet, or when it has something to say. --}}
-<div class="space-y-6"
+<div>
+{{-- The scope is one step in, on an element with a key of its own. Loaded
+     behind the page (defer, lazy), this component takes the place of a
+     placeholder that keeps its root element: x-data put on that root came
+     after the children inside it, which found nothing, failed, and never ran
+     again. An element added whole brings its scope ahead of them. --}}
+<div class="space-y-6" wire:key="student-manager-scope"
     x-data="{ adding: {{ ($students->total() === 0 && $search === '') || $errors->hasAny(['names', 'joinedAt']) ? 'true' : 'false' }} }">
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -1034,4 +1040,5 @@ new class extends Component {
     </flux:modal>
 
     <livewire:shared.student-status-manager />
+</div>
 </div>
