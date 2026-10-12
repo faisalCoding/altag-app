@@ -118,6 +118,14 @@ it('writes fill scenarios that replay to the same days, the same for the same se
             'selected' => false,
         ]);
 
+        // An uneven plan's days that hold one part only.
+        foreach ($scenario['dropped'] ?? [] as [$day, $part]) {
+            foreach ($part === 'review' ? ['review_from', 'review_to'] : ['from', 'to'] as $prefix) {
+                $days[$day]["{$prefix}_surah_id"] = null;
+                $days[$day]["{$prefix}_verse"] = null;
+            }
+        }
+
         foreach ($scenario['steps'] as $step) {
             if (isset($step['edit'])) {
                 $days[$step['edit']['day']][$step['edit']['field'].'_surah_id'] = $step['edit']['ayah'][0];
@@ -137,5 +145,6 @@ it('writes fill scenarios that replay to the same days, the same for the same se
         }
     }
 
-    expect($replayed)->toBeGreaterThan(10);
+    expect($replayed)->toBeGreaterThan(10)
+        ->and(collect($scenarios)->filter(fn (array $scenario) => ! empty($scenario['dropped']))->count())->toBeGreaterThan(0);
 });

@@ -196,11 +196,19 @@ class PlanChangeService
 
             $row = ['date' => $date, 'day_name' => self::DAY_NAMES[CarbonImmutable::parse($date)->format('l')]];
 
-            foreach (['hifz' => ['from_ayah_id', 'to_ayah_id'], 'review' => ['review_from_ayah_id', 'review_to_ayah_id']] as $part => [$fromColumn, $toColumn]) {
-                $from = in_array($part, $parts, true) ? self::ayahId($day[$part]['from'] ?? null, $ayahIds) : null;
-                $to = in_array($part, $parts, true) ? self::ayahId($day[$part]['to'] ?? null, $ayahIds) : null;
+            // A day may hold one of the plan's parts only — a day of review
+            // alone in a hifz plan — the other sent as null; never neither.
+            $held = array_values(array_filter($parts, fn (string $part) => ($day[$part] ?? null) !== null));
 
-                if (in_array($part, $parts, true) && ($from === null || $to === null)) {
+            if ($held === []) {
+                return 'اليوم '.($index + 1).' من الخطة بلا حفظ ولا مراجعة.';
+            }
+
+            foreach (['hifz' => ['from_ayah_id', 'to_ayah_id'], 'review' => ['review_from_ayah_id', 'review_to_ayah_id']] as $part => [$fromColumn, $toColumn]) {
+                $from = in_array($part, $held, true) ? self::ayahId($day[$part]['from'] ?? null, $ayahIds) : null;
+                $to = in_array($part, $held, true) ? self::ayahId($day[$part]['to'] ?? null, $ayahIds) : null;
+
+                if (in_array($part, $held, true) && ($from === null || $to === null)) {
                     return 'في اليوم '.($index + 1).' من الخطة آية غير موجودة في المصحف.';
                 }
 

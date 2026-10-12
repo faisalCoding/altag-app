@@ -9,6 +9,10 @@ use App\Models\Ayah;
  * surah, a juz — running on from the days before them. The plan wizard calls
  * it, and the teacher app carries a port of it that must answer exactly the
  * same, so the parity fixtures the app replays are written from this class.
+ *
+ * A day may hold one part only — a hifz plan's day of review alone, or the
+ * other way round — its other part's fields empty. Filling a part passes over
+ * the days without it, and runs on from the last day that has it.
  */
 class QuranPlanFiller
 {
@@ -52,10 +56,15 @@ class QuranPlanFiller
         $toSurahKey = $target === 'review' ? 'review_to_surah_id' : 'to_surah_id';
         $toVerseKey = $target === 'review' ? 'review_to_verse' : 'to_verse';
 
+        // Where the hifz stood before each day, for a day of review alone.
+        $hifzBefore = $target === 'review' && $this->planType === 'hifz_review'
+            ? $this->hifzEndsBefore($service, $planDays)
+            : [];
+
         $defaultStart = null;
         if ($target === 'review') {
             foreach ($planDays as $day) {
-                if ($day['selected']) {
+                if ($day['selected'] && self::hasPart($day, 'review')) {
                     $fixedReviewStart = Ayah::where('surah_id', $day['review_from_surah_id'])
                         ->where('verse_number', $day['review_from_verse'])
                         ->first();
@@ -78,7 +87,12 @@ class QuranPlanFiller
 
         $resetNextReview = false;
 
-        foreach ($planDays as &$day) {
+        foreach ($planDays as $index => &$day) {
+            // Not a day of this part: nothing to fill, nothing to run on from.
+            if (! self::hasPart($day, $target)) {
+                continue;
+            }
+
             if (! $day['selected']) {
                 $unselectedStart = null;
                 $unselectedEnd = null;
@@ -112,7 +126,10 @@ class QuranPlanFiller
                 $maxPossibleEnd = null;
                 $loopBackStart = $fixedReviewStart;
 
-                if ($this->planType === 'hifz_review') {
+                if ($this->planType === 'hifz_review' && ! self::hasPart($day, 'hifz')) {
+                    // A day of review alone: up to where the hifz stood that day.
+                    $C = $hifzBefore[$index];
+                } elseif ($this->planType === 'hifz_review') {
                     $hifzStartAyah = Ayah::where('surah_id', $day['from_surah_id'])
                         ->where('verse_number', $day['from_verse'])
                         ->first();
@@ -272,6 +289,40 @@ class QuranPlanFiller
         unset($day);
 
         return $planDays;
+    }
+
+    /**
+     * Whether a day of the plan holds the part: a day may hold one only.
+     *
+     * @param  array<string, mixed>  $day
+     */
+    public static function hasPart(array $day, string $part): bool
+    {
+        return ! empty($day[$part === 'review' ? 'review_from_surah_id' : 'from_surah_id']);
+    }
+
+    /**
+     * Where the hifz stood before each day: the end of the last day before it
+     * with a hifz, or — before the first — the verse before the plan's start.
+     *
+     * @param  list<array<string, mixed>>  $planDays
+     * @return array<int, Ayah|null>
+     */
+    private function hifzEndsBefore(QuranPlanService $service, array $planDays): array
+    {
+        $start = Ayah::where('surah_id', $this->bulkStartSurah)->where('verse_number', $this->bulkStartVerse)->first() ?: Ayah::first();
+        $last = $service->getAyahBefore($start, $this->fillDirection);
+        $before = [];
+
+        foreach ($planDays as $index => $day) {
+            $before[$index] = $last;
+
+            if (self::hasPart($day, 'hifz')) {
+                $last = Ayah::where('surah_id', $day['to_surah_id'])->where('verse_number', $day['to_verse'])->first() ?: $last;
+            }
+        }
+
+        return $before;
     }
 
     /**

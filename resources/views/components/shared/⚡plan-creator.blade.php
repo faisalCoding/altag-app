@@ -62,6 +62,14 @@ new class extends Component {
     /** Switch the student's other active plans off once the new one is saved. */
     public bool $deactivatePrevious = false;
 
+    /**
+     * The volume each part was last filled with, for a day added at the end
+     * to carry on with.
+     *
+     * @var array{hifz: ?string, review: ?string}
+     */
+    public array $lastFills = ['hifz' => null, 'review' => null];
+
     public function mount()
     {
         $this->userLevel = Auth::guard('student')->check() ? 'student' : 'teacher';
@@ -619,6 +627,185 @@ new class extends Component {
         );
 
         $this->planDays = $filler->fill($this->planDays, (string) $type, (string) ($target ?? $this->fillTarget), $selectedIndices);
+        $this->lastFills[$this->filledPart((string) ($target ?? $this->fillTarget))] = (string) $type;
+    }
+
+    /** The part a fill reaches: the plan's only one, or the one asked for. */
+    private function filledPart(string $target): string
+    {
+        return match ($this->planType) {
+            'hifz' => 'hifz',
+            'review' => 'review',
+            default => $target === 'review' ? 'review' : 'hifz',
+        };
+    }
+
+    /** The parts the plan schedules. @return list<string> */
+    private function planParts(): array
+    {
+        return match ($this->planType) {
+            'hifz' => ['hifz'],
+            'review' => ['review'],
+            default => ['hifz', 'review'],
+        };
+    }
+
+    /**
+     * A day more at the end of the plan, on the next day it meets: its hifz,
+     * its review or both, each carrying on from the last day of its part
+     * with the volume that part was last filled with.
+     */
+    public function addDay(string $parts = 'both'): void
+    {
+        $held = array_values(array_intersect($this->planParts(), $parts === 'both' ? ['hifz', 'review'] : [$parts]));
+
+        if ($held === [] || $this->planDays === []) {
+            return;
+        }
+
+        if (count($this->planDays) >= 100) {
+            Flux::toast(__('لا تزيد الخطة على مئة يوم.'), variant: 'warning');
+
+            return;
+        }
+
+        $date = $this->nextPlanDate(Carbon::parse(end($this->planDays)['date'])->addDay());
+
+        if (! $date) {
+            Flux::toast(__('لا يوم دراسة بعد آخر أيام الخطة في التقويم.'), variant: 'warning');
+
+            return;
+        }
+
+        // The hifz opens where the plan does; the review where the plan's
+        // review loops back to — what its first day starts from.
+        $opening = Ayah::where('surah_id', $this->bulkStartSurah)->where('verse_number', $this->bulkStartVerse)->first() ?: Ayah::first();
+        $firstReview = collect($this->planDays)->first(fn (array $day) => QuranPlanFiller::hasPart($day, 'review'));
+        [$hifzSurah, $hifzVerse] = in_array('hifz', $held, true) ? [$opening->surah_id, $opening->verse_number] : [null, null];
+        [$reviewSurah, $reviewVerse] = in_array('review', $held, true)
+            ? ($firstReview ? [$firstReview['review_from_surah_id'], $firstReview['review_from_verse']] : [$opening->surah_id, $opening->verse_number])
+            : [null, null];
+
+        $this->planDays[] = [
+            'date' => $date->toDateString(),
+            'hijri' => $this->getHijriLabel($date),
+            'day_name_ar' => $this->translateDay($date->format('l')),
+            'from_surah_id' => $hifzSurah, 'from_verse' => $hifzVerse,
+            'to_surah_id' => $hifzSurah, 'to_verse' => $hifzVerse,
+            'review_from_surah_id' => $reviewSurah, 'review_from_verse' => $reviewVerse,
+            'review_to_surah_id' => $reviewSurah, 'review_to_verse' => $reviewVerse,
+            'selected' => false,
+        ];
+
+        // The hifz first: a day's review runs up to it.
+        $index = array_key_last($this->planDays);
+        foreach ($held as $part) {
+            if ($type = $this->lastFills[$part]) {
+                $this->fillSelected($type, $part, [$index]);
+            }
+        }
+
+        $this->daysCount = count($this->planDays);
+    }
+
+    /**
+     * Take away the last day, or the last day's worth of one part — its hifz
+     * or its review — so that a plan may hold more days of one than the
+     * other. A day left with neither goes, and the days after it move up to
+     * fill its place. What a teacher has already graded stays.
+     */
+    public function removeLast(string $what = 'day'): void
+    {
+        if ($what === 'day') {
+            $index = array_key_last($this->planDays);
+
+            if (count($this->planDays) <= 1) {
+                Flux::toast(__('لا بد أن يبقى في الخطة يوم واحد على الأقل.'), variant: 'warning');
+
+                return;
+            }
+        } else {
+            $part = $what === 'review' ? 'review' : 'hifz';
+            $holding = array_keys(array_filter($this->planDays, fn (array $day) => QuranPlanFiller::hasPart($day, $part)));
+
+            if ($this->planType !== 'hifz_review' || count($holding) <= 1) {
+                Flux::toast($part === 'review' ? __('لا بد أن يبقى في الخطة يوم مراجعة.') : __('لا بد أن يبقى في الخطة يوم حفظ.'), variant: 'warning');
+
+                return;
+            }
+
+            $index = end($holding);
+        }
+
+        if ($this->isGraded($this->planDays[$index], $what === 'day' ? ['hifz', 'review'] : [$part])) {
+            Flux::toast(__('سُمِّع هذا اليوم وقُيِّم، فلا يُحذف.'), variant: 'warning');
+
+            return;
+        }
+
+        if ($what !== 'day') {
+            $prefixes = $part === 'review' ? ['review_from', 'review_to'] : ['from', 'to'];
+            foreach ($prefixes as $prefix) {
+                $this->planDays[$index]["{$prefix}_surah_id"] = null;
+                $this->planDays[$index]["{$prefix}_verse"] = null;
+            }
+        }
+
+        $emptied = $what === 'day' || ! array_filter($this->planParts(), fn (string $held) => QuranPlanFiller::hasPart($this->planDays[$index], $held));
+
+        if ($emptied) {
+            $date = $this->planDays[$index]['date'];
+            array_splice($this->planDays, $index, 1);
+            $this->redateFrom($index, $date);
+        }
+
+        $this->daysCount = count($this->planDays);
+    }
+
+    /**
+     * Whether a day of a plan being changed has been graded in any of the
+     * parts — a new day has not.
+     *
+     * @param  array<string, mixed>  $day
+     * @param  list<string>  $parts
+     */
+    private function isGraded(array $day, array $parts): bool
+    {
+        if (empty($day['id'])) {
+            return false;
+        }
+
+        return StudentPlanDay::whereKey($day['id'])
+            ->where(fn ($query) => collect($parts)->each(fn (string $part) => $query->orWhereNotNull($part === 'review' ? 'review_achievement' : 'hifz_achievement')))
+            ->exists();
+    }
+
+    /** The first day on or after the date the plan meets on; null when the calendar has none within a year. */
+    private function nextPlanDate(Carbon $from): ?Carbon
+    {
+        $date = $from->copy();
+
+        for ($tries = 0; $tries < 366; $tries++, $date->addDay()) {
+            if (in_array($date->format('l'), $this->activeDays) && \App\Models\AcademicCalendarEvent::isSchedulable($date->toDateString(), $this->planStageId())) {
+                return $date;
+            }
+        }
+
+        return null;
+    }
+
+    /** The days from one on, laid again on the days the plan meets, from a date. */
+    private function redateFrom(int $index, string $date): void
+    {
+        $current = Carbon::parse($date);
+
+        for ($i = $index; $i < count($this->planDays); $i++) {
+            $current = $this->nextPlanDate($current) ?? $current;
+            $this->planDays[$i]['date'] = $current->toDateString();
+            $this->planDays[$i]['hijri'] = $this->getHijriLabel($current);
+            $this->planDays[$i]['day_name_ar'] = $this->translateDay($current->format('l'));
+            $current = $current->copy()->addDay();
+        }
     }
 
     public function save()
@@ -627,6 +814,17 @@ new class extends Component {
             'studentId' => ['required', Rule::in($this->allowedStudentIds())],
             'planDays' => 'required|array|min:1',
         ]);
+
+        // A day may hold one of the plan's parts only, never neither.
+        foreach ($this->planDays as $number => $dayData) {
+            if (! array_filter($this->planParts(), fn (string $part) => QuranPlanFiller::hasPart($dayData, $part))) {
+                $this->addError('planDays', __('اليوم :n من الخطة بلا حفظ ولا مراجعة.', ['n' => $number + 1]));
+
+                return;
+            }
+        }
+
+        $this->daysCount = count($this->planDays);
 
         if ($this->edit) {
             $plan = StudentPlan::whereIn('student_id', $this->allowedStudentIds())->findOrFail($this->edit);
@@ -668,12 +866,12 @@ new class extends Component {
             $revFrom = null;
             $revTo = null;
 
-            if (in_array($this->planType, ['hifz', 'hifz_review'])) {
+            if (in_array($this->planType, ['hifz', 'hifz_review']) && QuranPlanFiller::hasPart($dayData, 'hifz')) {
                 $from = Ayah::where('surah_id', $dayData['from_surah_id'])->where('verse_number', $dayData['from_verse'])->first();
                 $to = Ayah::where('surah_id', $dayData['to_surah_id'])->where('verse_number', $dayData['to_verse'])->first();
             }
 
-            if (in_array($this->planType, ['review', 'hifz_review'])) {
+            if (in_array($this->planType, ['review', 'hifz_review']) && QuranPlanFiller::hasPart($dayData, 'review')) {
                 $revFrom = Ayah::where('surah_id', $dayData['review_from_surah_id'])->where('verse_number', $dayData['review_from_verse'])->first();
                 $revTo = Ayah::where('surah_id', $dayData['review_to_surah_id'])->where('verse_number', $dayData['review_to_verse'])->first();
             }
@@ -816,6 +1014,13 @@ new class extends Component {
                 }
                 this.selectionStart = null;
             }
+        },
+        {{-- The days change under the selection: it starts over. --}}
+        addDay(parts) {
+            $wire.addDay(parts).then(() => { this.selectionStart = null; this.init(); });
+        },
+        removeLast(what) {
+            $wire.removeLast(what).then(() => { this.selectionStart = null; this.init(); });
         },
         doFill(type) {
             this.filling = true;
@@ -1338,6 +1543,7 @@ new class extends Component {
 
                                         <td x-show="planType === 'hifz' || (planType === 'hifz_review' && fillTarget === 'hifz')"
                                             class="border-r border-zinc-200 dark:border-zinc-700 p-2">
+                                            @if (\App\Services\QuranPlanFiller::hasPart($day, 'hifz'))
                                             <div class="grid grid-cols-2 gap-2">
                                                 <div x-data="{ surahId: @entangle('planDays.' . $index . '.from_surah_id'), verse: @entangle('planDays.' . $index . '.from_verse'), get versesCount() { return $store.surahsData?.[this.surahId]?.count || 1; } }"
                                                     @surah-selected-{{$index}}-from.window="surahId = $event.detail.surahId; verse = 1;"
@@ -1374,10 +1580,14 @@ new class extends Component {
                                                     </button>
                                                 </div>
                                             </div>
+                                            @else
+                                                <div class="px-2 py-3 text-xs text-zinc-400 dark:text-zinc-500">{{ __('لا حفظ في هذا اليوم') }}</div>
+                                            @endif
                                         </td>
 
                                         <td x-show="planType === 'review' || (planType === 'hifz_review' && fillTarget === 'review')"
                                             class="border-r border-zinc-200 dark:border-zinc-700 p-2">
+                                            @if (\App\Services\QuranPlanFiller::hasPart($day, 'review'))
                                             <div class="grid grid-cols-2 gap-2">
                                                 <div x-data="{ surahId: @entangle('planDays.' . $index . '.review_from_surah_id'), verse: @entangle('planDays.' . $index . '.review_from_verse'), get versesCount() { return $store.surahsData?.[this.surahId]?.count || 1; } }"
                                                     @surah-selected-{{$index}}-rfrom.window="surahId = $event.detail.surahId; verse = 1;"
@@ -1414,11 +1624,51 @@ new class extends Component {
                                                     </button>
                                                 </div>
                                             </div>
+                                            @else
+                                                <div class="px-2 py-3 text-xs text-zinc-400 dark:text-zinc-500">{{ __('لا مراجعة في هذا اليوم') }}</div>
+                                            @endif
                                         </td>
                                     </tr>
                                 @endforeach
                             </tbody>
                         </table>
+                    </div>
+
+                    {{-- Days come and go from the end: a day more, of either part or
+                         both, or the last day's worth of one — so a plan may hold
+                         more days of review than of hifz, or the other way. --}}
+                    @php
+                        $hifzDays = count(array_filter($planDays, fn ($planDay) => \App\Services\QuranPlanFiller::hasPart($planDay, 'hifz')));
+                        $reviewDays = count(array_filter($planDays, fn ($planDay) => \App\Services\QuranPlanFiller::hasPart($planDay, 'review')));
+                    @endphp
+                    <div class="p-4 border-t border-zinc-100 dark:border-zinc-800 space-y-3" data-plan-day-controls>
+                        <div class="text-sm text-zinc-600 dark:text-zinc-300">
+                            {{ __('أيام الخطة:') }} <span class="font-bold">{{ count($planDays) }}</span>
+                            @if ($planType === 'hifz_review')
+                                <span class="text-zinc-400">—</span>
+                                {{ __('حفظ') }} <span class="font-bold text-indigo-600 dark:text-indigo-400" data-hifz-days>{{ $hifzDays }}</span>،
+                                {{ __('مراجعة') }} <span class="font-bold text-emerald-600 dark:text-emerald-400" data-review-days>{{ $reviewDays }}</span>
+                            @endif
+                        </div>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <span class="text-xs font-medium text-zinc-500">{{ __('إضافة يوم:') }}</span>
+                            @if ($planType === 'hifz_review')
+                                <flux:button size="sm" icon="plus" @click="addDay('both')">{{ __('حفظ ومراجعة') }}</flux:button>
+                                <flux:button size="sm" icon="plus" @click="addDay('hifz')">{{ __('حفظ فقط') }}</flux:button>
+                                <flux:button size="sm" icon="plus" @click="addDay('review')">{{ __('مراجعة فقط') }}</flux:button>
+                            @else
+                                <flux:button size="sm" icon="plus" @click="addDay('both')">{{ __('إضافة يوم') }}</flux:button>
+                            @endif
+                        </div>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <span class="text-xs font-medium text-zinc-500">{{ __('حذف:') }}</span>
+                            <flux:button size="sm" variant="ghost" icon="trash" @click="removeLast('day')" :disabled="count($planDays) <= 1">{{ __('آخر يوم') }}</flux:button>
+                            @if ($planType === 'hifz_review')
+                                <flux:button size="sm" variant="ghost" icon="minus" @click="removeLast('hifz')" :disabled="$hifzDays <= 1">{{ __('آخر حفظ') }}</flux:button>
+                                <flux:button size="sm" variant="ghost" icon="minus" @click="removeLast('review')" :disabled="$reviewDays <= 1">{{ __('آخر مراجعة') }}</flux:button>
+                            @endif
+                        </div>
+                        <flux:error name="planDays" />
                     </div>
 
                     <div

@@ -25,6 +25,7 @@ class ExportPlanEngine extends Command
         {--fixtures= : The directory to write the parity fixtures to}
         {--seed=20261009 : Seeds the fill scenarios, so every run writes the same ones}
         {--scenarios=400 : How many fill scenarios to write}
+        {--uneven=150 : How many more, of plans whose days hold one part now and then}
         {--stride=1 : Measure the volumes from every this-many-th ayah}';
 
     protected $description = 'Export the mushaf layout and the plan engine parity fixtures for the teacher app';
@@ -84,7 +85,7 @@ class ExportPlanEngine extends Command
             $volumes = $this->volumeFixtures($service, $ayahs, max(1, (int) $this->option('stride')));
             File::put("{$fixturesDir}/end-ayahs.json.gz", gzencode(json_encode($volumes), 9));
 
-            $scenarios = $this->fillScenarios(max(0, (int) $this->option('scenarios')));
+            $scenarios = $this->fillScenarios(max(0, (int) $this->option('scenarios')), max(0, (int) $this->option('uneven')));
             File::put("{$fixturesDir}/fill-scenarios.json.gz", gzencode(json_encode(['seed' => (int) $this->option('seed'), 'scenarios' => $scenarios]), 9));
 
             $this->info("Fixtures written to {$fixturesDir}");
@@ -182,7 +183,7 @@ class ExportPlanEngine extends Command
      *
      * @return list<array<string, mixed>>
      */
-    private function fillScenarios(int $count): array
+    private function fillScenarios(int $count, int $uneven): array
     {
         $this->random = new Randomizer(new Mt19937((int) $this->option('seed')));
 
@@ -192,15 +193,24 @@ class ExportPlanEngine extends Command
             $scenarios[] = $this->fillScenario();
         }
 
+        // Drawn after the others, so those stay the ones the seed always wrote.
+        for ($n = 0; $n < $uneven; $n++) {
+            $scenarios[] = $this->fillScenario(uneven: true);
+        }
+
         return $scenarios;
     }
 
     /**
+     * A plan's days filled a few times over. An uneven one is a hifz and
+     * review plan some of whose days hold one part alone — `dropped` names
+     * each day and the part it was left without.
+     *
      * @return array<string, mixed>
      */
-    private function fillScenario(): array
+    private function fillScenario(bool $uneven = false): array
     {
-        $planType = $this->pick(['hifz', 'review', 'hifz_review']);
+        $planType = $uneven ? 'hifz_review' : $this->pick(['hifz', 'review', 'hifz_review']);
         $fillDirection = $this->pick(['forward', 'reverse']);
         // Choosing the hifz direction sets the review one to match, and it
         // may then be changed.
@@ -222,11 +232,36 @@ class ExportPlanEngine extends Command
             'selected' => false,
         ]);
 
+        $dropped = [];
+
+        if ($uneven) {
+            foreach ($days as $index => &$day) {
+                $roll = $this->random->getInt(1, 100);
+                $part = $roll <= 20 ? 'hifz' : ($roll <= 40 ? 'review' : null);
+
+                if ($part !== null) {
+                    foreach (['from', 'to'] as $end) {
+                        $prefix = $part === 'review' ? "review_{$end}" : $end;
+                        $day["{$prefix}_surah_id"] = null;
+                        $day["{$prefix}_verse"] = null;
+                    }
+                    $dropped[] = [$index, $part];
+                }
+            }
+            unset($day);
+        }
+
         $steps = [];
 
         foreach (range(1, $this->random->getInt(1, 5)) as $ignored) {
             if ($this->random->getInt(1, 100) <= 15) {
                 $edit = ['day' => $this->random->getInt(0, $daysCount - 1), 'field' => $this->pick(['from', 'to', 'review_from', 'review_to']), 'ayah' => $this->randomAyah()];
+
+                // A part the day holds none of has nothing to edit.
+                if (in_array([$edit['day'], str_starts_with($edit['field'], 'review') ? 'review' : 'hifz'], $dropped, true)) {
+                    continue;
+                }
+
                 $days[$edit['day']][$edit['field'].'_surah_id'] = $edit['ayah'][0];
                 $days[$edit['day']][$edit['field'].'_verse'] = $edit['ayah'][1];
                 $steps[] = ['edit' => $edit];
@@ -252,7 +287,7 @@ class ExportPlanEngine extends Command
         return compact('planType', 'fillDirection', 'reviewDirection', 'bulkStart', 'ceiling', 'daysCount') + [
             'opening' => [$opening->surah_id, $opening->verse_number],
             'steps' => $steps,
-        ];
+        ] + ($uneven ? ['dropped' => $dropped] : []);
     }
 
     /**

@@ -98,11 +98,13 @@ new class extends Component {
             if (!isset($studentsStats[$sId]))
                 continue;
 
+            // Each part the day holds: a day of review alone in a hifz plan
+            // owes no hifz, and an empty one would count as not recited.
             $segments = [];
-            if ($day->plan->plan_type === 'hifz' || $day->plan->plan_type === 'hifz_review') {
+            if (($day->plan->plan_type === 'hifz' || $day->plan->plan_type === 'hifz_review') && $day->from_ayah_id !== null) {
                 $segments[] = $day->hifz_achievement;
             }
-            if ($day->plan->plan_type === 'review' || $day->plan->plan_type === 'hifz_review') {
+            if (($day->plan->plan_type === 'review' || $day->plan->plan_type === 'hifz_review') && $day->review_from_ayah_id !== null) {
                 $segments[] = $day->review_achievement;
             }
 

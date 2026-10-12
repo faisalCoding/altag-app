@@ -166,6 +166,29 @@ it('keeps only the parts the kind of plan schedules', function () {
         ->and($day->review_to_ayah_id)->toBe(ayahIdOf(1, 7));
 });
 
+it('saves a day of review alone, or of hifz alone, in a hifz and review plan', function () {
+    $range = fn (int $surah, int $from, int $to) => ['from' => ['surah' => $surah, 'verse' => $from], 'to' => ['surah' => $surah, 'verse' => $to]];
+
+    postPlans(planChange(['days' => [
+        ['date' => '2026-07-12', 'hifz' => $range(2, 1, 5), 'review' => null],
+        ['date' => '2026-07-13', 'hifz' => null, 'review' => $range(1, 1, 7)],
+    ]]))->assertJsonPath('data.results.0.result', 'applied');
+
+    expect(StudentPlan::sole()->days()->orderBy('date')->get()->map(fn ($day) => [$day->from_ayah_id, $day->to_ayah_id, $day->review_from_ayah_id, $day->review_to_ayah_id])->all())
+        ->toBe([
+            [ayahIdOf(2, 1), ayahIdOf(2, 5), null, null],
+            [null, null, ayahIdOf(1, 1), ayahIdOf(1, 7)],
+        ]);
+});
+
+it('refuses a day with neither hifz nor review', function () {
+    $results = postPlans(planChange(['days' => [['date' => '2026-07-12', 'hifz' => null, 'review' => null]]]))->json('data.results');
+
+    expect($results[0]['result'])->toBe('rejected')
+        ->and($results[0]['message'])->toBe('اليوم 1 من الخطة بلا حفظ ولا مراجعة.')
+        ->and(StudentPlan::count())->toBe(0);
+});
+
 it('refuses what it cannot save, each plan on its own', function () {
     $stranger = Student::factory()->create();
     $day = fn (string $date, int $toVerse = 5) => ['date' => $date, 'hifz' => ['from' => ['surah' => 2, 'verse' => 1], 'to' => ['surah' => 2, 'verse' => $toVerse]], 'review' => null];
