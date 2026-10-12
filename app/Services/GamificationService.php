@@ -84,17 +84,87 @@ class GamificationService
         // (non-manual-claim) rewards are reflected in the coin total below.
         self::syncStudentLevelRewards($studentId, $leaderboardId, $levelInfo);
 
-        $coins = GamificationTransaction::where('leaderboard_id', $leaderboardId)
+        $transactions = GamificationTransaction::where('leaderboard_id', $leaderboardId)
             ->where('student_id', $studentId)
             ->whereNull('team_id')
             ->claimed()
-            ->sum('amount');
+            ->get(['id', 'amount', 'reference_type', 'reference_id', 'created_at']);
+
+        $leaderboard = Leaderboard::find($leaderboardId);
+        $coins = $leaderboard
+            ? self::coinsSinceStart($transactions, $leaderboard, $studentId, $levelInfo)->sum('amount')
+            : $transactions->sum('amount');
 
         $state->coins = max(0, (int) $coins);
         $state->save();
 
         // Announce a level-up in the competition news feed when XP crosses a level.
         GamificationNewsService::syncStudentLevel($studentId, $leaderboardId, $levelInfo);
+    }
+
+    /**
+     * The coin transactions a competition's balance counts: none dated before
+     * its start, by the day the work was done (resolveTransactionDates()), so
+     * that moving the start date later sets aside what was earned and spent
+     * before it — without deleting a thing, should the date be put back.
+     *
+     * The start only, not the end: what a student spends in the store once the
+     * competition is over must still come off the balance.
+     *
+     * A level reward dated before the start still counts while the student
+     * holds that level on the competition's own points; it is granted once
+     * only (syncStudentLevelRewards()), and would otherwise be lost for good.
+     *
+     * @param  \Illuminate\Support\Collection<int, mixed>  $transactions
+     * @param  array<string, mixed>|null  $levelInfo  the student's level, when the caller already has it
+     * @return \Illuminate\Support\Collection<int, mixed>
+     */
+    public static function coinsSinceStart($transactions, Leaderboard $leaderboard, int $studentId, ?array $levelInfo = null)
+    {
+        if ($transactions->isEmpty()) {
+            return $transactions;
+        }
+
+        $start = $leaderboard->start_date->format('Y-m-d');
+        $dates = self::resolveTransactionDates($transactions);
+        $early = $transactions->filter(fn ($tx) => $dates[$tx->id] < $start);
+
+        if ($early->isEmpty()) {
+            return $transactions;
+        }
+
+        $earlyLevelIds = $early->where('reference_type', GamificationLevel::class)->pluck('reference_id');
+        $heldLevelIds = collect();
+
+        if ($earlyLevelIds->isNotEmpty()) {
+            $levelInfo ??= self::getStudentLevel($studentId, $leaderboard->id);
+            $heldLevelIds = GamificationLevel::whereIn('id', $earlyLevelIds)
+                ->where('level_number', '<=', (int) ($levelInfo['current']->level_number ?? 0))
+                ->pluck('id');
+        }
+
+        return $transactions->reject(fn ($tx) => $dates[$tx->id] < $start
+            && ! ($tx->reference_type === GamificationLevel::class && $heldLevelIds->contains($tx->reference_id))
+        )->values();
+    }
+
+    /**
+     * Every student's balance in a competition counted again — after its start
+     * date moved, which changes what their balances count (coinsSinceStart()).
+     *
+     * @return int how many students were counted
+     */
+    public static function recalculateCompetitionStudents(Leaderboard $leaderboard): int
+    {
+        $studentIds = GamificationStudentState::where('leaderboard_id', $leaderboard->id)->pluck('student_id')
+            ->merge(GamificationTransaction::where('leaderboard_id', $leaderboard->id)->whereNotNull('student_id')->distinct()->pluck('student_id'))
+            ->unique();
+
+        foreach ($studentIds as $studentId) {
+            self::recalculateStudentState((int) $studentId, $leaderboard->id);
+        }
+
+        return $studentIds->count();
     }
 
     /**
@@ -1771,11 +1841,18 @@ class GamificationService
      * Pass the student's level as getStudentLevel() returned it, when the caller
      * already has it, to save reading it again; see getFreezeableDates().
      *
+     * The balance counts nothing from before the competition's start, as the
+     * balance itself does not (coinsSinceStart()) — read here by when each
+     * coin was written, which a sum in one query can tell.
+     *
      * @param  array<string, mixed>|null  $levelInfo
+     * @param  Leaderboard|null  $leaderboard  the competition, when the caller already has it
      * @return array{has_donation: bool, percentage: int, base: int, limit: int, donated: int, remaining: int}
      */
-    public static function getDailyDonationStatus(int $studentId, int $leaderboardId, ?array $levelInfo = null): array
+    public static function getDailyDonationStatus(int $studentId, int $leaderboardId, ?array $levelInfo = null, ?Leaderboard $leaderboard = null): array
     {
+        $leaderboard ??= Leaderboard::find($leaderboardId);
+
         // Read the donation rules from the level whose settings apply to the
         // student (getStudentLevel returns it under 'perks').
         $currentLevel = ($levelInfo ?? self::getStudentLevel($studentId, $leaderboardId))['perks'] ?? null;
@@ -1786,12 +1863,16 @@ class GamificationService
         $todayStart = Carbon::today()->startOfDay();
         $todayEnd = Carbon::today()->endOfDay();
 
-        // Coin balance as it stood at the start of today (all claimed transactions before today).
+        // Coin balance as it stood at the start of today (all claimed transactions
+        // before today, from the competition's first day in Riyadh on).
         $base = (int) GamificationTransaction::where('student_id', $studentId)
             ->where('leaderboard_id', $leaderboardId)
             ->whereNull('team_id')
             ->claimed()
             ->where('created_at', '<', $todayStart)
+            ->when($leaderboard, fn ($query) => $query->where(
+                'created_at', '>=', Carbon::parse($leaderboard->start_date->format('Y-m-d'), 'Asia/Riyadh')->utc()
+            ))
             ->sum('amount');
         $base = max(0, $base);
 
@@ -1829,7 +1910,7 @@ class GamificationService
         $team = GamificationTeam::findOrFail($teamId);
         $leaderboardId = $team->leaderboard_id;
 
-        $status = self::getDailyDonationStatus($studentId, $leaderboardId);
+        $status = self::getDailyDonationStatus($studentId, $leaderboardId, leaderboard: $team->leaderboard);
 
         if (! $status['has_donation']) {
             $error = 'ميزة التبرع للفريق غير مفعلة لمستواك الحالي.';
@@ -2965,18 +3046,29 @@ class GamificationService
     }
 
     /**
-     * Pending (unclaimed) reward transactions for a student in a leaderboard.
+     * Pending (unclaimed) reward transactions for a student in a leaderboard —
+     * none from before the competition's start, which its balance would not
+     * count (coinsSinceStart()); they come back if the start is moved back.
      *
      * @return Collection<int, GamificationTransaction>
      */
     public static function getPendingRewards(int $studentId, int $leaderboardId)
     {
-        return GamificationTransaction::where('student_id', $studentId)
+        $pending = GamificationTransaction::where('student_id', $studentId)
             ->where('leaderboard_id', $leaderboardId)
             ->where('type', 'earn')
             ->unclaimed()
             ->orderBy('created_at')
             ->get();
+
+        // None pending, as is usual: nothing to read the competition for.
+        if ($pending->isEmpty()) {
+            return $pending;
+        }
+
+        $leaderboard = Leaderboard::find($leaderboardId);
+
+        return $leaderboard ? self::coinsSinceStart($pending, $leaderboard, $studentId) : $pending;
     }
 
     /**
@@ -2989,7 +3081,8 @@ class GamificationService
             ->unclaimed()
             ->first();
 
-        if (! $tx) {
+        // One from before the competition's start is not on offer (getPendingRewards()).
+        if (! $tx || ($tx->leaderboard && self::coinsSinceStart(collect([$tx]), $tx->leaderboard, $studentId)->isEmpty())) {
             return false;
         }
 
@@ -3009,10 +3102,14 @@ class GamificationService
      */
     public static function claimAllRewards(int $studentId, int $leaderboardId): int
     {
-        $ids = GamificationTransaction::where('student_id', $studentId)
+        $pending = GamificationTransaction::where('student_id', $studentId)
             ->where('leaderboard_id', $leaderboardId)
             ->unclaimed()
-            ->pluck('id');
+            ->get(['id', 'reference_type', 'reference_id', 'created_at']);
+
+        // The ones on offer only: none from before the competition's start.
+        $leaderboard = Leaderboard::find($leaderboardId);
+        $ids = ($leaderboard ? self::coinsSinceStart($pending, $leaderboard, $studentId) : $pending)->pluck('id');
 
         if ($ids->isEmpty()) {
             return 0;
@@ -3689,7 +3786,9 @@ class GamificationService
                 $date = $extraPoints->get($tx->reference_id)?->date;
             }
 
-            $date ??= $tx->created_at;
+            // When it was written, by the academy's clock: a purchase at 01:00 in
+            // Riyadh is that day's, not the day before as the UTC timestamp reads.
+            $date ??= Carbon::parse($tx->created_at, 'UTC')->setTimezone('Asia/Riyadh')->format('Y-m-d');
             $dates[$tx->id] = Carbon::parse($date)->format('Y-m-d');
         }
 

@@ -1101,7 +1101,7 @@ new class extends Component {
 
         // The donation allowance on the team tab, from the level read above.
         $donationStatus = ($activeGamification && $studentTeam)
-            ? \App\Services\GamificationService::getDailyDonationStatus($student->id, $activeGamification->id, $gamificationLevelInfo)
+            ? \App\Services\GamificationService::getDailyDonationStatus($student->id, $activeGamification->id, $gamificationLevelInfo, $activeGamification)
             : ['has_donation' => false, 'percentage' => 0, 'base' => 0, 'limit' => 0, 'donated' => 0, 'remaining' => 0];
 
         // The tasmeeh queue, bookable from the competition view too: the window

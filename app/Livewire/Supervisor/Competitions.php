@@ -5,6 +5,7 @@ namespace App\Livewire\Supervisor;
 use App\Models\Circle;
 use App\Models\Leaderboard;
 use App\Models\LeaderboardCriterion;
+use App\Services\GamificationService;
 use Flux\Flux;
 use Illuminate\Support\Facades\Storage;
 use Intervention\Image\Drivers\Gd\Driver;
@@ -432,6 +433,7 @@ class Competitions extends Component
         $validCircles = array_intersect($this->selectedCircles, $allowedCircleIds);
         $existingCompetition = $this->editingId ? Leaderboard::find($this->editingId) : null;
         $existingSettings = $existingCompetition ? ($existingCompetition->settings ?? []) : [];
+        $startMoved = $existingCompetition && $existingCompetition->start_date->format('Y-m-d') !== substr($this->start_date, 0, 10);
 
         $settings = [
             'extra_points_enabled' => $this->extra_points_enabled,
@@ -539,7 +541,18 @@ class Competitions extends Component
             );
         }
 
-        Flux::toast($this->isEditing ? 'تم تحديث المسابقة بنجاح' : 'تم إنشاء المسابقة بنجاح', variant: 'success');
+        // A new start changes which coins the balances count — none from before
+        // it (GamificationService::coinsSinceStart()) — so each is counted again.
+        // Nothing is deleted: moving the start back brings them all back.
+        if ($startMoved && $competition->competition_type === 'gamification') {
+            GamificationService::recalculateCompetitionStudents($competition);
+        }
+
+        Flux::toast(match (true) {
+            ! $this->isEditing => 'تم إنشاء المسابقة بنجاح',
+            $startMoved && $competition->competition_type === 'gamification' => 'تم تحديث المسابقة، وأُعيد حساب أرصدة الطلاب من تاريخ البداية الجديد',
+            default => 'تم تحديث المسابقة بنجاح',
+        }, variant: 'success');
         $this->showModal = false;
         $this->loadData();
     }

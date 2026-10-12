@@ -16,6 +16,7 @@ use App\Models\Student;
 use App\Models\Teacher;
 use App\Services\GamificationService;
 use Carbon\Carbon;
+use Carbon\CarbonInterface;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -76,7 +77,11 @@ function makeActionsLeaderboard(Circle $circle, array $attributes = []): Leaderb
     return $leaderboard;
 }
 
-function giveActionsCoins(Student $student, Leaderboard $leaderboard, int $coins): GamificationStudentState
+/**
+ * Coins earned the day before unless said otherwise — inside the competition,
+ * since its balance counts nothing from before its start.
+ */
+function giveActionsCoins(Student $student, Leaderboard $leaderboard, int $coins, ?CarbonInterface $earnedAt = null): GamificationStudentState
 {
     GamificationTransaction::create([
         'leaderboard_id' => $leaderboard->id,
@@ -85,8 +90,8 @@ function giveActionsCoins(Student $student, Leaderboard $leaderboard, int $coins
         'amount' => $coins,
         'xp_amount' => 0,
         'description' => 'رصيد مبدئي',
-        'created_at' => now()->subDays(1),
-        'updated_at' => now()->subDays(1),
+        'created_at' => $earnedAt ?? now()->subDays(1),
+        'updated_at' => $earnedAt ?? now()->subDays(1),
     ]);
 
     return GamificationStudentState::updateOrCreate(
@@ -297,18 +302,41 @@ it('opens donations on the first day by the academy clock, before the UTC date c
         'settings' => ['has_donation' => true, 'donation_max_limit' => 100],
     ]);
 
-    $state = giveActionsCoins($this->student, $leaderboard, 100);
+    // Earned this first day, an hour into it.
+    $state = giveActionsCoins($this->student, $leaderboard, 100, now());
 
     $team = GamificationTeam::create(['leaderboard_id' => $leaderboard->id, 'name' => 'فريق البداية', 'coins' => 0]);
     $team->students()->attach($this->student->id, ['role' => 'leader']);
 
+    // Open, not "not started yet" — but the day's allowance is a share of the
+    // balance the day began with, and nothing from before the start counts.
     Livewire::test('student.gamification-dashboard')
         ->assertDontSeeHtml('data-donation-closed')
+        ->call('donateToTeam', 30)
+        ->assertNotDispatched('toast-show', toastSaying('لم تبدأ المسابقة بعد، ويُفتح التبرع للفريق مع بدايتها.'))
+        ->assertNotDispatched('toast-show', toastSaying('تم التبرع بنجاح للفريق!'));
+
+    // The next day, what the first day brought is the balance to give from.
+    Carbon::setTestNow('2026-06-08 22:00:00');
+
+    Livewire::test('student.gamification-dashboard')
         ->call('donateToTeam', 30)
         ->assertDispatched('toast-show', toastSaying('تم التبرع بنجاح للفريق!'));
 
     expect($team->fresh()->coins)->toBe(30)
         ->and($state->fresh()->coins)->toBe(70);
+});
+
+it('gives no donation allowance for coins from before the competition began', function () {
+    $leaderboard = makeActionsLeaderboard($this->circle, [
+        'start_date' => now()->format('Y-m-d'),
+        'end_date' => now()->addDays(10)->format('Y-m-d'),
+    ]);
+
+    // Earned two days before the start: kept, but not this competition's.
+    giveActionsCoins($this->student, $leaderboard, 100, now()->subDays(2));
+
+    expect(GamificationService::getDailyDonationStatus($this->student->id, $leaderboard->id)['base'])->toBe(0);
 });
 
 /* --------------------------------------------------------------- reserveTurn */
