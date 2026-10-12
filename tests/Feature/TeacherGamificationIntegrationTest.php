@@ -17,6 +17,7 @@ use App\Models\Student;
 use App\Models\Teacher;
 use App\Services\GamificationService;
 use App\Services\LeaderboardService;
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -25,6 +26,10 @@ use Livewire\Livewire;
 uses(RefreshDatabase::class);
 
 beforeEach(function () {
+    // Midday, when the academy's date in Riyadh is the UTC date too: after
+    // 21:00 UTC the roll call marks tomorrow's date, and the checks here read today's.
+    Carbon::setTestNow(now()->setTime(10, 0));
+
     $this->stage = Stage::create(['name' => 'مرحلة اختبار دمج المعلم']);
     $this->circle = Circle::create(['name' => 'حلقة اختبار دمج المعلم', 'stage_id' => $this->stage->id]);
 
