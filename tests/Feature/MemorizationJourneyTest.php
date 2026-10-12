@@ -267,6 +267,28 @@ it('sums ayahs memorized per day within the current month', function () {
     expect($stats)->toBe([['date' => '2026-06-08', 'count' => 3]]);
 });
 
+it('counts each ayah on the first day it was memorized, a surah recited from its start each day included', function () {
+    seedJuzAyahs();
+
+    $plan = StudentPlan::create([
+        'student_id' => $this->child->id, 'plan_type' => 'hifz', 'start_date' => now()->subDays(5),
+        'is_approved' => true, 'days_count' => 30, 'active_days' => [0, 1, 2, 3, 4, 5, 6],
+    ]);
+
+    // Before the month: 1-2. Then the surah from its start each day: 1-4, 1-6.
+    foreach ([['2026-05-31', 1, 2], ['2026-06-07', 1, 4], ['2026-06-08', 1, 6]] as [$date, $from, $to]) {
+        StudentPlanDay::create([
+            'student_plan_id' => $plan->id, 'date' => $date, 'day_name' => 'يوم',
+            'hifz_achievement' => 3, 'from_ayah_id' => $from, 'to_ayah_id' => $to,
+        ]);
+    }
+
+    expect(MemorizationJourneyService::monthlyAyahsMemorized($this->child))->toBe([
+        ['date' => '2026-06-07', 'count' => 2],
+        ['date' => '2026-06-08', 'count' => 2],
+    ]);
+});
+
 it('computes a fractional memorized juz count from the memorized page count', function () {
     expect(MemorizationJourneyService::memorizedJuzCount($this->child))->toBe(0.0);
 

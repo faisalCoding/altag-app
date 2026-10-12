@@ -5,6 +5,7 @@ namespace App\Ai\Tools;
 use App\Models\PromotionRun;
 use App\Models\PromotionRunItem;
 use App\Models\Student;
+use App\Services\MemorizationJourneyService;
 use App\Support\ArabicSearch;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Illuminate\Support\Facades\DB;
@@ -72,8 +73,9 @@ class getMemorizationProgress implements Tool
 
     /**
      * Verses each student memorized in the span — hifz days graded جيد or
-     * better, as the student's own monthly count reads them — or null when no
-     * span was asked for.
+     * better, each verse counted on the first day a range held it, as the
+     * student's own monthly count reads them — or null when no span was asked
+     * for.
      *
      * @param  array<int, int>  $studentIds
      * @return array<int, int>|null
@@ -84,18 +86,21 @@ class getMemorizationProgress implements Tool
             return null;
         }
 
+        // Every graded day up to the span's end: those before it tell what was memorized already.
         return DB::table('student_plan_days as days')
             ->join('student_plans as plans', 'plans.id', '=', 'days.student_plan_id')
             ->whereIn('plans.student_id', $studentIds)
             ->where('days.hifz_achievement', '>=', 2)
             ->whereNotNull('days.from_ayah_id')
             ->whereNotNull('days.to_ayah_id')
-            ->when($from, fn ($q) => $q->whereDate('days.date', '>=', $from))
             ->when($to, fn ($q) => $q->whereDate('days.date', '<=', $to))
-            ->groupBy('plans.student_id')
-            ->selectRaw('plans.student_id, sum(abs(days.to_ayah_id - days.from_ayah_id) + 1) as verses')
-            ->pluck('verses', 'student_id')
-            ->map(fn ($verses) => (int) $verses)
+            ->orderBy('days.date')
+            ->orderBy('days.id')
+            ->get(['plans.student_id', 'days.date', 'days.from_ayah_id', 'days.to_ayah_id'])
+            ->groupBy('student_id')
+            ->map(fn ($days) => (int) collect(MemorizationJourneyService::newVersesByDay($days))
+                ->filter(fn (int $count, string $date) => $from === null || $date >= $from)
+                ->sum())
             ->all();
     }
 

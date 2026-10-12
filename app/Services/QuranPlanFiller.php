@@ -13,6 +13,10 @@ use App\Models\Ayah;
  * A day may hold one part only — a hifz plan's day of review alone, or the
  * other way round — its other part's fields empty. Filling a part passes over
  * the days without it, and runs on from the last day that has it.
+ *
+ * From the surah's start (`fromSurahStart`): each hifz day is recited from the
+ * first verse of the surah its new portion begins in, up to the portion's end
+ * — until the surah is done, when the next one starts from its own first verse.
  */
 class QuranPlanFiller
 {
@@ -24,6 +28,7 @@ class QuranPlanFiller
         public int $bulkStartVerse,
         public int $memorizedUpToSurah,
         public int $memorizedUpToVerse,
+        public bool $fromSurahStart = false,
     ) {}
 
     /**
@@ -278,6 +283,13 @@ class QuranPlanFiller
             if ($currentStart) {
                 // Only a hifz day is capped: review days were filled above.
                 $end = $service->getEndAyah($currentStart, $type, $this->fillDirection, $target === 'hifz' ? $hifzCeilingAyah : null, $this->planType === 'review');
+
+                // The day's new portion still runs on from the last one; it is
+                // only recited from the start of its surah.
+                if ($this->fromSurahStart && $target === 'hifz') {
+                    $day[$fromSurahKey] = $currentStart->surah_id;
+                    $day[$fromVerseKey] = 1;
+                }
 
                 $day[$toSurahKey] = $end->surah_id;
                 $day[$toVerseKey] = $end->verse_number;

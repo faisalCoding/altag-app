@@ -155,3 +155,27 @@ it('shows a day without one part as such, and how many days each part has', func
         ->assertSeeHtml('data-hifz-days>2<')
         ->assertSeeHtml('data-review-days>3<');
 });
+
+it('recites each hifz day from the start of its surah when asked, the portions running on as before', function () {
+    $filled = fn (bool $fromSurahStart) => array_map(fn (array $day) => [$day['from_surah_id'], $day['from_verse'], $day['to_surah_id'], $day['to_verse']], Livewire::test('shared.plan-creator')
+        ->set('studentId', test()->student->id)
+        ->set('planType', 'hifz')
+        ->set('fillDirection', 'reverse')
+        ->set('startDate', '2026-07-12')
+        ->set('daysCount', 4)
+        ->set('activeDays', ['Sunday', 'Monday', 'Tuesday'])
+        ->set('bulkStartSurah', 114)
+        ->set('bulkStartVerse', 1)
+        ->call('generateDays')
+        ->set('fromSurahStart', $fromSurahStart)
+        ->call('fillSelected', 'half', 'hifz', [0, 1, 2, 3])
+        ->get('planDays'));
+
+    $plain = $filled(false);
+    $cumulative = $filled(true);
+
+    // The same portions, each recited from its surah's first verse.
+    expect(array_map(fn (array $day) => [$day[2], $day[3]], $cumulative))->toBe(array_map(fn (array $day) => [$day[2], $day[3]], $plain))
+        ->and(array_map(fn (array $day) => [$day[0], $day[1]], $cumulative))->toBe(array_map(fn (array $day) => [$day[0], 1], $plain))
+        ->and(collect($plain)->contains(fn (array $day) => $day[1] > 1))->toBeTrue();
+});

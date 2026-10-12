@@ -716,6 +716,12 @@ class LeaderboardService
     {
         $grade = $recitation->achievement;
 
+        // A link (ربط) goes over what was memorised up to the day's hifz: it
+        // has no points of its own, as in the gamified competitions.
+        if ($recitation->type === 'link') {
+            return [0, 0];
+        }
+
         if ($recitation->type === 'review') {
             if (! ($settings['review_enabled'] ?? false)) {
                 return [0, 0];

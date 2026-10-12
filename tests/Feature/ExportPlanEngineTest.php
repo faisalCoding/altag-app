@@ -110,7 +110,7 @@ it('writes fill scenarios that replay to the same days, the same for the same se
     $replayed = 0;
 
     foreach ($scenarios as $scenario) {
-        $filler = new QuranPlanFiller($scenario['planType'], $scenario['fillDirection'], $scenario['reviewDirection'], ...$scenario['bulkStart'], ...$scenario['ceiling']);
+        $filler = new QuranPlanFiller($scenario['planType'], $scenario['fillDirection'], $scenario['reviewDirection'], ...$scenario['bulkStart'], ...$scenario['ceiling'], fromSurahStart: $scenario['fromSurahStart'] ?? false);
         [$surah, $verse] = $scenario['opening'];
         $days = array_fill(0, $scenario['daysCount'], [
             'from_surah_id' => $surah, 'from_verse' => $verse, 'to_surah_id' => $surah, 'to_verse' => $verse,
@@ -146,5 +146,6 @@ it('writes fill scenarios that replay to the same days, the same for the same se
     }
 
     expect($replayed)->toBeGreaterThan(10)
-        ->and(collect($scenarios)->filter(fn (array $scenario) => ! empty($scenario['dropped']))->count())->toBeGreaterThan(0);
+        ->and(collect($scenarios)->filter(fn (array $scenario) => ! empty($scenario['dropped']))->count())->toBeGreaterThan(0)
+        ->and(collect($scenarios)->where('fromSurahStart', true)->count())->toBeGreaterThan(0);
 });

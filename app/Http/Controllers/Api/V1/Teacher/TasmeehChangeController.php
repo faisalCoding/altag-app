@@ -25,7 +25,8 @@ class TasmeehChangeController extends Controller
             'changes' => ['required', 'array', 'min:1', 'max:500'],
             'changes.*.id' => ['required', 'uuid'],
             'changes.*.kind' => ['required', Rule::in(['plan', 'free'])],
-            'changes.*.part' => ['required', Rule::in(['hifz', 'review'])],
+            // A link (ربط) is a free recitation alone: a plan has no such part.
+            'changes.*.part' => ['required', Rule::in(['hifz', 'review', 'link'])],
             'changes.*.day_id' => ['required_if:changes.*.kind,plan', 'nullable', 'integer'],
             'changes.*.student_id' => ['required_if:changes.*.kind,free', 'nullable', 'integer'],
             'changes.*.date' => ['required', 'date_format:Y-m-d'],

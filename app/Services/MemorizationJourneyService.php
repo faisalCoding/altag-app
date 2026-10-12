@@ -94,36 +94,63 @@ class MemorizationJourneyService
     }
 
     /**
-     * Ayahs graded (hifz_achievement >= 2) per calendar day within the current month,
-     * approximated from each graded StudentPlanDay's ayah-range size.
+     * Ayahs memorized (hifz_achievement >= 2) per calendar day within the
+     * current month, each counted on the first day a graded range held it
+     * (newVersesByDay()) — the days before the month read only to know what
+     * was already memorized.
      *
      * @return array<int, array{date: string, count: int}>
      */
     public static function monthlyAyahsMemorized(Student $student): array
     {
-        $monthStart = now()->startOfMonth();
-        $monthEnd = now()->endOfMonth();
+        $monthStart = now()->startOfMonth()->toDateString();
+        $monthEnd = now()->endOfMonth()->toDateString();
 
         $days = StudentPlanDay::whereHas('plan', fn ($q) => $q->where('student_id', $student->id))
             ->where('hifz_achievement', '>=', 2)
             ->whereNotNull('from_ayah_id')
             ->whereNotNull('to_ayah_id')
-            ->whereBetween('date', [$monthStart, $monthEnd])
+            ->whereDate('date', '<=', $monthEnd)
+            ->orderBy('date')
+            ->orderBy('id')
             ->get(['date', 'from_ayah_id', 'to_ayah_id']);
 
-        $buckets = [];
-        foreach ($days as $day) {
-            $dateStr = Carbon::parse($day->date)->toDateString();
-            $count = abs($day->to_ayah_id - $day->from_ayah_id) + 1;
-            $buckets[$dateStr] = ($buckets[$dateStr] ?? 0) + $count;
-        }
-
-        ksort($buckets);
-
-        return collect($buckets)
-            ->map(fn ($count, $date) => ['date' => $date, 'count' => $count])
+        return collect(self::newVersesByDay($days))
+            ->filter(fn (int $count, string $date) => $date >= $monthStart && $count > 0)
+            ->map(fn (int $count, string $date) => ['date' => $date, 'count' => $count])
             ->values()
             ->all();
+    }
+
+    /**
+     * The verses each day memorized for the first time: a graded range counts
+     * only the verses no earlier one held. A plan recited from the surah's
+     * start goes over its opening every day, and that is not new memorization;
+     * ranges that never overlap count whole, as they always did.
+     *
+     * @param  iterable<int, object>  $days  in date order, each with date, from_ayah_id and to_ayah_id
+     * @return array<string, int> by Y-m-d
+     */
+    public static function newVersesByDay(iterable $days): array
+    {
+        $seen = [];
+        $byDay = [];
+
+        foreach ($days as $day) {
+            $date = Carbon::parse($day->date)->toDateString();
+            $new = 0;
+
+            for ($id = min($day->from_ayah_id, $day->to_ayah_id); $id <= max($day->from_ayah_id, $day->to_ayah_id); $id++) {
+                if (! isset($seen[$id])) {
+                    $seen[$id] = true;
+                    $new++;
+                }
+            }
+
+            $byDay[$date] = ($byDay[$date] ?? 0) + $new;
+        }
+
+        return $byDay;
     }
 
     /**

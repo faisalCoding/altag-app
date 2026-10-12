@@ -70,6 +70,9 @@ new class extends Component {
      */
     public array $lastFills = ['hifz' => null, 'review' => null];
 
+    /** Each hifz day recited from the first verse of its surah, until the surah is done. */
+    public bool $fromSurahStart = false;
+
     public function mount()
     {
         $this->userLevel = Auth::guard('student')->check() ? 'student' : 'teacher';
@@ -624,6 +627,7 @@ new class extends Component {
             bulkStartVerse: (int) $this->bulkStartVerse,
             memorizedUpToSurah: (int) $this->memorizedUpToSurah,
             memorizedUpToVerse: (int) $this->memorizedUpToVerse,
+            fromSurahStart: $this->fromSurahStart,
         );
 
         $this->planDays = $filler->fill($this->planDays, (string) $type, (string) ($target ?? $this->fillTarget), $selectedIndices);
@@ -1450,6 +1454,12 @@ new class extends Component {
                                 </flux:button>
                                 <flux:button size="xs" variant="ghost" @click="doFill('third')">{{ __('1/3 صفحة') }}
                                 </flux:button>
+                                {{-- Applies to the days filled next: each recited from its surah's first verse. --}}
+                                <label class="flex items-center gap-1.5 ps-2 text-xs text-zinc-600 dark:text-zinc-300 cursor-pointer"
+                                    title="{{ __('كل يوم يُسمَّع من أول السورة حتى نهاية مقداره، حتى تكتمل السورة') }}">
+                                    <input type="checkbox" wire:model.live="fromSurahStart" class="rounded border-zinc-300 dark:border-zinc-600" data-from-surah-start>
+                                    {{ __('من بداية السورة') }}
+                                </label>
                             </div>
 
                             <div class="h-4 w-px bg-zinc-200 dark:bg-zinc-700 mx-2 self-center"></div>

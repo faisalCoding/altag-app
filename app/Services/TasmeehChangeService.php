@@ -362,7 +362,7 @@ class TasmeehChangeService
             return;
         }
 
-        $label = $part === 'hifz' ? 'الحفظ' : 'المراجعة';
+        $label = StudentNextWird::PART_LABELS[$part] ?? 'المراجعة';
 
         NotificationService::notify(
             'student',

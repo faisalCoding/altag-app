@@ -272,6 +272,22 @@ it('records a free recitation, paying it like a plan day', function () {
         ->and(GamificationTransaction::where('reference_type', FreeRecitation::class)->sum('xp_amount'))->toEqual(7);
 });
 
+it('records a link beside the day\'s free hifz, paying nothing, and refuses one against a plan', function () {
+    $free = ['kind' => 'free', 'day_id' => null, 'student_id' => $this->student->id, 'grade' => 3];
+
+    $results = postTasmeeh(
+        tasmeehChange($free + ['recited' => recited(2, 1, 2, 3)]),
+        tasmeehChange($free + ['part' => 'link', 'recited' => recited(1, 1, 1, 7)]),
+        tasmeehChange(['part' => 'link']),
+    )->json('data.results');
+
+    expect(array_column($results, 'result'))->toBe(['applied', 'applied', 'rejected'])
+        ->and($results[1]['cell']['part'])->toBe('link')
+        ->and(FreeRecitation::orderBy('id')->pluck('type')->all())->toBe(['hifz', 'link'])
+        // The link earns nothing: only the hifz is paid.
+        ->and(GamificationTransaction::where('reference_type', FreeRecitation::class)->count())->toBe(1);
+});
+
 it('asks for the recited range before grading a free recitation', function () {
     postTasmeeh(tasmeehChange(['kind' => 'free', 'day_id' => null, 'student_id' => $this->student->id]))
         ->assertJsonPath('data.results.0.result', 'rejected')

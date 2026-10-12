@@ -26,6 +26,7 @@ class ExportPlanEngine extends Command
         {--seed=20261009 : Seeds the fill scenarios, so every run writes the same ones}
         {--scenarios=400 : How many fill scenarios to write}
         {--uneven=150 : How many more, of plans whose days hold one part now and then}
+        {--cumulative=100 : How many more, of plans recited from the start of each surah}
         {--stride=1 : Measure the volumes from every this-many-th ayah}';
 
     protected $description = 'Export the mushaf layout and the plan engine parity fixtures for the teacher app';
@@ -85,7 +86,11 @@ class ExportPlanEngine extends Command
             $volumes = $this->volumeFixtures($service, $ayahs, max(1, (int) $this->option('stride')));
             File::put("{$fixturesDir}/end-ayahs.json.gz", gzencode(json_encode($volumes), 9));
 
-            $scenarios = $this->fillScenarios(max(0, (int) $this->option('scenarios')), max(0, (int) $this->option('uneven')));
+            $scenarios = $this->fillScenarios(
+                max(0, (int) $this->option('scenarios')),
+                max(0, (int) $this->option('uneven')),
+                max(0, (int) $this->option('cumulative')),
+            );
             File::put("{$fixturesDir}/fill-scenarios.json.gz", gzencode(json_encode(['seed' => (int) $this->option('seed'), 'scenarios' => $scenarios]), 9));
 
             $this->info("Fixtures written to {$fixturesDir}");
@@ -183,7 +188,7 @@ class ExportPlanEngine extends Command
      *
      * @return list<array<string, mixed>>
      */
-    private function fillScenarios(int $count, int $uneven): array
+    private function fillScenarios(int $count, int $uneven, int $cumulative): array
     {
         $this->random = new Randomizer(new Mt19937((int) $this->option('seed')));
 
@@ -198,19 +203,28 @@ class ExportPlanEngine extends Command
             $scenarios[] = $this->fillScenario(uneven: true);
         }
 
+        for ($n = 0; $n < $cumulative; $n++) {
+            $scenarios[] = $this->fillScenario(cumulative: true);
+        }
+
         return $scenarios;
     }
 
     /**
      * A plan's days filled a few times over. An uneven one is a hifz and
      * review plan some of whose days hold one part alone — `dropped` names
-     * each day and the part it was left without.
+     * each day and the part it was left without. A cumulative one recites
+     * each hifz day from the start of its surah.
      *
      * @return array<string, mixed>
      */
-    private function fillScenario(bool $uneven = false): array
+    private function fillScenario(bool $uneven = false, bool $cumulative = false): array
     {
-        $planType = $uneven ? 'hifz_review' : $this->pick(['hifz', 'review', 'hifz_review']);
+        $planType = match (true) {
+            $uneven => 'hifz_review',
+            $cumulative => $this->pick(['hifz', 'hifz_review']),
+            default => $this->pick(['hifz', 'review', 'hifz_review']),
+        };
         $fillDirection = $this->pick(['forward', 'reverse']);
         // Choosing the hifz direction sets the review one to match, and it
         // may then be changed.
@@ -221,7 +235,7 @@ class ExportPlanEngine extends Command
         $bulkStart = $planType === 'review' ? [$fillDirection === 'reverse' ? 114 : 1, 1] : $this->randomAyah();
         $daysCount = $this->random->getInt(3, 30);
 
-        $filler = new QuranPlanFiller($planType, $fillDirection, $reviewDirection, $bulkStart[0], $bulkStart[1], $ceiling[0], $ceiling[1]);
+        $filler = new QuranPlanFiller($planType, $fillDirection, $reviewDirection, $bulkStart[0], $bulkStart[1], $ceiling[0], $ceiling[1], fromSurahStart: $cumulative);
 
         $opening = Ayah::where('surah_id', $bulkStart[0])->where('verse_number', $bulkStart[1])->first() ?: Ayah::first();
         $days = array_fill(0, $daysCount, [
@@ -287,7 +301,7 @@ class ExportPlanEngine extends Command
         return compact('planType', 'fillDirection', 'reviewDirection', 'bulkStart', 'ceiling', 'daysCount') + [
             'opening' => [$opening->surah_id, $opening->verse_number],
             'steps' => $steps,
-        ] + ($uneven ? ['dropped' => $dropped] : []);
+        ] + ($uneven ? ['dropped' => $dropped] : []) + ($cumulative ? ['fromSurahStart' => true] : []);
     }
 
     /**

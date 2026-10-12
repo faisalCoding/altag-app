@@ -26,7 +26,7 @@ use Illuminate\Support\Collection;
  */
 final class StudentNextWird
 {
-    public const PART_LABELS = ['hifz' => 'الحفظ', 'review' => 'المراجعة'];
+    public const PART_LABELS = ['hifz' => 'الحفظ', 'review' => 'المراجعة', 'link' => 'الربط'];
 
     public const PLAN_LABELS = ['hifz' => 'خطة الحفظ', 'review' => 'خطة المراجعة', 'hifz_review' => 'خطة الحفظ والمراجعة'];
 

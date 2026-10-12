@@ -232,7 +232,7 @@ new class extends Component
                     <div class="mt-2 flex flex-wrap gap-1.5" data-recent>
                         @foreach ($quality['recent'] as $session)
                             {{-- Memorising filled, review a ring: the colour is the grade. --}}
-                            <span wire:key="recent-{{ $loop->index }}" title="{{ $session['label'] }} · {{ $session['part'] === 'hifz' ? 'حفظ' : 'مراجعة' }} · {{ $grades[$session['grade']]['label'] ?? '' }}"
+                            <span wire:key="recent-{{ $loop->index }}" title="{{ $session['label'] }} · {{ match ($session['part']) { 'hifz' => 'حفظ', 'link' => 'ربط', default => 'مراجعة' } }} · {{ $grades[$session['grade']]['label'] ?? '' }}"
                                 class="size-4 rounded-full {{ $session['part'] === 'hifz' ? ($grades[$session['grade']]['fill'] ?? 'bg-zinc-300') : 'border-[3px] '.($grades[$session['grade']]['ring'] ?? 'border-zinc-300') }}"></span>
                         @endforeach
                     </div>
