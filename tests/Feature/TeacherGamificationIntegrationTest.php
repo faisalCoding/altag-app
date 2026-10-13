@@ -149,9 +149,10 @@ it('removes attendance points when clearing day attendance', function () {
     expect($state->coins)->toBe(0);
 });
 
-it('syncs custom criteria points on toggleScore', function () {
+it('syncs custom criteria points when a criterion is granted and withdrawn', function () {
     Livewire::test(LeaderboardGrade::class, ['leaderboardId' => $this->leaderboard->id])
-        ->call('toggleScore', $this->student->id, $this->criterion->id, $this->criterion->points);
+        ->call('setScore', $this->student->id, $this->criterion->id, true)
+        ->assertReturned(true);
 
     $score = LeaderboardScore::where('student_id', $this->student->id)
         ->where('leaderboard_criterion_id', $this->criterion->id)
@@ -167,12 +168,59 @@ it('syncs custom criteria points on toggleScore', function () {
     expect($transaction)->not->toBeNull();
     expect($transaction->amount)->toBe(5); // points = 5
 
-    // Toggle again to remove score
     Livewire::test(LeaderboardGrade::class, ['leaderboardId' => $this->leaderboard->id])
-        ->call('toggleScore', $this->student->id, $this->criterion->id, $this->criterion->points);
+        ->call('setScore', $this->student->id, $this->criterion->id, false)
+        ->assertReturned(false);
 
     expect(LeaderboardScore::where('student_id', $this->student->id)->count())->toBe(0);
     expect(GamificationTransaction::where('student_id', $this->student->id)->count())->toBe(0);
+});
+
+it('grants a criterion that is already granted, and withdraws one already withdrawn, without a flip', function () {
+    // A cell gone stale — the phone scored it after the page opened — still
+    // shows it unscored: tapping it asks for a grant, and the grant stands.
+    $page = Livewire::test(LeaderboardGrade::class, ['leaderboardId' => $this->leaderboard->id]);
+
+    $page->call('setScore', $this->student->id, $this->criterion->id, true)->assertReturned(true);
+    $page->call('setScore', $this->student->id, $this->criterion->id, true)->assertReturned(true);
+
+    expect(LeaderboardScore::where('student_id', $this->student->id)->count())->toBe(1)
+        ->and(GamificationTransaction::where('student_id', $this->student->id)->count())->toBe(1);
+
+    $page->call('setScore', $this->student->id, $this->criterion->id, false)->assertReturned(false);
+    $page->call('setScore', $this->student->id, $this->criterion->id, false)->assertReturned(false);
+
+    expect(LeaderboardScore::where('student_id', $this->student->id)->count())->toBe(0)
+        ->and(GamificationTransaction::where('student_id', $this->student->id)->count())->toBe(0);
+});
+
+it('withdraws every copy of a criterion scored twice on one day', function () {
+    foreach (range(1, 2) as $copy) {
+        $score = LeaderboardScore::create([
+            'leaderboard_id' => $this->leaderboard->id,
+            'student_id' => $this->student->id,
+            'leaderboard_criterion_id' => $this->criterion->id,
+            'date' => now('Asia/Riyadh')->toDateString(),
+        ]);
+        GamificationService::syncStudentCustomCriterionXP($score);
+    }
+
+    Livewire::test(LeaderboardGrade::class, ['leaderboardId' => $this->leaderboard->id])
+        ->call('setScore', $this->student->id, $this->criterion->id, false)
+        ->assertReturned(false);
+
+    expect(LeaderboardScore::where('student_id', $this->student->id)->count())->toBe(0)
+        ->and(GamificationTransaction::where('student_id', $this->student->id)->count())->toBe(0)
+        ->and(GamificationStudentState::where('student_id', $this->student->id)->value('coins'))->toBe(0);
+});
+
+it('shows on a criterion cell the state the server answers with, never a flip of its own', function () {
+    // Alpine carries the redrawn cell's state into it before the call
+    // returns; flipping it afterwards showed every grant as withdrawn.
+    Livewire::test(LeaderboardGrade::class, ['leaderboardId' => $this->leaderboard->id])
+        ->assertSeeHtml("\$wire.setScore({$this->student->id}, {$this->criterion->id}, !this.confirmed)")
+        ->assertSeeHtml("if (typeof granted === 'boolean') this.confirmed = granted;")
+        ->assertDontSeeHtml('this.confirmed = !this.confirmed');
 });
 
 it('syncs extra points on saveExtraPoints', function () {
@@ -333,11 +381,11 @@ it('scores only the students the grading page lists', function () {
     ]);
 
     Livewire::test(LeaderboardGrade::class, ['leaderboardId' => $this->leaderboard->id])
-        ->call('toggleScore', $stranger->id, $criterion->id, 5)
+        ->call('setScore', $stranger->id, $criterion->id, true)
         ->assertNotFound();
 
     Livewire::test(LeaderboardGrade::class, ['leaderboardId' => $this->leaderboard->id])
-        ->call('toggleScore', $this->student->id, $criterion->id, 5)
+        ->call('setScore', $this->student->id, $criterion->id, true)
         ->assertSuccessful();
 
     expect(LeaderboardScore::where('student_id', $stranger->id)->exists())->toBeFalse()

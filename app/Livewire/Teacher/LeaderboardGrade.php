@@ -3,11 +3,11 @@
 namespace App\Livewire\Teacher;
 
 use App\Models\GamificationBadge;
-use App\Models\GamificationTransaction;
 use App\Models\Leaderboard;
 use App\Models\LeaderboardCriterion;
 use App\Models\LeaderboardScore;
 use App\Models\Student;
+use App\Services\CompetitionGradingService;
 use App\Services\GamificationService;
 use App\Services\LeaderboardService;
 use Flux\Flux;
@@ -147,41 +147,48 @@ class LeaderboardGrade extends Component
             ->get();
     }
 
-    public function toggleScore($studentId, $criterionId, $points)
+    /**
+     * Grant or withdraw a criterion for the date on screen. The cell names
+     * the state it wants rather than asking for a flip, so a cell gone stale —
+     * the phone or a colleague got there first — cannot undo what it shows.
+     *
+     * @return bool Whether the criterion stands granted afterwards, for the cell to show.
+     */
+    public function setScore(int $studentId, int $criterionId, bool $granted): bool
     {
-        $this->ensureParticipant((int) $studentId);
+        $this->ensureParticipant($studentId);
 
-        if (! $this->mayScore((int) $studentId)) {
-            return;
+        if (! $this->mayScore($studentId)) {
+            return $this->isScored($studentId, $criterionId);
         }
-        abort_unless(LeaderboardCriterion::where('leaderboard_id', $this->leaderboardId)->whereKey($criterionId)->exists(), 404);
 
-        $score = LeaderboardScore::where('leaderboard_id', $this->leaderboardId)
+        $criterion = LeaderboardCriterion::where('leaderboard_id', $this->leaderboardId)->whereKey($criterionId)->first();
+        abort_unless($criterion, 404);
+
+        $outcome = CompetitionGradingService::setScore(
+            $this->participatingStudents()->firstWhere('id', $studentId),
+            Leaderboard::findOrFail($this->leaderboardId),
+            $criterion,
+            Carbon::parse($this->date)->toDateString(),
+            $granted,
+        );
+
+        if ($outcome['result'] !== 'applied') {
+            Flux::toast('يُرصد هذا البند الآن من جهاز آخر، أعد المحاولة بعد لحظة.', variant: 'warning');
+
+            return $this->isScored($studentId, $criterionId);
+        }
+
+        return $outcome['scored'];
+    }
+
+    private function isScored(int $studentId, int $criterionId): bool
+    {
+        return LeaderboardScore::where('leaderboard_id', $this->leaderboardId)
             ->where('student_id', $studentId)
             ->where('leaderboard_criterion_id', $criterionId)
             ->whereDate('date', Carbon::parse($this->date))
-            ->first();
-
-        if ($score) {
-            $scoreId = $score->id;
-            $score->delete(); // Untoggle
-
-            // Delete corresponding gamification transaction if any
-            GamificationTransaction::where('reference_type', LeaderboardScore::class)
-                ->where('reference_id', $scoreId)
-                ->delete();
-            GamificationService::recalculateStudentState($studentId, $this->leaderboardId);
-            GamificationService::syncStudentBadges($studentId, $this->leaderboardId);
-        } else {
-            $newScore = LeaderboardScore::create([
-                'leaderboard_id' => $this->leaderboardId,
-                'student_id' => $studentId,
-                'leaderboard_criterion_id' => $criterionId,
-                'date' => $this->date,
-            ]);
-
-            GamificationService::syncStudentCustomCriterionXP($newScore);
-        }
+            ->exists();
     }
 
     public function saveExtraPoints(int $studentId, int|float $amount, string $notes): void

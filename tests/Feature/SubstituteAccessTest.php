@@ -302,9 +302,11 @@ it('scores the circle\'s competition for today only', function () {
     $this->actingAs($this->substitute, 'teacher');
 
     Livewire::test(LeaderboardGrade::class, ['leaderboardId' => $competition->id])
-        ->call('toggleScore', $this->student->id, $criterion->id, 5)
+        ->call('setScore', $this->student->id, $criterion->id, true)
+        ->assertReturned(true)
         ->set('date', '2026-09-10')
-        ->call('toggleScore', $this->student->id, $criterion->id, 5);
+        ->call('setScore', $this->student->id, $criterion->id, true)
+        ->assertReturned(false);
 
     expect(LeaderboardScore::get()->map(fn ($score) => Carbon::parse($score->date)->toDateString())->all())
         ->toBe(['2026-09-14']);

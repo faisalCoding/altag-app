@@ -153,6 +153,9 @@
                                                         {{--
                                                         wire:key includes the date so Alpine fully re-initializes
                                                         when the date changes, picking up the correct 'confirmed' value.
+                                                        The cell asks for the state it wants and shows the state the
+                                                        server answers with; the page drawn again carries that same
+                                                        state into 'confirmed' first, so never flip it after the call.
                                                         --}}
                                                         <div wire:key="score-{{ $student->id }}-{{ $criterion->id }}-{{ $date }}" x-data="{
                                                                             confirmed: {{ $hasScore ? 'true' : 'false' }},
@@ -161,8 +164,8 @@
                                                                                 if (this.pending) return;
                                                                                 this.pending = true;
                                                                                 try {
-                                                                                    await $wire.toggleScore({{ $student->id }}, {{ $criterion->id }}, {{ $criterion->points }});
-                                                                                    this.confirmed = !this.confirmed;
+                                                                                    const granted = await $wire.setScore({{ $student->id }}, {{ $criterion->id }}, !this.confirmed);
+                                                                                    if (typeof granted === 'boolean') this.confirmed = granted;
                                                                                 } finally {
                                                                                     this.pending = false;
                                                                                 }

@@ -179,21 +179,35 @@ class CompetitionGradingService
     }
 
     /**
-     * Bring one cell to the state the teacher asked for, as the web grading
-     * page's toggle does: granting earns the criterion's XP, withdrawing takes
-     * it back along with anything it unlocked.
+     * Grant or withdraw one criterion from the web grading page, under the
+     * lock the phone's changes take, so the two cannot score a cell twice.
+     *
+     * @return array{result: string, scored?: bool, code?: string, message?: string}
+     */
+    public static function setScore(Student $student, Leaderboard $competition, LeaderboardCriterion $criterion, string $date, bool $scored): array
+    {
+        return self::locked(
+            "leaderboard-score:{$student->id}:{$criterion->id}:{$date}",
+            fn () => self::settleScore($student, $competition, $criterion, $date, $scored),
+        );
+    }
+
+    /**
+     * Bring one cell to the state the teacher asked for: granting earns the
+     * criterion's XP, withdrawing takes it back along with anything it
+     * unlocked.
      *
      * @return array{result: string, scored: bool}
      */
     private static function settleScore(Student $student, Leaderboard $competition, LeaderboardCriterion $criterion, string $date, bool $scored): array
     {
-        $score = LeaderboardScore::where('leaderboard_id', $competition->id)
+        $scores = LeaderboardScore::where('leaderboard_id', $competition->id)
             ->where('student_id', $student->id)
             ->where('leaderboard_criterion_id', $criterion->id)
             ->whereDate('date', $date)
-            ->first();
+            ->get();
 
-        if ($scored && ! $score) {
+        if ($scored && $scores->isEmpty()) {
             $score = LeaderboardScore::create([
                 'leaderboard_id' => $competition->id,
                 'student_id' => $student->id,
@@ -204,12 +218,13 @@ class CompetitionGradingService
             GamificationService::syncStudentCustomCriterionXP($score);
         }
 
-        if (! $scored && $score) {
-            $scoreId = $score->id;
-            $score->delete();
+        // Every copy of the cell goes: one scored twice before the web page
+        // shared this lock would otherwise still count once withdrawn.
+        if (! $scored && $scores->isNotEmpty()) {
+            LeaderboardScore::whereKey($scores->modelKeys())->delete();
 
             GamificationTransaction::where('reference_type', LeaderboardScore::class)
-                ->where('reference_id', $scoreId)
+                ->whereIn('reference_id', $scores->modelKeys())
                 ->delete();
 
             GamificationService::recalculateStudentState($student->id, $competition->id);
