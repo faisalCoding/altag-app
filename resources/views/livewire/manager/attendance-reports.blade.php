@@ -97,11 +97,11 @@
                 return { rate: this.rate(sum('present'), sum('counted')), present: sum('present'), counted: sum('counted'), missing: sum('missing'), missingCircles: rows.filter((c) => c.missing > 0).length, unmarked: sum('unmarked'), worst }
             },
             day(date) {
-                let present = 0, counted = 0, missing = 0
+                let present = 0, counted = 0
                 for (const [stage, dates] of Object.entries(this.days)) {
-                    if (this.shown(stage)) { present += dates[date].present; counted += dates[date].counted; missing += dates[date].missing }
+                    if (this.shown(stage)) { present += dates[date].present; counted += dates[date].counted }
                 }
-                return { rate: this.rate(present, counted), present, counted, missing }
+                return { rate: this.rate(present, counted), present, counted }
             },
             // What a rate is made of: the present, then of how many.
             count(total) { return this.ar(total.present) + ' / ' + this.ar(total.counted) },
@@ -272,13 +272,6 @@
                                             <div class="text-xs font-bold text-zinc-600 dark:text-zinc-300 whitespace-nowrap" data-circle-count>{{ $ar($totals['present']) }} / {{ $ar($totals['counted']) }}</div>
                                         @endif
                                         <div class="text-[10px] text-zinc-500 whitespace-nowrap">غياب {{ $ar($totals['absent']) }}، تأخر {{ $ar($totals['late']) }}</div>
-                                        {{-- Left out of the count, as they are of each day's rate. --}}
-                                        @if ($totals['unmarked'] > 0)
-                                            <div class="text-[10px] text-zinc-500 whitespace-nowrap">{{ $ar($totals['unmarked']) }} لم يُسجَّل</div>
-                                        @endif
-                                        @if ($totals['missing'] > 0)
-                                            <div class="text-[10px] font-bold text-rose-600 dark:text-rose-400 whitespace-nowrap">{{ $ar($totals['missing']) }} بلا تحضير</div>
-                                        @endif
                                     </td>
                                 </tr>
                             @endforeach
@@ -298,9 +291,6 @@
                                 <td class="bg-zinc-100 dark:bg-zinc-800 px-1 py-1.5 text-center" x-data="{ get total() { return day('{{ $day['date'] }}') } }">
                                     <div class="text-[13px] {{ $rateText($total['rate']) }}" x-bind:class="tone(total.rate)" x-text="pct(total.rate)">{{ $total['rate'] === null ? '—' : $ar($total['rate']).'٪' }}</div>
                                     <div class="text-[11px] text-zinc-600 dark:text-zinc-300 whitespace-nowrap" data-day-count x-show="total.counted > 0" x-text="count(total)" @if ($total['counted'] === 0) style="display: none" @endif>{{ $ar($total['present']) }} / {{ $ar($total['counted']) }}</div>
-                                    <div class="text-[10px] text-rose-600 dark:text-rose-400" x-show="total.missing > 0" @if ($total['missing'] === 0) style="display: none" @endif>
-                                        <span x-text="ar(total.missing)">{{ $ar($total['missing']) }}</span> بلا تحضير
-                                    </div>
                                 </td>
                             @endforeach
                             <td class="bg-zinc-200 dark:bg-zinc-700 px-2 py-1.5 text-center">

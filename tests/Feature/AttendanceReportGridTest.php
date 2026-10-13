@@ -180,6 +180,24 @@ it('shows beside every total rate the present and the counted it is made of', fu
         ->toContain('غياب ١، تأخر ١، ٢ لم يُسجَّل، ١ بلا تحضير');
 });
 
+it('keeps the rate column and the total row to the rate and its counts', function () {
+    $this->actingAs(Manager::factory()->create(), 'manager');
+
+    $html = Livewire::test(AttendanceReports::class)
+        ->set('fromDate', '2026-07-04')
+        ->set('toDate', '2026-07-09')
+        ->html();
+
+    // The circle missed a roll call and left two unmarked, yet its rate cell says neither.
+    preg_match('/data-circle-rate="80".*?<\/td>/s', $html, $rateCell);
+    preg_match('/<tfoot>.*?<\/tfoot>/s', $html, $totalRow);
+
+    expect($rateCell[0])->toContain('غياب ١، تأخر ١')
+        ->not->toContain('بلا تحضير')
+        ->not->toContain('لم يُسجَّل')
+        ->and($totalRow[0])->not->toContain('بلا تحضير');
+});
+
 it('asks the circle\'s teacher over WhatsApp to take a missed roll, with a link onto that day', function () {
     $this->teacher->update(['name' => 'خالد عبدالله', 'phone' => '0501234567', 'access_token' => 'tok-123']);
     $this->actingAs(Manager::factory()->create(), 'manager');
