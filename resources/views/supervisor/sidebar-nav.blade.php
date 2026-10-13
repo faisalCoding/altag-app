@@ -118,6 +118,12 @@
             تقرير حضور المعلمين
         </flux:sidebar.item>
     @endif
+    @if(\App\Support\RolePages::isEnabled('supervisor', 'supervisor.student-record'))
+        <flux:sidebar.item class="[&_svg]:bg-[#14b8a6] hover:[&_svg]:bg-[#0d9488]" icon="table-cells" :href="route('supervisor.student-record')"
+            :current="request()->routeIs('supervisor.student-record')" wire:navigate>
+            سجل الطلاب
+        </flux:sidebar.item>
+    @endif
     @if(\App\Support\RolePages::isEnabled('supervisor', 'supervisor.yearly-attendance'))
         <flux:sidebar.item class="[&_svg]:bg-[#10b981] hover:[&_svg]:bg-[#059669]" icon="calendar" :href="route('supervisor.yearly-attendance')"
             :current="request()->routeIs('supervisor.yearly-attendance')" wire:navigate>

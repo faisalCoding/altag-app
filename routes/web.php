@@ -203,6 +203,7 @@ Route::middleware(['auth:supervisor', 'approved', 'page.enabled', 'surveys.requi
     Route::view('/exceeded-limits', 'supervisor.exceeded-limits')->name('exceeded-limits');
     Route::view('/academic-calendar', 'supervisor.academic-calendar')->name('academic-calendar');
     Route::view('/yearly-attendance', 'supervisor.yearly-attendance')->name('yearly-attendance');
+    Route::view('/student-record', 'supervisor.student-record')->name('student-record');
     Route::view('/tasks', 'supervisor.tasks')->name('tasks');
     Route::view('/settings', 'supervisor.settings')->name('settings');
     Route::view('/whatsapp-settings', 'supervisor.whatsapp-settings')->name('whatsapp-settings');

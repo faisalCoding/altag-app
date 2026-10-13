@@ -321,6 +321,35 @@ ui-toast [data-flux-toast-dialog] > * {
 }
 
 /*
+ * The supervisor's record of students (سجل الطلاب): a square a student and
+ * day, in the teacher app's attendance colours, holding the portions recited.
+ * Hundreds of students by a month of days: one short class a square.
+ */
+.rec-sq {
+    @apply mx-auto flex size-8 items-center justify-center rounded-lg border border-zinc-300 text-xs font-bold tabular-nums text-zinc-700 dark:border-zinc-600 dark:text-zinc-200;
+}
+button.rec-sq { @apply cursor-pointer hover:ring-2 hover:ring-zinc-400 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-zinc-500; }
+.rec-present { border-color: #1C8454; background: #E3F3EA; color: #14653F; }
+.rec-late { border-color: #C27C0E; background: #FBF0DB; color: #8F5A06; }
+.rec-excused { border-color: #2F6AAE; background: #E6EEF8; color: #24538A; }
+.rec-absent { border-color: #C8372D; background: #FBE7E5; color: #9E2A22; }
+.dark .rec-present { border-color: #2E9E68; background: rgb(46 158 104 / 0.18); color: #6FD3A2; }
+.dark .rec-late { border-color: #D18E1F; background: rgb(209 142 31 / 0.18); color: #EDB860; }
+.dark .rec-excused { border-color: #4A86CF; background: rgb(74 134 207 / 0.18); color: #8DB7EA; }
+.dark .rec-absent { border-color: #D9473D; background: rgb(217 71 61 / 0.18); color: #F08A82; }
+/* Not one of the student's days: their stage did not meet, or they were not on the roll. */
+.rec-off { @apply border-dashed border-zinc-200 dark:border-zinc-800; }
+.rec-day { @apply border-b border-zinc-100 px-0.5 py-1 text-center align-middle dark:border-zinc-800; }
+.rec-week { @apply border-s-2 border-s-zinc-200 dark:border-s-zinc-700; }
+/* On a phone only the name stays put: with the report fixed too, the days had no room between them. */
+.rec-name {
+    @apply sticky right-0 z-10 max-w-32 truncate border-b border-zinc-100 bg-white px-3 py-1 text-start font-medium group-hover:bg-zinc-50 sm:max-w-56 dark:border-zinc-800 dark:bg-zinc-900 dark:group-hover:bg-zinc-800;
+}
+.rec-report {
+    @apply z-10 border-b border-s border-zinc-100 bg-white px-3 py-1 group-hover:bg-zinc-50 sm:sticky sm:left-0 dark:border-zinc-800 dark:bg-zinc-900 dark:group-hover:bg-zinc-800;
+}
+
+/*
  * The teachers' attendance follow-up grid, a cell per stage and day: short
  * classes for the same reason as the report's above.
  */
