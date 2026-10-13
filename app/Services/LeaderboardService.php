@@ -69,12 +69,9 @@ class LeaderboardService
                 ->get();
 
             // Points from work graded outside the competition window (e.g. a teacher
-            // back-grading pre-competition days) do not belong to this competition.
-            $transactions = GamificationService::filterTransactionsWithinWindow($transactions, $leaderboard);
-
-            if ($week !== null) {
-                $transactions = GamificationService::filterTransactionsBetween($transactions, $week['from'], $week['to']);
-            }
+            // back-grading pre-competition days) do not belong to this competition,
+            // nor, for a week's standings, from work of the other weeks.
+            $transactions = GamificationService::filterTransactionsWithinWindow($transactions, $leaderboard, $week);
 
             // Pre-fetch related models to avoid N+1 queries
             $planDayIds = $transactions->where('reference_type', 'App\Models\StudentPlanDay')

@@ -3700,42 +3700,6 @@ class GamificationService
      * @param  \Illuminate\Support\Collection<int, mixed>  $transactions
      * @return array<int, string> Keyed by transaction id → 'Y-m-d'.
      */
-    /**
-     * Per-student XP totals for work whose graded day falls inside [$fromDate,
-     * $toDate] ('Y-m-d'), using the same graded-date resolution and competition
-     * window rules as the standings. Returns [student_id => xp] sorted desc.
-     *
-     * @return array<int, int>
-     */
-    public static function xpTotalsForRange(Leaderboard $leaderboard, string $fromDate, string $toDate): array
-    {
-        $transactions = GamificationTransaction::where('leaderboard_id', $leaderboard->id)
-            ->where('type', 'earn')
-            ->whereNotNull('student_id')
-            ->get();
-
-        if ($transactions->isEmpty()) {
-            return [];
-        }
-
-        $dates = self::resolveTransactionDates($transactions);
-        $totals = [];
-
-        foreach ($transactions as $tx) {
-            $day = $dates[$tx->id];
-
-            if ($day < $fromDate || $day > $toDate || ! self::dateWithinWindow($day, $leaderboard)) {
-                continue;
-            }
-
-            $totals[$tx->student_id] = ($totals[$tx->student_id] ?? 0) + (int) ($tx->xp_amount ?? $tx->amount);
-        }
-
-        arsort($totals);
-
-        return $totals;
-    }
-
     private static function resolveTransactionDates($transactions): array
     {
         $idsFor = fn (string $type) => $transactions->where('reference_type', $type)->pluck('reference_id')->filter()->unique()->all();
@@ -3789,10 +3753,24 @@ class GamificationService
             // When it was written, by the academy's clock: a purchase at 01:00 in
             // Riyadh is that day's, not the day before as the UTC timestamp reads.
             $date ??= Carbon::parse($tx->created_at, 'UTC')->setTimezone('Asia/Riyadh')->format('Y-m-d');
-            $dates[$tx->id] = Carbon::parse($date)->format('Y-m-d');
+            $dates[$tx->id] = self::dayOf($date);
         }
 
         return $dates;
+    }
+
+    /**
+     * The 'Y-m-d' of a date as the records hand it over — a Carbon, or a stored
+     * 'Y-m-d[ H:i:s]' — read without parsing it: a competition resolves
+     * thousands of these on every render of its standings.
+     */
+    private static function dayOf(\DateTimeInterface|string $date): string
+    {
+        if ($date instanceof \DateTimeInterface) {
+            return $date->format('Y-m-d');
+        }
+
+        return preg_match('/^\d{4}-\d{2}-\d{2}/', $date) === 1 ? substr($date, 0, 10) : Carbon::parse($date)->format('Y-m-d');
     }
 
     /**
@@ -3815,12 +3793,15 @@ class GamificationService
     /**
      * Keep only the earn transactions whose underlying work falls inside the
      * competition's date window, so points from days graded before the competition
-     * started (or after it ended) never count toward it.
+     * started (or after it ended) never count toward it — and, given days
+     * ('Y-m-d', both counted), between them too: a week of the standings. Each
+     * is dated once, as the standings date them (resolveTransactionDates()).
      *
      * @param  \Illuminate\Support\Collection<int, mixed>  $transactions
+     * @param  array{from: string, to: string}|null  $between
      * @return \Illuminate\Support\Collection<int, mixed>
      */
-    public static function filterTransactionsWithinWindow($transactions, Leaderboard $leaderboard)
+    public static function filterTransactionsWithinWindow($transactions, Leaderboard $leaderboard, ?array $between = null)
     {
         if ($transactions->isEmpty()) {
             return $transactions;
@@ -3830,26 +3811,8 @@ class GamificationService
 
         return $transactions->filter(
             fn ($tx) => self::dateWithinWindow($dates[$tx->id], $leaderboard)
+                && ($between === null || ($dates[$tx->id] >= $between['from'] && $dates[$tx->id] <= $between['to']))
         )->values();
-    }
-
-    /**
-     * Keep only the transactions whose work falls between two days ('Y-m-d',
-     * both counted) — a week of the competition's standings — dated as the
-     * standings date them (resolveTransactionDates()).
-     *
-     * @param  \Illuminate\Support\Collection<int, mixed>  $transactions
-     * @return \Illuminate\Support\Collection<int, mixed>
-     */
-    public static function filterTransactionsBetween($transactions, string $from, string $to)
-    {
-        if ($transactions->isEmpty()) {
-            return $transactions;
-        }
-
-        $dates = self::resolveTransactionDates($transactions);
-
-        return $transactions->filter(fn ($tx) => $dates[$tx->id] >= $from && $dates[$tx->id] <= $to)->values();
     }
 
     /**

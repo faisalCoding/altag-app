@@ -123,6 +123,57 @@ it('builds a pair of slides per track when tracks exist', function () {
         ->and(collect($slides["track-{$track->id}-total"]['rows'])->pluck('name'))
         ->toContain('أحمد الأول')
         ->not->toContain('باسم الثاني');
+
+    // A student in no track still ranks, after the tracks, as the standings tab shows them.
+    expect(collect($slides['general-total']['rows'])->pluck('name')->all())->toBe(['باسم الثاني']);
+});
+
+it('leaves out a track none of whose students is still active', function () {
+    $track = GamificationTrack::create(['leaderboard_id' => $this->leaderboard->id, 'name' => 'مسار المنسحبين', 'sort_order' => 1]);
+    $track->students()->attach($this->studentA->id);
+    $this->studentA->update(['status' => 'inactive']);
+
+    expect(slidesByKey(displayComponent()))->not->toHaveKey("track-{$track->id}-total")
+        ->toHaveKey('general-total');
+});
+
+it('ranks as the standings do: XP waiting to be claimed does not count yet', function () {
+    GamificationTransaction::create([
+        'leaderboard_id' => $this->leaderboard->id,
+        'student_id' => $this->studentB->id,
+        'type' => 'earn',
+        'amount' => 500,
+        'xp_amount' => 500,
+        'claimed_at' => null,
+        'description' => 'مكافأة لم تُستلم',
+        'created_at' => '2026-07-14 09:00:00',
+    ]);
+
+    $total = slidesByKey(displayComponent())['general-total']['rows'];
+
+    expect($total[0]['name'])->toBe('أحمد الأول')
+        ->and($total[0]['value'])->toBe(130)
+        ->and($total[1]['value'])->toBe(50);
+});
+
+it('counts up to today in Riyadh, and up to the last day once the competition is over', function () {
+    // 22:00 UTC is already the 16th in Riyadh.
+    Carbon::setTestNow('2026-07-15 22:00:00');
+    expect(displayComponent()->get('endDate'))->toBe('2026-07-16');
+
+    Carbon::setTestNow('2026-08-10 10:00:00');
+    expect(displayComponent()->get('endDate'))->toBe('2026-07-30');
+});
+
+it('keeps the dates picked to the competition\'s days', function () {
+    displayComponent()
+        ->set('endDate', '2026-09-30')->assertSet('endDate', '2026-07-15')
+        ->set('endDate', 'not a day')->assertSet('endDate', '2026-07-15')
+        ->set('endDate', '2026-06-01')->assertSet('endDate', '2026-07-01')
+        ->set('attendanceStart', '2026-07-10')->assertSet('attendanceStart', '2026-07-01')
+        ->set('endDate', '2026-07-12')->set('attendanceStart', '2026-07-05')
+        ->assertSet('attendanceStart', '2026-07-05')
+        ->assertOk();
 });
 
 it('ranks attendance discipline by fewest absences', function () {
@@ -141,15 +192,14 @@ it('ranks attendance discipline by fewest absences', function () {
         ->and($rows[1]['absences'])->toBe(1);
 });
 
-it('hides toggled-off slides from the deck', function () {
-    $component = displayComponent();
-
-    expect(array_keys(slidesByKey($component)))->toContain('general-week');
-
-    $component->call('toggleSlide', 'general-week');
-
-    expect(array_keys(slidesByKey($component)))->not->toContain('general-week')
-        ->and(array_keys(slidesByKey($component)))->toContain('general-total');
+it('hides lists in the browser, without asking the server', function () {
+    // Every slide is drawn; which are shown is the operator's, kept in Alpine.
+    displayComponent()
+        ->assertSeeHtml('data-slide="general-total"')
+        ->assertSeeHtml('data-slide="general-week"')
+        ->assertSeeHtml('x-on:change="toggleList(\'general-week\')"')
+        ->assertDontSeeHtml('wire:click="toggleSlide')
+        ->assertDontSeeHtml("\$toggle('settingsOpen')");
 });
 
 it('rejects a non-gamification competition', function () {
