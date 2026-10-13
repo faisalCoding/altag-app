@@ -126,7 +126,12 @@ it('renders student names in the leaderboard standings table', function () {
         'claimed_at' => now(),
     ]);
 
+    // The standings are a component of their own on the page, loaded once in view.
     Livewire::test('student.gamification-dashboard')
+        ->assertSee('لوحة المتصدرين')
+        ->assertSeeHtml('student.gamification-leaderboard');
+
+    Livewire::test('student.gamification-leaderboard', ['competitionId' => $leaderboard->id])
         ->assertSee('لوحة المتصدرين')
         ->assertSee('الطالب المتصدر الأول')
         ->assertSee('طالب تجربة لوحة التحكم'); // The acting student also appears with a 0 score

@@ -10,9 +10,6 @@
                     ? __('الترتيب ونقاط :week وحده.', ['week' => $chosenWeek['label']])
                     : __('يُظهر هذا التقرير الترتيب العام وإجمالي النقاط التلقائية واليدوية منذ انطلاق المسابقة وحتى اليوم.') }}
             </flux:subheading>
-            <div class="ms-10 mt-3">
-                <x-competition-week-select :weeks="$weeks" wire:model.live="week" />
-            </div>
         </div>
         <div class="bg-white dark:bg-zinc-800 px-4 py-2 rounded-xl border border-zinc-200 dark:border-zinc-700 text-sm font-semibold flex items-center gap-2">
             <flux:icon icon="calendar" class="size-4 text-zinc-500" />
@@ -22,6 +19,7 @@
         </div>
     </div>
 
+    <x-competition-weeks :weeks="$weeks" :selected="$week" model="week">
     <flux:card class="p-0 overflow-hidden">
         <div class="overflow-x-auto">
             <table class="w-full text-right">
@@ -85,4 +83,5 @@
             </table>
         </div>
     </flux:card>
+    </x-competition-weeks>
 </div>

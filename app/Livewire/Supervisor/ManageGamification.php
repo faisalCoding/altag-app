@@ -1162,6 +1162,56 @@ class ManageGamification extends Component
     }
 
     /**
+     * The «مراكز الطلاب» tab: the students ranked within each track — over the
+     * whole competition, or the week picked — with what each achieved on the
+     * day picked, and one student's achievements day by day when opened.
+     * Read only while the tab is open, by the island that draws it, so a new
+     * week costs the standings alone and not the rest of the page.
+     *
+     * @return array{groups: array<int, array<string, mixed>>, weeks: list<array<string, mixed>>, achievementsByDay: array<string, mixed>, achievementsStudentName: ?string}
+     */
+    #[Computed]
+    public function standingsPanel(): array
+    {
+        $service = new LeaderboardService;
+        $standings = $service->getDetailedStandings($this->competition, CompetitionWeeks::find($this->competition, $this->standingsWeek));
+        $groups = $service->getStandingsByTrack($this->competition, $standings);
+
+        // No tracks defined → fall back to a single, flat overall ranking.
+        if ($groups->isEmpty()) {
+            $groups = collect([[
+                'id' => null,
+                'name' => 'الترتيب العام',
+                'description' => null,
+                'standings' => $standings->map(function ($row) {
+                    $row['track_rank'] = $row['rank'];
+
+                    return $row;
+                })->all(),
+            ]]);
+        }
+
+        $achievements = GamificationService::getAchievementsByStudentAndDay($this->competition);
+
+        return [
+            'groups' => $groups->map(function ($group) use ($achievements) {
+                $group['standings'] = collect($group['standings'])->map(function ($row) use ($achievements) {
+                    $today = $achievements[$row['student']->id][$this->standingsDate] ?? [];
+                    $row['today_achievements'] = $today;
+                    $row['today_points'] = collect($today)->sum('xp');
+
+                    return $row;
+                })->all();
+
+                return $group;
+            })->all(),
+            'weeks' => CompetitionWeeks::of($this->competition),
+            'achievementsByDay' => $this->achievementsStudentId ? ($achievements[$this->achievementsStudentId] ?? []) : [],
+            'achievementsStudentName' => $this->achievementsStudentId ? Student::find($this->achievementsStudentId)?->name : null,
+        ];
+    }
+
+    /**
      * The students of this competition, with whether they already hold the
      * badge being handed out and how far along they are with it.
      *
@@ -2650,58 +2700,7 @@ class ManageGamification extends Component
             ->latest()
             ->get();
 
-        // Student standings ("مراكز الطلاب") — only computed when the tab is open.
-        $standingsGroups = [];
-        $standingsWeeks = [];
-        $achievementsByDay = [];
-        $achievementsStudentName = null;
-
-        if ($this->activeTab === 'standings') {
-            $service = new LeaderboardService;
-            $standingsWeeks = CompetitionWeeks::of($this->competition);
-            $standings = $service->getDetailedStandings($this->competition, CompetitionWeeks::find($this->competition, $this->standingsWeek));
-            $groups = $service->getStandingsByTrack($this->competition, $standings);
-
-            // No tracks defined → fall back to a single, flat overall ranking.
-            if ($groups->isEmpty()) {
-                $flat = $standings
-                    ->map(function ($row) {
-                        $row['track_rank'] = $row['rank'];
-
-                        return $row;
-                    })->all();
-
-                $groups = collect([[
-                    'id' => null,
-                    'name' => 'الترتيب العام',
-                    'description' => null,
-                    'standings' => $flat,
-                ]]);
-            }
-
-            $achievements = GamificationService::getAchievementsByStudentAndDay($this->competition);
-
-            $standingsGroups = $groups->map(function ($group) use ($achievements) {
-                $group['standings'] = collect($group['standings'])->map(function ($row) use ($achievements) {
-                    $studentId = $row['student']->id;
-                    $today = $achievements[$studentId][$this->standingsDate] ?? [];
-                    $row['today_achievements'] = $today;
-                    $row['today_points'] = collect($today)->sum('xp');
-
-                    return $row;
-                })->all();
-
-                return $group;
-            })->all();
-
-            if ($this->achievementsStudentId) {
-                $achievementsByDay = $achievements[$this->achievementsStudentId] ?? [];
-                $achievementsStudentName = Student::find($this->achievementsStudentId)?->name;
-            }
-        }
-
         return view('livewire.supervisor.manage-gamification', [
-            'standingsWeeks' => $standingsWeeks,
             'milestones' => $milestones,
             'dbBadges' => $dbBadges,
             'dbTeams' => $dbTeams,
@@ -2717,9 +2716,6 @@ class ManageGamification extends Component
             'dbRounds' => $dbRounds,
             'studentsGrouped' => $studentsGrouped,
             'dbAdjustments' => $dbAdjustments,
-            'standingsGroups' => $standingsGroups,
-            'achievementsByDay' => $achievementsByDay,
-            'achievementsStudentName' => $achievementsStudentName,
         ])->layout('layouts.role-shell');
     }
 }

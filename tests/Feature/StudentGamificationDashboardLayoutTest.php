@@ -325,17 +325,18 @@ it('keeps every initials avatar round beside a long name: standings, team member
     ]);
     GamificationPurchaseVote::create(['store_purchase_id' => $purchase->id, 'student_id' => $member->id, 'vote' => true]);
 
-    $xpath = gamLayoutXPath(Livewire::test('student.gamification-dashboard')->html());
+    $page = gamLayoutXPath(Livewire::test('student.gamification-dashboard')->html());
+    // The standings are a component of their own, loaded once in view.
+    $leaderboard = gamLayoutXPath(Livewire::test('student.gamification-leaderboard', ['competitionId' => $this->leaderboard->id])->html());
 
-    $homeTab = '//*[@x-show="currentTab === \'leaderboard\'"]';
     $teamTab = '//*[@x-show="currentTab === \'team\'"]';
     $places = [
-        'standings' => $homeTab.'//table//span[normalize-space(text())="'.$longName.'"]',
-        'team members' => $teamTab.'//table//span[normalize-space(text())="'.$longName.'"]',
-        'purchase voters' => $teamTab.'//span[contains(concat(" ", @class, " "), " font-medium ")][normalize-space(text())="'.$longName.'"]',
+        'standings' => [$leaderboard, '//table//span[normalize-space(text())="'.$longName.'"]'],
+        'team members' => [$page, $teamTab.'//table//span[normalize-space(text())="'.$longName.'"]'],
+        'purchase voters' => [$page, $teamTab.'//span[contains(concat(" ", @class, " "), " font-medium ")][normalize-space(text())="'.$longName.'"]'],
     ];
 
-    foreach ($places as $place => $expression) {
+    foreach ($places as $place => [$xpath, $expression]) {
         $names = $xpath->query($expression);
         expect($names->length)->toBeGreaterThan(0, "No {$place} row for the long name");
 
@@ -460,8 +461,10 @@ it('cloaks every tab panel and collapsed section, so none paints before Alpine p
         expect($panel->hasAttribute('x-cloak'))->toBeTrue('No x-cloak on the '.$panel->getAttribute('x-show').' panel');
     }
 
-    $collapsed = $xpath->query('//*[@x-collapse]');
-    expect($collapsed->length)->toBeGreaterThanOrEqual(3);
+    // The page's own collapsed sections, and the tracks of the standings, a component of their own.
+    $leaderboard = gamLayoutXPath(Livewire::test('student.gamification-leaderboard', ['competitionId' => $this->leaderboard->id])->html());
+    $collapsed = [...iterator_to_array($xpath->query('//*[@x-collapse]')), ...iterator_to_array($leaderboard->query('//*[@x-collapse]'))];
+    expect(count($collapsed))->toBeGreaterThanOrEqual(3);
 
     foreach ($collapsed as $section) {
         expect($section->hasAttribute('x-cloak'))->toBeTrue('No x-cloak on a collapsed section: '.trim(substr($section->textContent, 0, 80)));

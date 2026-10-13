@@ -14,8 +14,7 @@
             </div>
         </div>
 
-        <div class="flex items-center gap-3 flex-wrap">
-            <x-competition-week-select :weeks="$weeks" wire:model.live="week" />
+        <div class="flex items-center gap-3">
             <div class="w-36">
                 <flux:select wire:model.live="topCount" size="sm">
                     <flux:select.option value="3">{{ __('أفضل 3') }}</flux:select.option>
@@ -27,6 +26,7 @@
         </div>
     </div>
 
+    <x-competition-weeks :weeks="$weeks" :selected="$week" model="week">
     @if($topByTrack->isEmpty())
         <div class="rounded-2xl border border-zinc-100 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-16 text-center">
             <flux:icon icon="trophy" class="size-12 mx-auto text-zinc-300 dark:text-zinc-600 mb-4" />
@@ -83,4 +83,5 @@
             @endforeach
         </div>
     @endif
+    </x-competition-weeks>
 </div>

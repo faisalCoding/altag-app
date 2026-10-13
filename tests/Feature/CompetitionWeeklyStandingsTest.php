@@ -14,6 +14,7 @@ use App\Models\Teacher;
 use App\Services\LeaderboardService;
 use App\Support\CompetitionWeeks;
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 
@@ -122,8 +123,9 @@ it('filters the teacher\'s report by week', function () {
     $this->actingAs($this->teacher, 'teacher');
 
     Livewire::test(LeaderboardReport::class, ['leaderboardId' => $competition->id])
-        ->assertSee('كل أيام المسابقة')
-        ->assertSee('الأسبوع ٢ · ')
+        ->assertSee('كل المسابقة')
+        ->assertSeeHtml('data-week="2"')
+        ->assertSee('الأسبوع ٢')
         ->assertViewHas('standings', fn ($standings) => weeklyOrder($standings) === ['أحمد:30', 'خالد:20'])
         ->set('week', '2')
         ->assertViewHas('standings', fn ($standings) => weeklyOrder($standings) === ['خالد:20', 'أحمد:0']);
@@ -139,20 +141,38 @@ it('filters the supervisor\'s standings and the gamified competition\'s standing
         ->set('week', '2')
         ->assertViewHas('topByTrack', fn ($groups) => weeklyOrder($groups->first()['standings']) === ['خالد:20', 'أحمد:0']);
 
-    Livewire::test(ManageGamification::class, ['competitionId' => $competition->id])
+    $manage = Livewire::test(ManageGamification::class, ['competitionId' => $competition->id])
         ->set('activeTab', 'standings')
-        ->set('standingsWeek', '2')
-        ->assertViewHas('standingsGroups', fn ($groups) => weeklyOrder($groups[0]['standings']) === ['خالد:20', 'أحمد:0']);
+        ->set('standingsWeek', '2');
+
+    expect(weeklyOrder($manage->instance()->standingsPanel['groups'][0]['standings']))->toBe(['خالد:20', 'أحمد:0'])
+        ->and($manage->html())->toContain('data-week-filter');
 });
 
-it('shows a student one week of the leaderboard, their own rank staying the whole competition\'s', function () {
-    weeklyGamified();
+it('shows a student one week of the leaderboard, in a component of its own, their own rank staying the whole competition\'s', function () {
+    $competition = weeklyGamified();
     $this->actingAs($this->second, 'student');
 
+    // The page holds the whole competition's standings, for the rank, and leaves the leaderboard to load on its own.
     Livewire::test('student.gamification-dashboard')
-        ->set('standingsWeek', '2')
-        ->assertViewHas('shownStandings', fn ($standings) => weeklyOrder($standings) === ['خالد:20', 'أحمد:0'])
-        ->assertViewHas('leaderboardStandings', fn ($standings) => weeklyOrder($standings) === ['أحمد:30', 'خالد:20']);
+        ->assertViewHas('leaderboardStandings', fn ($standings) => weeklyOrder($standings) === ['أحمد:30', 'خالد:20'])
+        ->assertSeeHtml('student.gamification-leaderboard');
+
+    Livewire::test('student.gamification-leaderboard', ['competitionId' => $competition->id])
+        ->assertViewHas('standings', fn ($standings) => weeklyOrder($standings) === ['أحمد:30', 'خالد:20'])
+        ->set('week', '2')
+        ->assertViewHas('standings', fn ($standings) => weeklyOrder($standings) === ['خالد:20', 'أحمد:0']);
+});
+
+it('shows the leaderboard of no competition but the student\'s own', function () {
+    $stranger = Leaderboard::create([
+        'circle_id' => Circle::factory()->create()->id, 'title' => 'مسابقة أخرى', 'competition_type' => 'gamification',
+        'start_date' => '2026-07-05', 'end_date' => '2026-07-25', 'is_active' => true, 'settings' => [],
+    ]);
+    $this->actingAs($this->second, 'student');
+
+    expect(fn () => Livewire::test('student.gamification-leaderboard', ['competitionId' => $stranger->id]))
+        ->toThrow(ModelNotFoundException::class);
 });
 
 it('shows a student one week of a points competition', function () {
@@ -163,8 +183,10 @@ it('shows a student one week of a points competition', function () {
     Attendance::create(['student_id' => $this->first->id, 'teacher_id' => $this->teacher->id, 'circle_id' => $this->circle->id, 'date' => '2026-07-07', 'status' => 'present']);
     $this->actingAs($this->second, 'student');
 
-    Livewire::test('student.dashboard')
-        ->assertViewHas('leaderboardStandings', fn ($standings) => weeklyOrder($standings) === ['أحمد:8', 'خالد:4'])
-        ->set('standingsWeek', '2')
-        ->assertViewHas('leaderboardStandings', fn ($standings) => weeklyOrder($standings) === ['خالد:4', 'أحمد:0']);
+    Livewire::test('student.dashboard')->assertSeeHtml('student.competition-leaderboard');
+
+    Livewire::test('student.competition-leaderboard', ['competitionId' => $competition->id])
+        ->assertViewHas('standings', fn ($standings) => weeklyOrder($standings) === ['أحمد:8', 'خالد:4'])
+        ->set('week', '2')
+        ->assertViewHas('standings', fn ($standings) => weeklyOrder($standings) === ['خالد:4', 'أحمد:0']);
 });

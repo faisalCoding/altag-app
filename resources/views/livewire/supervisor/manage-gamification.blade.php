@@ -924,8 +924,14 @@
             </flux:modal>
         @endif
 
-        {{-- TAB: STUDENT STANDINGS --}}
-        @if($activeTab === 'standings')
+        {{-- TAB: STUDENT STANDINGS — an island: picking a week draws the standings
+             again, not the whole page; it is drawn with the page too (always), for
+             a new day, a new tab or anything else the page changes. --}}
+        @island(name: 'standings', always: true)
+        @if($this->activeTab === 'standings')
+            @php
+                $panel = $this->standingsPanel;
+            @endphp
             <div class="space-y-6">
                 <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div>
@@ -934,7 +940,7 @@
                     </div>
                     <div class="flex items-end gap-2 shrink-0">
                         @php
-                            $displayUrl = \Illuminate\Support\Facades\URL::signedRoute('results.display', ['leaderboard' => $competition->id]);
+                            $displayUrl = \Illuminate\Support\Facades\URL::signedRoute('results.display', ['leaderboard' => $this->competition->id]);
                         @endphp
                         <div x-data>
                             <flux:button variant="primary" icon="tv"
@@ -944,15 +950,13 @@
                                 شاشة العرض (بروجكتر)
                             </flux:button>
                         </div>
-                        <div class="sm:w-64">
-                            <flux:label class="mb-1">ترتيب خلال</flux:label>
-                            <x-competition-week-select :weeks="$standingsWeeks" wire:model.live="standingsWeek" />
-                        </div>
                         <div class="sm:w-56"><livewire:shared.hijri-datepicker wire:model.live="standingsDate" label="اليوم (هجري)" /></div>
                     </div>
                 </div>
 
-                @forelse($standingsGroups as $group)
+                <x-competition-weeks :weeks="$panel['weeks']" :selected="$this->standingsWeek" model="standingsWeek" island="standings"
+                    active="bg-purple-600 text-white border-purple-600 shadow-sm">
+                @forelse($panel['groups'] as $group)
                     <div class="space-y-3">
                         <div class="flex items-center gap-2">
                             <div class="p-1.5 rounded-lg bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 shrink-0"><flux:icon icon="flag" class="size-5" /></div>
@@ -1026,15 +1030,16 @@
                         لا يوجد طلاب في هذه المسابقة بعد.
                     </div>
                 @endforelse
+                </x-competition-weeks>
             </div>
 
             {{-- Achievements-by-day modal --}}
             <flux:modal wire:model="showAchievementsModal" class="md:w-[640px] w-full">
                 <div class="space-y-5">
-                    <flux:heading size="lg">إنجازات {{ $achievementsStudentName ?? 'الطالب' }}</flux:heading>
+                    <flux:heading size="lg">إنجازات {{ $panel['achievementsStudentName'] ?? 'الطالب' }}</flux:heading>
 
                     <div class="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
-                        @forelse($achievementsByDay as $day => $items)
+                        @forelse($panel['achievementsByDay'] as $day => $items)
                             <div class="space-y-2">
                                 <div class="flex items-center justify-between gap-2">
                                     <span class="font-bold text-zinc-800 dark:text-zinc-100"><x-hijri-date :date="\Carbon\Carbon::parse($day)" style="weekday" /></span>
@@ -1071,6 +1076,7 @@
                 </div>
             </flux:modal>
         @endif
+        @endisland
 
         {{-- TAB: TEAM TASKS --}}
         @if($activeTab === 'team_tasks')

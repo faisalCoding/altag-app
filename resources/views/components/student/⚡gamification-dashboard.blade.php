@@ -13,8 +13,6 @@ new class extends Component {
 
     public $profile_image_file = null;
 
-    /** The week of the competition the leaderboard shows; empty for all its days. */
-    public string $standingsWeek = '';
     public array $targetTeams = [];
     public array $targetDates = [];
     public string $teamColor = '#4f46e5';
@@ -561,12 +559,37 @@ new class extends Component {
         ];
     }
 
+    /** The competition the page shows (displayedGamification()), read once a request. */
+    #[\Livewire\Attributes\Computed]
+    public function activeCompetition(): ?\App\Models\Leaderboard
+    {
+        $student = Auth::guard('student')->user();
+
+        return $student ? $this->displayedGamification($student) : null;
+    }
+
+    /** The whole competition's standings, read once a request by the page and its leaderboard alike. */
+    #[\Livewire\Attributes\Computed]
+    public function overallStandings(): \Illuminate\Support\Collection
+    {
+        return $this->activeCompetition ? (new \App\Services\LeaderboardService)->getStandings($this->activeCompetition) : collect();
+    }
+
+    /** Those standings grouped by track; none when the competition has no tracks. */
+    #[\Livewire\Attributes\Computed]
+    public function overallByTrack(): \Illuminate\Support\Collection
+    {
+        return $this->activeCompetition
+            ? (new \App\Services\LeaderboardService)->getStandingsByTrack($this->activeCompetition, $this->overallStandings)
+            : collect();
+    }
+
     public function with()
     {
         $student = Auth::guard('student')->user();
 
         // Supervisor competitions have priority, then the teacher's; see displayedGamification().
-        $activeGamification = $this->displayedGamification($student);
+        $activeGamification = $this->activeCompetition;
         $activeGamification?->loadMissing('circles');
 
         $gamificationState = null;
@@ -899,25 +922,10 @@ new class extends Component {
         }
 
         // Leaderboard standings
-        $leaderboardStandings = [];
-        $standingsByTrack = collect();
-        $standingsWeeks = [];
-        if ($activeGamification) {
-            $service = new \App\Services\LeaderboardService();
-            $leaderboardStandings = $service->getStandings($activeGamification);
-            // Grouped from the standings above, not worked out a second time.
-            $standingsByTrack = $service->getStandingsByTrack($activeGamification, $leaderboardStandings);
-            $standingsWeeks = \App\Support\CompetitionWeeks::of($activeGamification);
-        }
-
-        // The leaderboard may show one week; the student's own rank — on the
-        // stats bar and their team's page — stays the whole competition's.
-        $shownStandings = $leaderboardStandings;
-        $shownByTrack = $standingsByTrack;
-        if ($activeGamification && ($chosenWeek = \App\Support\CompetitionWeeks::find($activeGamification, $this->standingsWeek))) {
-            $shownStandings = $service->getStandings($activeGamification, $chosenWeek);
-            $shownByTrack = $service->getStandingsByTrack($activeGamification, $shownStandings);
-        }
+        // The whole competition's, for the student's own rank on the stats bar
+        // and their team's page; the leaderboard component reads its own.
+        $leaderboardStandings = $activeGamification ? $this->overallStandings : [];
+        $standingsByTrack = $this->overallByTrack;
 
         // The student's own rank: within their track when tracks exist, otherwise
         // across the whole standings list.
@@ -1164,9 +1172,6 @@ new class extends Component {
             'teamColor' => $teamColor,
             'leaderboardStandings' => $leaderboardStandings,
             'standingsByTrack' => $standingsByTrack,
-            'shownStandings' => $shownStandings,
-            'shownByTrack' => $shownByTrack,
-            'standingsWeeks' => $standingsWeeks,
             'studentRank' => $studentRank,
             'studentRankTotal' => $studentRankTotal,
             'studentRankScope' => $studentRankScope,
@@ -2857,84 +2862,12 @@ new class extends Component {
             {{-- Standings Table. Its id is the one the plain dashboard's table
                  carries, so the sidebar's «المتصدرون» and the rank tile both land
                  here; the scroll margin keeps the heading clear of the pinned
-                 stats bar, taller from lg up where the tab strip joins it. --}}
-            <div id="leaderboard-standings" class="space-y-4 scroll-mt-24 lg:scroll-mt-40">
-                <flux:heading size="lg" class="text-slate-900 flex items-center gap-2 font-black">
-                    <svg class="size-6 text-amber-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v5m-3 0h6m-6-14h6M4 7c0 2 1.5 4 3.5 4h1M20 7c0 2-1.5 4-3.5 4h-1m-7.5-4h9v6a4.5 4.5 0 01-9 0V7z"></path>
-                    </svg>
-                    {{ __('لوحة المتصدرين') }}
-                </flux:heading>
-                <x-competition-week-select :weeks="$standingsWeeks" wire:model.live="standingsWeek" />
-
-                @if(empty($shownStandings))
-                    <div class="text-center py-12 bg-slate-50 border border-slate-200 rounded-2xl">
-                        <flux:icon icon="presentation-chart-line" class="size-10 mx-auto text-slate-400 mb-3" />
-                        <h4 class="font-bold text-slate-500 text-sm">{{ __('لا توجد نتائج لعرضها') }}</h4>
-                    </div>
-                @elseif($shownByTrack->isNotEmpty())
-                    {{-- Standings divided into tracks, each with its own ranking --}}
-                    @php
-                        $myTrackKey = null;
-                        foreach ($shownByTrack as $gi => $g) {
-                            foreach ($g['standings'] as $s) {
-                                if ($s['student']->id === $student->id) { $myTrackKey = $gi; break 2; }
-                            }
-                        }
-                    @endphp
-                    <div class="space-y-3">
-                        @foreach($shownByTrack as $gi => $group)
-                            <div x-data="{ open: {{ $gi === $myTrackKey ? 'true' : 'false' }} }" class="bg-white border {{ $gi === $myTrackKey ? 'border-team-primary' : 'border-slate-200' }} rounded-2xl overflow-hidden shadow-sm">
-                                <button type="button" @click="open = !open" class="w-full flex items-center justify-between gap-3 p-4 hover:bg-slate-50/50">
-                                    <div class="flex items-center gap-2.5 min-w-0">
-                                        <div class="size-9 rounded-xl flex items-center justify-center shrink-0 {{ $gi === $myTrackKey ? 'bg-team-10 text-team-primary' : 'bg-slate-100 text-slate-500' }}"><flux:icon icon="flag" class="size-5" /></div>
-                                        <div class="min-w-0 text-right">
-                                            <div class="font-bold text-slate-900 flex items-center gap-2">
-                                                <span class="truncate">{{ $group['name'] }}</span>
-                                                @if($gi === $myTrackKey)<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-team-10 text-team-primary shrink-0">{{ __('مسارك') }}</span>@endif
-                                            </div>
-                                            @if($group['description'])<div class="text-xs text-slate-400 truncate">{{ $group['description'] }}</div>@endif
-                                        </div>
-                                    </div>
-                                    <div class="flex items-center gap-2 shrink-0">
-                                        <span class="text-xs text-slate-400">{{ count($group['standings']) }}</span>
-                                        <flux:icon icon="chevron-down" class="size-4 text-slate-400 transition-transform" x-bind:class="open ? 'rotate-180' : ''" />
-                                    </div>
-                                </button>
-                                <div x-show="open" x-collapse x-cloak class="border-t border-slate-100 overflow-x-auto">
-                                    <table class="w-full text-right">
-                                        <tbody class="divide-y divide-slate-100">
-                                            @foreach($group['standings'] as $standing)
-                                                @php $rank = $standing['track_rank']; $isMe = $standing['student']->id === $student->id; @endphp
-                                                <x-student.partials.leaderboard-row :standing="$standing" :rank="$rank" :is-me="$isMe" />
-                                            @endforeach
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        @endforeach
-                    </div>
-                @else
-                    <!-- Themed Leaderboard Table -->
-                    <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-                        <div class="overflow-x-auto">
-                            <table class="w-full text-right">
-                                <thead class="bg-slate-50/80 border-b border-slate-200">
-                                    <tr>
-                                        <th class="p-1 w-1 font-bold text-slate-500 text-center ">{{ __('') }}</th>
-                                        <th class="p-4 font-bold text-slate-500">{{ __('اسم الطالب') }}</th>
-                                        <th class="p-4 font-bold text-slate-500 text-center w-24">{{ __('مجموع النقاط') }}</th>
-                                    </tr>
-                                </thead>
-                                <tbody class="divide-y divide-slate-100">
-                                    @foreach($shownStandings as $index => $standing)
-                                        @php $rank = $index + 1; $isMe = $standing['student']->id === $student->id; @endphp
-                                        <x-student.partials.leaderboard-row :standing="$standing" :rank="$rank" :is-me="$isMe" />
-                                    @endforeach
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
+                 stats bar, taller from lg up where the tab strip joins it. The
+                 leaderboard is a component of its own, loaded once in view: a
+                 week picked there draws it alone, not this whole page. --}}
+            <div id="leaderboard-standings" class="scroll-mt-24 lg:scroll-mt-40">
+                @if ($activeGamification)
+                    <livewire:student.gamification-leaderboard :competition-id="$activeGamification->id" lazy wire:key="gamification-leaderboard-{{ $activeGamification->id }}" />
                 @endif
             </div>
         </div>
