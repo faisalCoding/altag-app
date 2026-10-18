@@ -12,6 +12,7 @@
     </x-slot:bottomNav>
 
     <div class="md:p-8">
+        <x-agreements.reminder party="student" />
         <livewire:student.guardian-notice />
         <livewire:student.dashboard />
     </div>

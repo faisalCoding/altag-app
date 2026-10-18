@@ -3,5 +3,6 @@
         @include('guardian.sidebar-nav')
     </x-slot:sidebar>
 
+    <x-agreements.reminder party="guardian" />
     <livewire:guardian.dashboard />
 </x-layouts.role-shell>

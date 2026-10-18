@@ -25,6 +25,11 @@
             الطلاب
         </flux:sidebar.item>
     @endif
+    @if(\App\Support\RolePages::isEnabled('supervisor', 'supervisor.agreements'))
+        <flux:sidebar.item class="[&_svg]:bg-[#0d9488] hover:[&_svg]:bg-[#0f766e]" icon="document-check" :href="route('supervisor.agreements')" :current="request()->routeIs('supervisor.agreements*')" wire:navigate>
+            الإقرارات
+        </flux:sidebar.item>
+    @endif
     @if(\App\Support\RolePages::isEnabled('supervisor', 'supervisor.teachers'))
         <flux:sidebar.item class="[&_svg]:bg-[#6366f1] hover:[&_svg]:bg-[#4f46e5]" icon="users" :href="route('supervisor.teachers')" :current="request()->routeIs('supervisor.teachers')" wire:navigate>
             المعلمون

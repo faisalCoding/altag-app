@@ -8,6 +8,7 @@ use App\Http\Controllers\Student\StudentPlanPrintController;
 use App\Http\Controllers\Teacher\TasmeehDataController;
 use App\Livewire\Auth\Student\Register;
 use App\Livewire\Manager\PendingApprovals;
+use App\Livewire\Public\AgreementSign;
 use App\Livewire\Public\BusBooking;
 use App\Livewire\Public\BusOfficer;
 use App\Livewire\Public\CircleReport as PublicCircleReport;
@@ -209,6 +210,8 @@ Route::middleware(['auth:supervisor', 'approved', 'page.enabled', 'surveys.requi
     Route::view('/whatsapp-settings', 'supervisor.whatsapp-settings')->name('whatsapp-settings');
     Route::view('/messages', 'supervisor.messages')->name('messages');
     Route::view('/rules', 'supervisor.rules')->name('rules');
+    Route::view('/agreements', 'supervisor.agreements')->name('agreements');
+    Route::get('/agreements/{agreement}', fn (int $agreement) => view('supervisor.agreement-follow-up', ['agreementId' => $agreement]))->name('agreements.follow-up');
     Route::view('/exam-readiness', 'supervisor.exam-readiness')->name('exam-readiness');
 
     // Forms Builder Routes
@@ -240,6 +243,7 @@ Route::middleware(['auth:teacher', 'approved', 'page.enabled', 'surveys.required
 
     // Standard Routes
     Route::view('/rules', 'teacher.rules')->name('rules');
+    Route::view('/agreements', 'teacher.agreements')->name('agreements');
     Route::view('/discipline', 'teacher.discipline')->name('discipline');
     Route::view('/quranic-discipline', 'teacher.quranic-discipline')->name('quranic-discipline');
     Route::view('/student-plans', 'teacher.student-plans')->name('student-plans');
@@ -491,6 +495,10 @@ Route::get('/f/{slug}/{token}', FormReport::class)->name('forms.report');
 // The circles' rules, acknowledged without signing in: the manager shares this
 // signed link, and whoever opens it picks the stage, then their name.
 Route::get('/rules-acknowledgement', RulesAcknowledgementLink::class)->middleware('signed')->name('rules.public');
+
+// A student's own link to the agreements they owe their word on, and their
+// guardian's: signed for the one student and party, signing nobody in.
+Route::get('/agreements/{student}/{party}', AgreementSign::class)->middleware('signed')->whereIn('party', ['student', 'guardian'])->name('agreements.sign');
 
 // Where the survey gate sends anyone who owes a blocking survey. Reachable from
 // behind the gate by design — it is the way through it.
