@@ -95,6 +95,17 @@
                     @endforeach
                 </flux:select>
             </div>
+            <div class="flex items-end">
+                {{-- Each shape over what the page shows: its days, its circle and the kind picked. --}}
+                <flux:dropdown position="bottom" align="end">
+                    <flux:button icon="arrow-down-tray" icon:trailing="chevron-down" data-record-export>تحميل CSV</flux:button>
+                    <flux:menu>
+                        @foreach (\App\Services\StudentRecordExport::KINDS as $key => $label)
+                            <flux:menu.item wire:click="export('{{ $key }}')" wire:key="export-{{ $key }}">{{ $label }}</flux:menu.item>
+                        @endforeach
+                    </flux:menu>
+                </flux:dropdown>
+            </div>
         </div>
     </div>
 
@@ -138,6 +149,12 @@
         <span class="flex items-center gap-1.5"><i class="rec-sq !size-4 !mx-0"></i>لم يُحضَّر</span>
         <span class="flex items-center gap-1.5"><i class="rec-sq rec-off !size-4 !mx-0"></i>ليس من أيامه</span>
         <span class="text-zinc-500">الرقم في اليوم عدد ما سمّعه من {{ $filter === '' ? 'الأوراد' : $this->filters[$filter] }}، واضغط اليوم لترى تسميعه.</span>
+    </div>
+
+    <div wire:loading.flex wire:target="export"
+        class="mx-6 mb-3 items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-200">
+        <flux:icon.loading class="size-4" />
+        جارٍ تجهيز الملف…
     </div>
 
     <div wire:loading.flex wire:target="from, to, circle, filter"

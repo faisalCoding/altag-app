@@ -6,6 +6,7 @@ use App\Models\Circle;
 use App\Models\Stage;
 use App\Models\Student;
 use App\Services\RecitationRecord;
+use App\Services\StudentRecordExport;
 use App\Services\StudentRecordGrid;
 use App\Support\HijriDate;
 use Illuminate\Database\Eloquent\Collection;
@@ -13,6 +14,7 @@ use Illuminate\Support\Carbon;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Json;
 use Livewire\Component;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * سجل الطلاب: every student of the supervisor's circles day by day, as the
@@ -174,12 +176,34 @@ class StudentRecord extends Component
         }
     }
 
+    /**
+     * The record as CSV, in one of its shapes, over what the page shows: its
+     * days, its circle and the kind of recitation picked.
+     */
+    public function export(string $kind): StreamedResponse
+    {
+        abort_unless(array_key_exists($kind, StudentRecordExport::KINDS), 404);
+        $this->skipRender();
+
+        $grid = StudentRecordGrid::build($this->circleIds(), $this->from, $this->to, $this->filter ?: null);
+        $csv = StudentRecordExport::csv(StudentRecordExport::rows($kind, $grid, $this->from, $this->to, $this->filter ?: null));
+        $name = 'سجل الطلاب - '.StudentRecordExport::KINDS[$kind]
+            .($this->filter !== '' ? ' - '.$this->filters[$this->filter] : '')
+            .' - '.$this->from.' إلى '.$this->to.'.csv';
+
+        return response()->streamDownload(fn () => print ($csv), $name, ['Content-Type' => 'text/csv; charset=UTF-8']);
+    }
+
+    /** @return list<int> */
+    private function circleIds(): array
+    {
+        return $this->circle !== '' ? [(int) $this->circle] : $this->circles->modelKeys();
+    }
+
     public function render()
     {
-        $circleIds = $this->circle !== '' ? [(int) $this->circle] : $this->circles->modelKeys();
-
         return view('livewire.supervisor.student-record', [
-            'grid' => StudentRecordGrid::build($circleIds, $this->from, $this->to, $this->filter ?: null),
+            'grid' => StudentRecordGrid::build($this->circleIds(), $this->from, $this->to, $this->filter ?: null),
             'today' => $this->today(),
         ]);
     }

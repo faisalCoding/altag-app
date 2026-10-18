@@ -206,3 +206,55 @@ it('offers the mutun and the odes only where a stage memorises them', function (
         ->set('filter', 'hadith')
         ->assertSet('filter', '');
 });
+
+/**
+ * The rows of the CSV the page last handed over, the byte order mark checked and dropped.
+ *
+ * @return list<list<string>>
+ */
+function downloadedRows(object $page): array
+{
+    $csv = base64_decode(data_get($page->effects, 'download.content'));
+    expect(str_starts_with($csv, "\u{FEFF}"))->toBeTrue();
+
+    return array_map(fn (string $line) => str_getcsv($line, ',', '"', ''), array_values(array_filter(explode("\n", substr($csv, 3)))));
+}
+
+it('hands the record over as CSV in each of its shapes, over what the page shows', function () {
+    $this->actingAs($this->supervisor, 'supervisor');
+    $page = Livewire::test(StudentRecord::class)->set('from', '2026-10-11');
+
+    $page->call('export', 'summary')
+        ->assertFileDownloaded('سجل الطلاب - ملخص الطلاب - 2026-10-11 إلى 2026-10-15.csv');
+    $summary = downloadedRows($page);
+    expect($summary[0])->toBe(['الحلقة', 'الطالب', 'حاضر', 'متأخر', 'مستأذن', 'غائب', 'لم يُحضَّر', 'نسبة الحضور %', 'الأوراد'])
+        ->and($summary[1])->toBe(['حلقة النور', 'أحمد', '1', '1', '0', '1', '1', '67', '2']);
+
+    $page->call('export', 'grid');
+    $grid = downloadedRows($page);
+    expect($grid[1][0])->toBe('حلقة النور')
+        ->and($grid[1])->toContain('حاضر / 2')
+        ->and(end($grid)[0])->toBe('التقرير اليومي');
+
+    $page->call('export', 'days');
+    $days = collect(downloadedRows($page))->skip(1);
+    expect($days->firstWhere(0, '2026-10-12'))->toMatchArray([3 => 'حلقة النور', 4 => 'أحمد', 5 => 'حاضر', 6 => '2', 7 => 'نعم']);
+
+    // Narrowed to the review, the details hold the review alone, «لم يسمع» among it.
+    $page->set('filter', 'review')->call('export', 'recitations')
+        ->assertFileDownloaded('سجل الطلاب - تفاصيل التسميع - المراجعة - 2026-10-11 إلى 2026-10-15.csv');
+    $recitations = collect(downloadedRows($page))->skip(1);
+    expect($recitations->pluck(4)->sort()->values()->all())->toBe(['المراجعة', 'المراجعة · تسميع حر'])
+        ->and($recitations->pluck(6)->sort()->values()->all())->toBe(['جيد', 'لم يسمع']);
+
+    $page->call('export', 'everything')->assertNotFound();
+});
+
+it('keeps a name a spreadsheet would run as a formula as text', function () {
+    $this->ahmad->update(['name' => '=HYPERLINK("x")']);
+    $this->actingAs($this->supervisor, 'supervisor');
+
+    $page = Livewire::test(StudentRecord::class)->set('from', '2026-10-11')->call('export', 'summary');
+
+    expect(collect(downloadedRows($page))->pluck(1))->toContain("'=HYPERLINK(\"x\")");
+});
