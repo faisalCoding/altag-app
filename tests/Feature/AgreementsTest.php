@@ -13,6 +13,7 @@ use App\Models\Student;
 use App\Models\Supervisor;
 use App\Models\Teacher;
 use App\Support\Agreements;
+use App\Support\AgreementText;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
 
@@ -49,7 +50,10 @@ function publishAgreement(object $test, array $attributes = []): Agreement
         ->set('type', $attributes['type'] ?? 'pledge')
         ->set('audience', $attributes['audience'] ?? 'both')
         ->set('stageIds', [$test->stage->id])
-        ->set('clauses', $attributes['clauses'] ?? ['الحضور قبل بدء الحلقة.', 'إحضار المصحف.'])
+        ->set('topics', $attributes['topics'] ?? [
+            ['title' => 'الحضور', 'clauses' => ['الحضور قبل بدء الحلقة.', 'إحضار المصحف.']],
+            ['title' => 'الآداب', 'clauses' => ['احترام المعلم والزملاء.']],
+        ])
         ->call('publish')
         ->assertHasNoErrors();
 
@@ -62,14 +66,17 @@ it('lets the supervisor write an agreement for their stages and publish it', fun
     expect($agreement->status)->toBe('published')
         ->and($agreement->stages->modelKeys())->toBe([$this->stage->id])
         ->and($agreement->currentVersion)->number->toBe(1)
-        ->and($agreement->currentVersion->clauses)->toBe(['الحضور قبل بدء الحلقة.', 'إحضار المصحف.']);
+        ->and($agreement->currentVersion->topics)->toBe([
+            ['title' => 'الحضور', 'clauses' => ['الحضور قبل بدء الحلقة.', 'إحضار المصحف.']],
+            ['title' => 'الآداب', 'clauses' => ['احترام المعلم والزملاء.']],
+        ]);
 
     // Another supervisor's stage is not theirs to pick.
     Livewire::test(SupervisorAgreements::class)
         ->call('create')
         ->set('title', 'إقرار')
         ->set('stageIds', [$this->otherStage->id])
-        ->set('clauses', ['بند'])
+        ->set('topics', [['title' => 'موضوع', 'clauses' => ['بند']]])
         ->call('publish')
         ->assertHasErrors('stageIds.0');
 });
@@ -86,20 +93,20 @@ it('asks the students of its stages, and their guardians when it asks both', fun
 it('records the student\'s word through their own link, without signing anyone in', function () {
     $agreement = publishAgreement($this);
 
-    $this->get(Agreements::link($this->student, 'student'))
-        ->assertOk()
-        ->assertSee('تعهد الالتزام')
-        ->assertSee('إحضار المصحف.');
+    $this->get(Agreements::link($this->student, 'student'))->assertOk()->assertSee('أحمد الطالب');
     $this->assertGuest('student');
 
     // The link is the student's alone: tampered with, it opens nothing.
     $this->get(route('agreements.sign', ['student' => $this->student->id, 'party' => 'student']))->assertForbidden();
 
-    $page = Livewire::test(AgreementSign::class, ['student' => $this->student->id, 'party' => 'student'])
-        ->call('sign', $agreement->id)
-        ->assertHasErrors("ticked.{$agreement->id}");
+    // Every topic comes with the page, its text already formatted, to be stepped through in the browser.
+    $page = Livewire::test(AgreementSign::class, ['student' => $this->student->id, 'party' => 'student']);
+    expect($page->viewData('agreements')[0])
+        ->toMatchArray(['id' => $agreement->id, 'version' => 1, 'type' => 'تعهد', 'signature' => null])
+        ->and(collect($page->viewData('agreements')[0]['topics'])->pluck('title')->all())->toBe(['الحضور', 'الآداب']);
 
-    $page->set("ticked.{$agreement->id}", true)->call('sign', $agreement->id)->assertHasNoErrors();
+    // The word goes once, after the last topic.
+    $page->call('sign', $agreement->id, 1)->assertReturned(fn (array $result) => $result['ok'] && $result['signedBy'] === 'أحمد الطالب');
 
     expect(AgreementSignature::sole())
         ->party->toBe('student')
@@ -110,16 +117,27 @@ it('records the student\'s word through their own link, without signing anyone i
         ->and(Agreements::owes($agreement, $this->student, 'guardian'))->toBeTrue();
 });
 
+it('refuses a word given on a text edited since the page opened', function () {
+    $agreement = publishAgreement($this);
+    $page = Livewire::test(AgreementSign::class, ['student' => $this->student->id, 'party' => 'student']);
+
+    Livewire::test(SupervisorAgreements::class)
+        ->call('edit', $agreement->id)
+        ->set('topics.0.clauses.0', 'الحضور قبل بدء الحلقة بعشر دقائق.')
+        ->call('publish');
+
+    $page->call('sign', $agreement->id, 1)->assertReturned(fn (array $result) => ! $result['ok'] && $result['reload']);
+    expect(AgreementSignature::count())->toBe(0);
+});
+
 it('takes the guardian\'s name through the link, and their account\'s when signed in', function () {
     $agreement = publishAgreement($this);
 
     Livewire::test(AgreementSign::class, ['student' => $this->student->id, 'party' => 'guardian'])
-        ->set("ticked.{$agreement->id}", true)
-        ->call('sign', $agreement->id)
-        ->assertHasErrors('signerName')
-        ->set('signerName', 'سعيد والد أحمد')
-        ->call('sign', $agreement->id)
-        ->assertHasNoErrors();
+        ->call('sign', $agreement->id, 1, '')
+        ->assertReturned(fn (array $result) => ! $result['ok'] && $result['name'])
+        ->call('sign', $agreement->id, 1, 'سعيد والد أحمد')
+        ->assertReturned(fn (array $result) => $result['ok']);
 
     expect(AgreementSignature::sole())->signer_name->toBe('سعيد والد أحمد')->channel->toBe('link')->signer_id->toBeNull();
 
@@ -127,13 +145,17 @@ it('takes the guardian\'s name through the link, and their account\'s when signe
     $this->actingAs($this->guardian, 'guardian');
 
     Livewire::test(AgreementSign::class, ['student' => $this->student->id, 'party' => 'guardian'])
-        ->assertSet('signerName', 'أبو أحمد')
-        ->set("ticked.{$second->id}", true)
-        ->call('sign', $second->id);
+        ->call('sign', $second->id, 1);
 
     expect(AgreementSignature::where('agreement_id', $second->id)->sole())
+        ->signer_name->toBe('أبو أحمد')
         ->channel->toBe('account')
         ->signer_id->toBe($this->guardian->id);
+});
+
+it('highlights what is in parentheses and sets what is between asterisks apart, escaping the rest', function () {
+    expect((string) AgreementText::format('الحضور (قبل الدرس) *إلزامي* <b>'))
+        ->toBe('الحضور <mark class="agreement-mark">(قبل الدرس)</mark> <strong class="agreement-strong">إلزامي</strong> &lt;b&gt;');
 });
 
 it('keeps the word over a wording fix and asks again after a substantive edit', function () {
@@ -143,7 +165,7 @@ it('keeps the word over a wording fix and asks again after a substantive edit', 
     $this->actingAs($this->supervisor, 'supervisor');
     Livewire::test(SupervisorAgreements::class)
         ->call('edit', $agreement->id)
-        ->set('clauses.0', 'الحضور قبل بدء الحلقة بخمس دقائق.')
+        ->set('topics.0.clauses.0', 'الحضور قبل بدء الحلقة بخمس دقائق.')
         ->set('change', 'wording')
         ->call('publish');
 
@@ -152,7 +174,7 @@ it('keeps the word over a wording fix and asks again after a substantive edit', 
 
     Livewire::test(SupervisorAgreements::class)
         ->call('edit', $agreement->id)
-        ->set('clauses', ['بند جديد كلياً.'])
+        ->set('topics', [['title' => 'موضوع جديد', 'clauses' => ['بند جديد كلياً.']]])
         ->set('change', 'substantive')
         ->call('publish');
 
@@ -170,7 +192,7 @@ it('lets the teacher call the agreement by another kind for their circle, the wo
 
     expect(Agreements::typeFor($agreement->fresh(), $this->circle->id))->toBe('principles');
 
-    $this->get(Agreements::link($this->student, 'student'))->assertSee('مبادئ');
+    expect(Livewire::test(AgreementSign::class, ['student' => $this->student->id, 'party' => 'student'])->viewData('agreements')[0]['type'])->toBe('مبادئ');
     Agreements::sign($agreement->fresh(), $this->student, 'student', 'أحمد الطالب', null, 'link', null, null);
     expect(AgreementSignature::sole()->type)->toBe('principles');
 

@@ -13,13 +13,13 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class AgreementVersion extends Model
 {
     /** @var list<string> */
-    protected $fillable = ['agreement_id', 'number', 'title', 'type', 'audience', 'clauses', 'requires_acknowledgement', 'published_by', 'published_at'];
+    protected $fillable = ['agreement_id', 'number', 'title', 'type', 'audience', 'topics', 'requires_acknowledgement', 'published_by', 'published_at'];
 
     /** @return array<string, string> */
     protected function casts(): array
     {
         return [
-            'clauses' => 'array',
+            'topics' => 'array',
             'requires_acknowledgement' => 'boolean',
             'published_at' => 'datetime',
         ];

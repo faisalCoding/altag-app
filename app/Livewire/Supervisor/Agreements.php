@@ -14,8 +14,10 @@ use Livewire\Component;
 /**
  * الإقرارات: the supervisor writes what the students of their stages, or the
  * students' guardians, give their word on — its title and kind, the stages,
- * who is asked, and its clauses — keeps it as a draft, and publishes it.
- * An edit of a published agreement says whether it asks for the word again.
+ * who is asked, and its topics, each with a title and its clauses — keeps it
+ * as a draft, and publishes it. An edit of a published agreement says whether
+ * it asks for the word again. Text in parentheses is highlighted, and text
+ * between asterisks stands out (App\Support\AgreementText).
  */
 class Agreements extends Component
 {
@@ -33,8 +35,11 @@ class Agreements extends Component
     /** @var list<int|string> */
     public array $stageIds = [];
 
-    /** @var list<string> */
-    public array $clauses = [''];
+    /** @var list<array{title: string, clauses: list<string>}> */
+    public array $topics = [['title' => '', 'clauses' => ['']]];
+
+    /** The editor's topics shown as their reader will see them. */
+    public bool $previewing = false;
 
     /** For a published agreement: 'substantive' asks for the word again, 'wording' keeps it. */
     public string $change = 'substantive';
@@ -82,8 +87,9 @@ class Agreements extends Component
         $this->type = 'pledge';
         $this->audience = 'both';
         $this->stageIds = $this->stages->count() === 1 ? [$this->stages->first()->id] : [];
-        $this->clauses = [''];
+        $this->topics = [['title' => '', 'clauses' => ['']]];
         $this->change = 'substantive';
+        $this->previewing = false;
         $this->editing = true;
     }
 
@@ -97,8 +103,12 @@ class Agreements extends Component
         $this->type = $agreement->type;
         $this->audience = $agreement->audience;
         $this->stageIds = $agreement->stages->modelKeys();
-        $this->clauses = $agreement->clauses ?: [''];
+        $this->topics = array_map(
+            fn (array $topic) => ['title' => $topic['title'], 'clauses' => $topic['clauses'] ?: ['']],
+            AgreementRules::topicsOf($agreement->topics),
+        ) ?: [['title' => '', 'clauses' => ['']]];
         $this->change = 'substantive';
+        $this->previewing = false;
         $this->editing = true;
     }
 
@@ -108,26 +118,57 @@ class Agreements extends Component
         $this->editingId = null;
     }
 
-    public function addClause(): void
+    public function addTopic(): void
     {
-        $this->clauses[] = '';
+        $this->topics[] = ['title' => '', 'clauses' => ['']];
     }
 
-    public function removeClause(int $index): void
+    public function removeTopic(int $topic): void
     {
-        unset($this->clauses[$index]);
-        $this->clauses = array_values($this->clauses) ?: [''];
+        unset($this->topics[$topic]);
+        $this->topics = array_values($this->topics) ?: [['title' => '', 'clauses' => ['']]];
     }
 
-    public function moveClause(int $index, int $by): void
+    public function moveTopic(int $topic, int $by): void
     {
-        $to = $index + $by;
+        $this->topics = self::swapped($this->topics, $topic, $topic + $by);
+    }
 
-        if (! isset($this->clauses[$index], $this->clauses[$to])) {
+    public function addClause(int $topic): void
+    {
+        if (isset($this->topics[$topic])) {
+            $this->topics[$topic]['clauses'][] = '';
+        }
+    }
+
+    public function removeClause(int $topic, int $index): void
+    {
+        if (! isset($this->topics[$topic])) {
             return;
         }
 
-        [$this->clauses[$index], $this->clauses[$to]] = [$this->clauses[$to], $this->clauses[$index]];
+        unset($this->topics[$topic]['clauses'][$index]);
+        $this->topics[$topic]['clauses'] = array_values($this->topics[$topic]['clauses']) ?: [''];
+    }
+
+    public function moveClause(int $topic, int $index, int $by): void
+    {
+        if (isset($this->topics[$topic])) {
+            $this->topics[$topic]['clauses'] = self::swapped($this->topics[$topic]['clauses'], $index, $index + $by);
+        }
+    }
+
+    /**
+     * @param  list<mixed>  $items
+     * @return list<mixed>
+     */
+    private static function swapped(array $items, int $from, int $to): array
+    {
+        if (isset($items[$from], $items[$to])) {
+            [$items[$from], $items[$to]] = [$items[$to], $items[$from]];
+        }
+
+        return $items;
     }
 
     public function saveDraft(): void
@@ -154,12 +195,19 @@ class Agreements extends Component
     }
 
     /**
-     * The editor's draft, checked and saved on the agreement.
+     * The editor's draft, checked and saved on the agreement. Empty clauses
+     * go, and a topic left with neither a title nor a clause.
      */
     private function store(): Agreement
     {
-        $this->clauses = array_map(fn ($clause) => trim((string) $clause), $this->clauses);
         $this->title = trim($this->title);
+        $this->topics = array_values(array_filter(array_map(fn ($topic) => [
+            'title' => trim((string) ($topic['title'] ?? '')),
+            'clauses' => array_values(array_filter(
+                array_map(fn ($clause) => trim((string) $clause), $topic['clauses'] ?? []),
+                fn (string $clause) => $clause !== '',
+            )),
+        ], $this->topics), fn (array $topic) => $topic['title'] !== '' || $topic['clauses'] !== []));
 
         $this->validate([
             'title' => 'required|string|max:150',
@@ -167,24 +215,20 @@ class Agreements extends Component
             'audience' => ['required', Rule::in(array_keys(AgreementRules::AUDIENCES))],
             'stageIds' => 'required|array|min:1',
             'stageIds.*' => ['integer', Rule::in($this->stages->modelKeys())],
-            'clauses' => ['array', function ($attribute, $value, $fail) {
-                if (array_filter($value, fn ($clause) => $clause !== '') === []) {
-                    $fail('اكتب بنداً واحداً على الأقل.');
-                }
-            }],
-            'clauses.*' => 'nullable|string|max:2000',
+            'topics' => 'required|array|min:1|max:30',
+            'topics.*.title' => 'required|string|max:200',
+            'topics.*.clauses' => 'required|array|min:1|max:60',
+            'topics.*.clauses.*' => 'string|max:2000',
         ], [
             'title.required' => 'اكتب عنوان الإقرار.',
             'stageIds.required' => 'اختر مرحلة واحدة على الأقل.',
             'stageIds.min' => 'اختر مرحلة واحدة على الأقل.',
+            'topics.required' => 'أضف موضوعاً واحداً على الأقل.',
+            'topics.*.title.required' => 'اكتب عنوان هذا الموضوع.',
+            'topics.*.clauses.required' => 'اكتب بنداً واحداً على الأقل في هذا الموضوع.',
         ]);
 
-        $values = [
-            'title' => $this->title,
-            'type' => $this->type,
-            'audience' => $this->audience,
-            'clauses' => array_values(array_filter($this->clauses, fn ($clause) => $clause !== '')),
-        ];
+        $values = ['title' => $this->title, 'type' => $this->type, 'audience' => $this->audience, 'topics' => $this->topics];
 
         $agreement = $this->editingId
             ? tap($this->find($this->editingId))->update($values)

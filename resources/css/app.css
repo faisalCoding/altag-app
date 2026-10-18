@@ -321,6 +321,22 @@ ui-toast [data-flux-toast-dialog] > * {
 }
 
 /*
+ * An agreement's light markup (App\Support\AgreementText): parentheses on a
+ * yellow highlight, *asterisks* in a deep red calm on the eye yet standing out.
+ */
+.agreement-mark {
+    background: #fde68a;
+    color: inherit;
+    border-radius: 0.3em;
+    padding: 0 0.2em;
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
+}
+.dark .agreement-mark { background: rgb(251 191 36 / 0.28); color: #fef3c7; }
+.agreement-strong { font-weight: 700; color: #9b2226; }
+.dark .agreement-strong { color: #f2a7a7; }
+
+/*
  * The supervisor's record of students (سجل الطلاب): a square a student and
  * day, in the teacher app's attendance colours, holding the portions recited.
  * Hundreds of students by a month of days: one short class a square.

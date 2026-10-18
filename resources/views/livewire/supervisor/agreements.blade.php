@@ -44,21 +44,66 @@
                 </flux:checkbox.group>
             </div>
 
-            <div class="space-y-2">
-                <flux:label>البنود</flux:label>
-                @foreach ($clauses as $index => $clause)
-                    <div wire:key="clause-{{ $index }}" class="flex items-start gap-2">
-                        <span class="mt-2.5 w-6 shrink-0 text-center text-sm font-bold text-zinc-400">{{ $ar($index + 1) }}</span>
-                        <flux:textarea wire:model="clauses.{{ $index }}" rows="2" resize="vertical" class="flex-1" placeholder="نص البند" />
-                        <div class="flex flex-col gap-1">
-                            <flux:button size="xs" variant="ghost" icon="chevron-up" wire:click="moveClause({{ $index }}, -1)" :disabled="$index === 0" aria-label="أعلى" />
-                            <flux:button size="xs" variant="ghost" icon="chevron-down" wire:click="moveClause({{ $index }}, 1)" :disabled="$index === count($clauses) - 1" aria-label="أسفل" />
-                            <flux:button size="xs" variant="ghost" icon="trash" wire:click="removeClause({{ $index }})" aria-label="حذف البند" />
+            <div class="space-y-3">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                    <flux:label>الموضوعات</flux:label>
+                    <p class="text-xs text-zinc-500">
+                        ما بين قوسين <mark class="agreement-mark">(هكذا)</mark> يظهر مظلَّلاً، وما بين نجمتين
+                        <span dir="ltr" class="font-mono">*هكذا*</span> يظهر <strong class="agreement-strong">بارزاً</strong>.
+                    </p>
+                </div>
+                @error('topics') <p class="text-sm text-rose-600">{{ $message }}</p> @enderror
+
+                @foreach ($topics as $t => $topic)
+                    <div wire:key="topic-{{ $t }}" class="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50/60 dark:bg-zinc-800/40 p-4 space-y-3" data-topic-editor>
+                        <div class="flex items-start gap-2">
+                            <span class="mt-2 shrink-0 rounded-full bg-zinc-200 dark:bg-zinc-700 px-2 py-0.5 text-xs font-bold text-zinc-600 dark:text-zinc-300">الموضوع {{ $ar($t + 1) }}</span>
+                            <div class="flex-1">
+                                <flux:input wire:model="topics.{{ $t }}.title" placeholder="عنوان الموضوع، مثال: الحضور والانصراف" />
+                                @error("topics.{$t}.title") <p class="mt-1 text-sm text-rose-600">{{ $message }}</p> @enderror
+                            </div>
+                            <div class="flex shrink-0 gap-1">
+                                <flux:button size="sm" variant="ghost" icon="chevron-up" wire:click="moveTopic({{ $t }}, -1)" :disabled="$t === 0" aria-label="الموضوع أعلى" />
+                                <flux:button size="sm" variant="ghost" icon="chevron-down" wire:click="moveTopic({{ $t }}, 1)" :disabled="$t === count($topics) - 1" aria-label="الموضوع أسفل" />
+                                <flux:button size="sm" variant="ghost" icon="trash" wire:click="removeTopic({{ $t }})" wire:confirm="حذف هذا الموضوع وبنوده؟" aria-label="حذف الموضوع" />
+                            </div>
                         </div>
+
+                        @foreach ($topic['clauses'] as $index => $clause)
+                            <div wire:key="topic-{{ $t }}-clause-{{ $index }}" class="flex items-start gap-2 ps-2">
+                                <span class="mt-2.5 w-6 shrink-0 text-center text-sm font-bold text-zinc-400">{{ $ar($index + 1) }}</span>
+                                <flux:textarea wire:model="topics.{{ $t }}.clauses.{{ $index }}" rows="2" resize="vertical" class="flex-1" placeholder="نص البند" />
+                                <div class="flex flex-col gap-1">
+                                    <flux:button size="xs" variant="ghost" icon="chevron-up" wire:click="moveClause({{ $t }}, {{ $index }}, -1)" :disabled="$index === 0" aria-label="البند أعلى" />
+                                    <flux:button size="xs" variant="ghost" icon="chevron-down" wire:click="moveClause({{ $t }}, {{ $index }}, 1)" :disabled="$index === count($topic['clauses']) - 1" aria-label="البند أسفل" />
+                                    <flux:button size="xs" variant="ghost" icon="x-mark" wire:click="removeClause({{ $t }}, {{ $index }})" aria-label="حذف البند" />
+                                </div>
+                            </div>
+                        @endforeach
+                        @error("topics.{$t}.clauses") <p class="text-sm text-rose-600">{{ $message }}</p> @enderror
+                        <flux:button size="sm" variant="ghost" icon="plus" wire:click="addClause({{ $t }})">إضافة بند</flux:button>
                     </div>
                 @endforeach
-                @error('clauses') <p class="text-sm text-rose-600">{{ $message }}</p> @enderror
-                <flux:button size="sm" icon="plus" wire:click="addClause">إضافة بند</flux:button>
+
+                <div class="flex flex-wrap gap-2">
+                    <flux:button size="sm" icon="plus" wire:click="addTopic">إضافة موضوع</flux:button>
+                    <flux:button size="sm" variant="ghost" icon="eye" wire:click="$toggle('previewing')">{{ $previewing ? 'إخفاء المعاينة' : 'معاينة كما يراها الطالب' }}</flux:button>
+                </div>
+
+                @if ($previewing)
+                    <div class="rounded-xl border border-dashed border-zinc-300 dark:border-zinc-600 p-4 space-y-4" data-agreement-preview>
+                        @foreach ($topics as $t => $topic)
+                            <div wire:key="preview-{{ $t }}" class="space-y-2">
+                                <p class="font-bold">{{ $ar($t + 1) }}. {{ \App\Support\AgreementText::format($topic['title'] ?: 'بلا عنوان') }}</p>
+                                <ol class="list-[arabic-indic] space-y-1 ps-6 text-sm leading-7">
+                                    @foreach (array_filter($topic['clauses'], fn ($clause) => trim($clause) !== '') as $clause)
+                                        <li>{{ \App\Support\AgreementText::format($clause) }}</li>
+                                    @endforeach
+                                </ol>
+                            </div>
+                        @endforeach
+                    </div>
+                @endif
             </div>
 
             @php $published = $editingId && $this->agreements->firstWhere('id', $editingId)?->currentVersion; @endphp
@@ -87,7 +132,10 @@
         @foreach ($this->agreements as $agreement)
             @php
                 $version = $agreement->currentVersion;
-                $unpublished = $version && ($version->title !== $agreement->title || $version->type !== $agreement->type || $version->audience !== $agreement->audience || $version->clauses !== $agreement->clauses);
+                $unpublished = $version && ($version->title !== $agreement->title || $version->type !== $agreement->type || $version->audience !== $agreement->audience
+                    || AgreementRules::topicsOf($version->topics) !== AgreementRules::topicsOf($agreement->topics));
+                $topicsCount = count($agreement->topics ?? []);
+                $clausesCount = collect($agreement->topics ?? [])->sum(fn ($topic) => count($topic['clauses'] ?? []));
                 [$statusLabel, $statusColor] = $statusBadge[$agreement->status] ?? [$agreement->status, 'zinc'];
             @endphp
             <div wire:key="agreement-{{ $agreement->id }}" class="rounded-2xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-5 space-y-3" data-agreement-card="{{ $agreement->id }}">
@@ -102,7 +150,7 @@
                             @endif
                         </div>
                         <flux:heading size="lg" class="truncate">{{ $agreement->title }}</flux:heading>
-                        <p class="text-xs text-zinc-500">{{ $agreement->stages->pluck('name')->implode('، ') }} · {{ $ar(count($agreement->clauses)) }} بنود</p>
+                        <p class="text-xs text-zinc-500">{{ $agreement->stages->pluck('name')->implode('، ') }} · {{ $ar($topicsCount) }} {{ $topicsCount === 1 ? 'موضوع' : 'موضوعات' }} · {{ $ar($clausesCount) }} بنود</p>
                         @if ($unpublished)
                             <p class="text-xs font-medium text-amber-600 dark:text-amber-400">فيه تعديلات لم تُنشر بعد.</p>
                         @endif

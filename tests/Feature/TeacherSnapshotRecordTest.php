@@ -76,7 +76,7 @@ it('sends the record of every other plan, earlier free recitations and the mutun
 });
 
 it('sends the agreements each student owes, with the student\'s and the guardian\'s own links', function () {
-    $agreement = Agreement::create(['title' => 'تعهد الالتزام', 'type' => 'pledge', 'audience' => 'both', 'clauses' => ['بند'], 'status' => 'draft']);
+    $agreement = Agreement::create(['title' => 'تعهد الالتزام', 'type' => 'pledge', 'audience' => 'both', 'topics' => [['title' => 'الحضور', 'clauses' => ['بند']]], 'status' => 'draft']);
     $agreement->stages()->attach($this->stage->id);
     Agreements::publish($agreement, null, true);
     Agreements::sign($agreement->fresh(), $this->student, 'student', $this->student->name, null, 'link', null, null);

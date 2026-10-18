@@ -16,12 +16,12 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 class Agreement extends Model
 {
     /** @var list<string> */
-    protected $fillable = ['title', 'type', 'audience', 'clauses', 'status', 'created_by'];
+    protected $fillable = ['title', 'type', 'audience', 'topics', 'status', 'created_by'];
 
     /** @return array<string, string> */
     protected function casts(): array
     {
-        return ['clauses' => 'array'];
+        return ['topics' => 'array'];
     }
 
     /** @return BelongsToMany<Stage, $this> */

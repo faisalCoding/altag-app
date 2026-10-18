@@ -32,7 +32,7 @@
             <div class="flex flex-col md:flex-row md:items-start justify-between gap-4">
                 <div class="space-y-1">
                     <flux:heading size="lg">{{ $version->title }}</flux:heading>
-                    <p class="text-xs text-zinc-500">{{ AgreementRules::AUDIENCES[$version->audience] }} · الإصدار {{ $ar($version->number) }} · {{ $ar(count($version->clauses)) }} بنود</p>
+                    <p class="text-xs text-zinc-500">{{ AgreementRules::AUDIENCES[$version->audience] }} · الإصدار {{ $ar($version->number) }} · {{ $ar(count($version->topics ?? [])) }} {{ count($version->topics ?? []) === 1 ? 'موضوع' : 'موضوعات' }}</p>
                 </div>
 
                 {{-- The kind the agreement goes by in each of the teacher's circles. --}}
@@ -53,11 +53,18 @@
 
             <details class="rounded-xl bg-zinc-50 dark:bg-zinc-800/50 px-4 py-3">
                 <summary class="cursor-pointer text-sm font-medium">نص الإقرار</summary>
-                <ol class="mt-3 list-[arabic-indic] space-y-1.5 ps-6 text-sm leading-6 text-zinc-700 dark:text-zinc-300">
-                    @foreach ($version->clauses as $clause)
-                        <li>{{ $clause }}</li>
+                <div class="mt-3 space-y-4">
+                    @foreach (AgreementRules::topicsOf($version->topics) as $t => $topic)
+                        <div wire:key="topic-{{ $agreement->id }}-{{ $t }}">
+                            <p class="text-sm font-bold">{{ $ar($t + 1) }}. {{ \App\Support\AgreementText::format($topic['title']) }}</p>
+                            <ol class="mt-1.5 list-[arabic-indic] space-y-1.5 ps-6 text-sm leading-6 text-zinc-700 dark:text-zinc-300">
+                                @foreach ($topic['clauses'] as $clause)
+                                    <li>{{ \App\Support\AgreementText::format($clause) }}</li>
+                                @endforeach
+                            </ol>
+                        </div>
                     @endforeach
-                </ol>
+                </div>
             </details>
         </div>
 

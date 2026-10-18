@@ -130,15 +130,29 @@ final class Agreements
     /**
      * The text a signer reads: the version's, under the kind of their circle.
      *
-     * @return array{title: string, type: string, clauses: list<string>}
+     * @return array{title: string, type: string, topics: list<array{title: string, clauses: list<string>}>}
      */
     public static function textFor(AgreementVersion $version, string $type): array
     {
-        return ['title' => $version->title, 'type' => $type, 'clauses' => array_values($version->clauses)];
+        return ['title' => $version->title, 'type' => $type, 'topics' => self::topicsOf($version->topics)];
     }
 
     /**
-     * @param  array{title: string, type: string, clauses: list<string>}  $text
+     * Topics as they are kept: in order, each with its title and its clauses.
+     *
+     * @param  array<int, array{title?: string, clauses?: array<int, string>}>|null  $topics
+     * @return list<array{title: string, clauses: list<string>}>
+     */
+    public static function topicsOf(?array $topics): array
+    {
+        return array_values(array_map(fn (array $topic) => [
+            'title' => (string) ($topic['title'] ?? ''),
+            'clauses' => array_values($topic['clauses'] ?? []),
+        ], $topics ?? []));
+    }
+
+    /**
+     * @param  array{title: string, type: string, topics: list<array{title: string, clauses: list<string>}>}  $text
      */
     public static function hashOf(array $text): string
     {
@@ -179,11 +193,11 @@ final class Agreements
     {
         return DB::transaction(function () use ($agreement, $publisher, $requiresAcknowledgement) {
             $current = $agreement->versions()->orderByDesc('number')->lockForUpdate()->first();
-            $draft = ['title' => $agreement->title, 'type' => $agreement->type, 'audience' => $agreement->audience, 'clauses' => array_values($agreement->clauses)];
+            $draft = ['title' => $agreement->title, 'type' => $agreement->type, 'audience' => $agreement->audience, 'topics' => self::topicsOf($agreement->topics)];
 
             $agreement->update(['status' => 'published']);
 
-            if ($current && ['title' => $current->title, 'type' => $current->type, 'audience' => $current->audience, 'clauses' => $current->clauses] === $draft) {
+            if ($current && ['title' => $current->title, 'type' => $current->type, 'audience' => $current->audience, 'topics' => self::topicsOf($current->topics)] === $draft) {
                 return $current;
             }
 
