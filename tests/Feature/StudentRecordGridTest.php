@@ -4,9 +4,14 @@ use App\Livewire\Supervisor\StudentRecord;
 use App\Models\Attendance;
 use App\Models\Circle;
 use App\Models\FreeRecitation;
+use App\Models\Ode;
+use App\Models\OdePath;
+use App\Models\OdePathDay;
 use App\Models\PlanDayAttempt;
 use App\Models\Stage;
 use App\Models\Student;
+use App\Models\StudentOdeAchievement;
+use App\Models\StudentOdePlan;
 use App\Models\StudentPlan;
 use App\Models\StudentPlanDay;
 use App\Models\Supervisor;
@@ -140,7 +145,7 @@ it('shows the supervisor their own circles alone, and opens a day without drawin
     $page->call('day', $this->ahmad->id, '2026-10-12')
         ->assertReturned(fn (array $day) => $day['status'] === 'present'
             && collect($day['recitations'])->pluck('grade')->sort()->values()->all() === [0, 2, 3]
-            && collect($day['recitations'])->firstWhere('free', true)['part'] === 'review');
+            && collect($day['recitations'])->pluck('title')->contains('المراجعة · تسميع حر'));
 
     // Refused: the page's call reads nothing back, and the day shows it could not be read.
     $page->call('day', $this->stranger->id, '2026-10-12')->assertReturned(null);
@@ -161,4 +166,43 @@ it('opens from the supervisor\'s menu', function () {
         ->get(route('supervisor.student-record'))
         ->assertOk()
         ->assertSee('سجل الطلاب');
+});
+
+it('counts the odes too, and narrows every square to the kind the filter picks', function () {
+    // Ahmad also recited an ode on the 12th, graded on Riyadh's 12th though it was still the 11th in UTC.
+    $ode = Ode::create(['name' => 'تحفة الأطفال']);
+    $path = OdePath::create(['ode_id' => $ode->id, 'name' => 'مسار التحفة', 'start_date' => '2026-10-01', 'end_date' => '2026-11-01']);
+    $day = OdePathDay::create(['ode_path_id' => $path->id, 'day_number' => 1, 'date' => '2026-10-12', 'day_name' => 'الاثنين', 'from_verse_number' => 1, 'to_verse_number' => 4]);
+    $plan = StudentOdePlan::create(['student_id' => $this->ahmad->id, 'ode_path_id' => $path->id, 'start_date' => '2026-10-01', 'status' => 'active', 'created_by_role' => 'supervisor']);
+    StudentOdeAchievement::create(['student_ode_plan_id' => $plan->id, 'ode_path_day_id' => $day->id, 'hifz_achievement' => 3, 'hifz_graded_at' => '2026-10-11 22:30:00']);
+
+    $cell = fn (?string $filter) => recordRows(StudentRecordGrid::build([$this->circle->id], '2026-10-11', '2026-10-15', $filter))['أحمد']['cells']['2026-10-12'];
+
+    expect($cell(null)['recited'])->toBe(3)
+        ->and($cell('ode')['recited'])->toBe(1)
+        ->and($cell('hifz')['recited'])->toBe(1)
+        ->and($cell('review')['recited'])->toBe(1)
+        // Only a «لم يسمع» review on the plan: graded, nothing recited.
+        ->and(recordRows(StudentRecordGrid::build([$this->circle->id], '2026-10-11', '2026-10-15', 'hadith'))['أحمد']['cells']['2026-10-12'])
+        ->toMatchArray(['recited' => 0, 'graded' => false]);
+
+    $this->actingAs($this->supervisor, 'supervisor');
+    Livewire::test(StudentRecord::class)
+        ->set('from', '2026-10-11')
+        ->assertSee('المنظومات')
+        ->set('filter', 'ode')
+        ->call('day', $this->ahmad->id, '2026-10-12')
+        ->assertReturned(fn (array $day) => collect($day['recitations'])->pluck('title')->all() === ['المنظومات · حفظ']
+            && $day['recitations'][0]['range'] === 'تحفة الأطفال: الأبيات 1 - 4');
+});
+
+it('offers the mutun and the odes only where a stage memorises them', function () {
+    $this->stage->update(['hadith_enabled' => false]);
+    $this->actingAs($this->supervisor, 'supervisor');
+
+    Livewire::test(StudentRecord::class)
+        ->assertSeeHtml('wire:click="$set(\'filter\', \'ode\')"')
+        ->assertDontSeeHtml('wire:click="$set(\'filter\', \'hadith\')"')
+        ->set('filter', 'hadith')
+        ->assertSet('filter', '');
 });

@@ -286,6 +286,59 @@ final class Agreements
     }
 
     /**
+     * What the teacher app's student card shows of the agreements: for each
+     * of the students, every agreement their stage asks of them — its title
+     * and kind as their circle calls it — and, for each party it asks, when
+     * they gave their word and the link to send them while they have not.
+     *
+     * @param  EloquentCollection<int, Student>  $students
+     * @return list<array{student_id: int, agreement_id: int, title: string, type: string, parties: array<string, array{signed_at: ?string, signed_by: ?string, link: string}>}>
+     */
+    public static function forApp(EloquentCollection $students): array
+    {
+        $students->loadMissing('circle:id,stage_id');
+        $byStage = $students->groupBy(fn (Student $student) => $student->effective_stage_id);
+        $stageIds = $byStage->keys()->filter()->values()->all();
+
+        if ($stageIds === []) {
+            return [];
+        }
+
+        $agreements = Agreement::where('status', 'published')
+            ->whereHas('stages', fn ($q) => $q->whereIn('stages.id', $stageIds))
+            ->with(['currentVersion', 'stages:id', 'circleTypes'])
+            ->orderBy('id')
+            ->get()
+            ->filter(fn (Agreement $agreement) => $agreement->currentVersion !== null);
+
+        $entries = [];
+
+        foreach ($agreements as $agreement) {
+            $bound = $agreement->stages->modelKeys();
+            $asked = $students->filter(fn (Student $student) => in_array($student->effective_stage_id, $bound, true));
+            $standings = self::standings($agreement, $asked->modelKeys());
+
+            foreach ($asked as $student) {
+                $type = $agreement->circleTypes->firstWhere('circle_id', $student->circle_id)?->type ?? $agreement->currentVersion->type;
+
+                $entries[] = [
+                    'student_id' => $student->id,
+                    'agreement_id' => $agreement->id,
+                    'title' => $agreement->currentVersion->title,
+                    'type' => $type,
+                    'parties' => collect($standings[$student->id] ?? [])->map(fn (?AgreementSignature $signature, string $party) => [
+                        'signed_at' => $signature?->signed_at?->toISOString(),
+                        'signed_by' => $signature?->signer_name,
+                        'link' => self::link($student, $party),
+                    ])->all(),
+                ];
+            }
+        }
+
+        return $entries;
+    }
+
+    /**
      * The word that stands for every student and party of an agreement, read
      * at once: student id → party → signature, null for one still owed.
      *

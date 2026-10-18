@@ -20,6 +20,7 @@ use App\Models\PeerPair;
 use App\Models\Student;
 use App\Models\StudentPlan;
 use App\Models\Teacher;
+use App\Support\Agreements;
 use App\Support\HijriDate;
 use App\Support\RolePages;
 use App\Support\StudentStatus;
@@ -159,6 +160,20 @@ class TeacherSyncSnapshot
             'attendance_history' => $periodsFrom !== null && $periodsFrom < $from
                 ? self::attendanceHistory($students->modelKeys(), $periodsFrom, $from)
                 : [],
+            // What the student card lists day by day over the attendance
+            // period beside what the tasmeeh above holds: sessions of every
+            // other plan, free recitations before the window, and the mutun
+            // and odes graded.
+            'recitation_history' => RecitationRecord::between(
+                $students->modelKeys(),
+                min($from, $periodsFrom ?? $from),
+                $today,
+                collect($tasmeeh['tasmeeh_plans'])->map(fn ($plan) => $plan->resource->id)->all(),
+                $pages['tasmeeh'] ? $from : null,
+            )->all(),
+            // The agreements each student and guardian owes their word on, with
+            // the links the teacher sends them.
+            'agreements' => Agreements::forApp($students),
             'competitions' => $gradingCompetitions->unique('id')->map(fn (Leaderboard $competition) => new SyncCompetitionResource(
                 $competition,
                 $gradingCompetitions->filter(fn (Leaderboard $graded) => $graded->id === $competition->id)->keys()->all(),

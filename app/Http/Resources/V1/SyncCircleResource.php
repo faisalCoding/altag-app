@@ -44,6 +44,10 @@ class SyncCircleResource extends JsonResource
             'stage' => $this->stage ? [
                 'id' => $this->stage->id,
                 'name' => $this->stage->name,
+                // Whether the stage memorises the mutun and the odes: the
+                // student card offers them as a filter only then.
+                'hadith_enabled' => (bool) $this->stage->hadith_enabled,
+                'odes_enabled' => (bool) $this->stage->odes_enabled,
             ] : null,
             // Unanswered keeps the requirement, as the sheet reads it.
             'require_edit_reason' => $this->stage?->require_edit_reason ?? true,

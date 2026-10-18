@@ -109,13 +109,25 @@
             <div class="text-2xl font-bold tabular-nums {{ $rateText($totals['rate']) }}">{{ $totals['rate'] === null ? '—' : $ar($totals['rate']).'٪' }}</div>
         </div>
         <div class="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-4 py-3">
-            <div class="text-xs text-zinc-500">الأوراد المسمَّعة</div>
+            <div class="text-xs text-zinc-500">{{ $filter === '' ? 'الأوراد المسمَّعة' : 'المسمَّع من '.$this->filters[$filter] }}</div>
             <div class="text-2xl font-bold tabular-nums">{{ $ar($totals['recited']) }}</div>
         </div>
         <div class="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-4 py-3">
             <div class="text-xs text-zinc-500">غياب · لم يُحضَّر</div>
             <div class="text-2xl font-bold tabular-nums"><span class="text-rose-600 dark:text-rose-400">{{ $ar($totals['absent']) }}</span> <span class="text-zinc-400 text-lg">·</span> <span class="text-zinc-500">{{ $ar($totals['unmarked']) }}</span></div>
         </div>
+    </div>
+
+    {{-- What each square counts: every recitation, or one kind of it. --}}
+    <div class="mx-6 mb-3 flex flex-wrap items-center gap-2" role="radiogroup" aria-label="ما يُعدّ في كل يوم" data-record-filter>
+        <span class="text-xs text-zinc-500 me-1">يُعدّ في كل يوم:</span>
+        @foreach (['' => 'الكل'] + $this->filters as $key => $label)
+            <button type="button" role="radio" wire:key="filter-{{ $key ?: 'all' }}" wire:click="$set('filter', @js($key))"
+                aria-checked="{{ $filter === $key ? 'true' : 'false' }}"
+                class="rounded-full border px-3 py-1 text-xs font-semibold transition-colors {{ $filter === $key ? 'border-accent bg-accent text-accent-foreground' : 'border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300' }}">
+                {{ $label }}
+            </button>
+        @endforeach
     </div>
 
     {{-- Legend --}}
@@ -125,10 +137,10 @@
         @endforeach
         <span class="flex items-center gap-1.5"><i class="rec-sq !size-4 !mx-0"></i>لم يُحضَّر</span>
         <span class="flex items-center gap-1.5"><i class="rec-sq rec-off !size-4 !mx-0"></i>ليس من أيامه</span>
-        <span class="text-zinc-500">الرقم في اليوم عدد ما سمّعه من الأوراد، واضغط اليوم لترى تسميعه.</span>
+        <span class="text-zinc-500">الرقم في اليوم عدد ما سمّعه من {{ $filter === '' ? 'الأوراد' : $this->filters[$filter] }}، واضغط اليوم لترى تسميعه.</span>
     </div>
 
-    <div wire:loading.flex wire:target="from, to, circle"
+    <div wire:loading.flex wire:target="from, to, circle, filter"
         class="mx-6 mb-3 items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-medium text-sky-800 dark:border-sky-800 dark:bg-sky-900/30 dark:text-sky-200">
         <flux:icon.loading class="size-4" />
         جارٍ جلب السجل…
@@ -140,7 +152,7 @@
         </div>
     @else
         <div class="mx-6 mb-6 overflow-auto max-h-[calc(100dvh-14rem)] rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 transition-opacity"
-            wire:loading.class="opacity-50" wire:target="from, to, circle"
+            wire:loading.class="opacity-50" wire:target="from, to, circle, filter"
             x-on:click="const square = $event.target.closest('button.rec-sq'); if (square) open(square)"
             data-record-table>
             <table class="min-w-full border-separate border-spacing-0 text-sm">
@@ -227,8 +239,7 @@
                                     x-bind:class="{ 3: 'bg-emerald-600', 2: 'bg-sky-600', 1: 'bg-amber-600', 0: 'bg-rose-600' }[recitation.grade]"
                                     x-text="{ 3: 'م', 2: 'ج', 1: 'ق', 0: '×' }[recitation.grade]"></span>
                                 <div class="min-w-0">
-                                    <div class="text-sm font-semibold"
-                                        x-text="[{ hifz: 'الحفظ', review: 'المراجعة', link: 'الربط' }[recitation.part] + (recitation.free && recitation.part !== 'link' ? ' · تسميع حر' : ''), recitation.range].filter(Boolean).join(' · ')"></div>
+                                    <div class="text-sm font-semibold" x-text="[recitation.title, recitation.range].filter(Boolean).join(' · ')"></div>
                                     <div class="text-xs text-zinc-500"
                                         x-text="[{ 3: 'ممتاز', 2: 'جيد', 1: 'مقبول', 0: 'لم يسمع' }[recitation.grade], recitation.by].filter(Boolean).join(' · ')"></div>
                                 </div>

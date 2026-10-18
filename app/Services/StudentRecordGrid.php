@@ -8,7 +8,6 @@ use App\Models\Circle;
 use App\Models\Student;
 use App\Support\HijriDate;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\DB;
 
 /**
  * The supervisor's record of students: one row a student, one column a day,
@@ -16,9 +15,11 @@ use Illuminate\Support\Facades\DB;
  * recited on it — the square the teacher app's student card draws — with a
  * report under every day and beside every student.
  *
- * A portion counts on the day it was graded: each session of a plan day
- * (plan_day_attempts) and each free recitation, «لم يسمع» excepted. A day
- * whose only grade is «لم يسمع» still shows its 0, as the app does.
+ * A portion counts on the day it was graded, «لم يسمع» excepted: each
+ * session of any plan, each free recitation, and each hifz or review of the
+ * mutun and the odes (RecitationRecord) — or only those a filter picks: the
+ * Quran's hifz or review, the mutun or the odes. A day whose only grade is
+ * «لم يسمع» still shows its 0, as the app does.
  *
  * The columns are the days any of the circles meets, and any day a roll was
  * taken on; a day a student's own stage does not meet, or one before they
@@ -40,7 +41,7 @@ final class StudentRecordGrid
      *     totals: array{present: int, late: int, excused: int, absent: int, unmarked: int, rate: ?int, recited: int, students: int}
      * }
      */
-    public static function build(array $circleIds, string $from, string $to): array
+    public static function build(array $circleIds, string $from, string $to, ?string $filter = null): array
     {
         $today = now('Asia/Riyadh')->toDateString();
         $circles = Circle::with(['stage', 'teachers:id,name'])
@@ -66,7 +67,7 @@ final class StudentRecordGrid
             ->get(['student_id', 'date', 'status'])
             ->mapWithKeys(fn (Attendance $record) => [$record->student_id.'|'.$record->date->format('Y-m-d') => $record->status]);
 
-        $sessions = self::sessions($studentIds, $from, $to);
+        $sessions = self::sessions($studentIds, $from, $to, $filter);
 
         // A day is a column when any of the circles meets on it, or a roll was taken on it.
         $working = $circles->pluck('stage_id')->unique()->mapWithKeys(fn (?int $stageId) => [
@@ -160,38 +161,26 @@ final class StudentRecordGrid
     }
 
     /**
-     * Each graded recitation of the students between two days, by student and
-     * day: whether any was graded, and how many were recited (not «لم يسمع»).
+     * Each graded recitation of the students between two days that the
+     * filter picks, by student and day: whether any was graded, and how many
+     * were recited (not «لم يسمع»).
      *
      * @param  array<int, int>  $studentIds
      * @return array<int, array<string, array{recited: int}>>
      */
-    private static function sessions(array $studentIds, string $from, string $to): array
+    private static function sessions(array $studentIds, string $from, string $to, ?string $filter): array
     {
-        $planned = DB::table('plan_day_attempts')
-            ->join('student_plan_days', 'student_plan_days.id', '=', 'plan_day_attempts.student_plan_day_id')
-            ->join('student_plans', 'student_plans.id', '=', 'student_plan_days.student_plan_id')
-            ->whereIn('student_plans.student_id', $studentIds)
-            ->whereNotNull('plan_day_attempts.grade')
-            ->whereDate('plan_day_attempts.recited_on', '>=', $from)
-            ->whereDate('plan_day_attempts.recited_on', '<=', $to)
-            ->get(['student_plans.student_id', 'plan_day_attempts.recited_on as date', 'plan_day_attempts.grade']);
-
-        $free = DB::table('free_recitations')
-            ->whereIn('student_id', $studentIds)
-            ->whereNotNull('achievement')
-            ->whereDate('recited_on', '>=', $from)
-            ->whereDate('recited_on', '<=', $to)
-            ->get(['student_id', 'recited_on as date', 'achievement as grade']);
-
         $sessions = [];
 
-        foreach ($planned->concat($free) as $row) {
-            $date = substr((string) $row->date, 0, 10);
-            $sessions[$row->student_id][$date] ??= ['recited' => 0];
+        foreach (RecitationRecord::between($studentIds, $from, $to) as $entry) {
+            if (! RecitationRecord::matches($entry, $filter)) {
+                continue;
+            }
 
-            if ((int) $row->grade >= 1) {
-                $sessions[$row->student_id][$date]['recited']++;
+            $sessions[$entry['student_id']][$entry['date']] ??= ['recited' => 0];
+
+            if ($entry['grade'] >= 1) {
+                $sessions[$entry['student_id']][$entry['date']]['recited']++;
             }
         }
 

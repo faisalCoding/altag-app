@@ -2,12 +2,10 @@
 
 namespace App\Livewire\Supervisor;
 
-use App\Models\Ayah;
 use App\Models\Circle;
-use App\Models\FreeRecitation;
-use App\Models\PlanDayAttempt;
+use App\Models\Stage;
 use App\Models\Student;
-use App\Models\StudentPlanDay;
+use App\Services\RecitationRecord;
 use App\Services\StudentRecordGrid;
 use App\Support\HijriDate;
 use Illuminate\Database\Eloquent\Collection;
@@ -34,6 +32,9 @@ class StudentRecord extends Component
 
     /** One circle of the supervisor's, or '' for all of them. */
     public string $circle = '';
+
+    /** What the squares count: '' for every recitation, else a key of RecitationRecord::FILTERS. */
+    public string $filter = '';
 
     public function mount(): void
     {
@@ -119,9 +120,10 @@ class StudentRecord extends Component
 
     /**
      * What one day held for one student: the roll call's mark and every
-     * portion graded on it, «لم يسمع» among them — read when a day is opened.
+     * portion graded on it that the filter picks, «لم يسمع» among them — read
+     * when a day is opened.
      *
-     * @return array{title: string, status: ?string, recitations: list<array{part: string, range: ?string, grade: int, free: bool, by: ?string}>}
+     * @return array{title: string, status: ?string, recitations: list<array{title: string, range: ?string, grade: int, by: ?string}>}
      */
     #[Json]
     public function day(int $studentId, string $date): array
@@ -129,56 +131,47 @@ class StudentRecord extends Component
         $student = Student::whereIn('circle_id', $this->circles->modelKeys())->find($studentId);
         abort_unless($student && $this->isDay($date), 404);
 
-        $attempts = PlanDayAttempt::with(['day.plan', 'recorder:id,name'])
-            ->whereHas('day.plan', fn ($plan) => $plan->where('student_id', $student->id))
-            ->whereNotNull('grade')
-            ->whereDate('recited_on', $date)
-            ->orderBy('id')
-            ->get();
-        $free = FreeRecitation::with('recorder:id,name')
-            ->where('student_id', $student->id)
-            ->whereNotNull('achievement')
-            ->whereDate('recited_on', $date)
-            ->orderBy('id')
-            ->get();
-
-        $ayahIds = $attempts->flatMap(fn (PlanDayAttempt $attempt) => [
-            $attempt->recited_from_ayah_id, $attempt->recited_to_ayah_id,
-            $attempt->day?->from_ayah_id, $attempt->day?->to_ayah_id,
-            $attempt->day?->review_from_ayah_id, $attempt->day?->review_to_ayah_id,
-        ])->merge($free->flatMap(fn (FreeRecitation $recitation) => [$recitation->from_ayah_id, $recitation->to_ayah_id]))
-            ->filter()->unique()->values();
-        $ayahs = Ayah::with('surah')->whereIn('id', $ayahIds)->get()->keyBy('id');
-        $range = fn (?int $from, ?int $to) => StudentPlanDay::formatAyahRange($ayahs->get($from), $ayahs->get($to));
-
-        $planned = $attempts->map(function (PlanDayAttempt $attempt) use ($range) {
-            $review = $attempt->part === 'review';
-            $recited = $attempt->recited_from_ayah_id && $attempt->recited_to_ayah_id;
-
-            return [
-                'part' => $attempt->part,
-                'range' => $recited
-                    ? $range($attempt->recited_from_ayah_id, $attempt->recited_to_ayah_id)
-                    : $range($review ? $attempt->day?->review_from_ayah_id : $attempt->day?->from_ayah_id, $review ? $attempt->day?->review_to_ayah_id : $attempt->day?->to_ayah_id),
-                'grade' => (int) $attempt->grade,
-                'free' => false,
-                'by' => $attempt->recorder?->name,
-            ];
-        });
-
-        $freeRows = $free->map(fn (FreeRecitation $recitation) => [
-            'part' => $recitation->type,
-            'range' => $range($recitation->from_ayah_id, $recitation->to_ayah_id),
-            'grade' => (int) $recitation->achievement,
-            'free' => true,
-            'by' => $recitation->recorder?->name,
-        ]);
-
         return [
             'title' => $student->name.' — '.HijriDate::withWeekday($date),
             'status' => $student->attendances()->whereDate('date', $date)->value('status'),
-            'recitations' => $planned->concat($freeRows)->values()->all(),
+            'recitations' => RecitationRecord::between([$student->id], $date, $date)
+                ->filter(fn (array $entry) => RecitationRecord::matches($entry, $this->filter))
+                ->map(fn (array $entry) => [
+                    'title' => RecitationRecord::title($entry),
+                    'range' => RecitationRecord::text($entry),
+                    'grade' => $entry['grade'],
+                    'by' => $entry['by'],
+                ])
+                ->values()
+                ->all(),
         ];
+    }
+
+    /**
+     * What the record can be narrowed to: the Quran's hifz and review, and
+     * the mutun and the odes where a stage of the supervisor's memorises them.
+     *
+     * @return array<string, string>
+     */
+    #[Computed]
+    public function filters(): array
+    {
+        $stages = Stage::whereIn('id', $this->circles->pluck('stage_id')->filter()->unique())->get(['id', 'hadith_enabled', 'odes_enabled']);
+
+        return collect(RecitationRecord::FILTERS)
+            ->filter(fn (string $label, string $key) => match ($key) {
+                'hadith' => $stages->contains('hadith_enabled', true),
+                'ode' => $stages->contains('odes_enabled', true),
+                default => true,
+            })
+            ->all();
+    }
+
+    public function updatedFilter(): void
+    {
+        if (! array_key_exists($this->filter, $this->filters)) {
+            $this->filter = '';
+        }
     }
 
     public function render()
@@ -186,7 +179,7 @@ class StudentRecord extends Component
         $circleIds = $this->circle !== '' ? [(int) $this->circle] : $this->circles->modelKeys();
 
         return view('livewire.supervisor.student-record', [
-            'grid' => StudentRecordGrid::build($circleIds, $this->from, $this->to),
+            'grid' => StudentRecordGrid::build($circleIds, $this->from, $this->to, $this->filter ?: null),
             'today' => $this->today(),
         ]);
     }
