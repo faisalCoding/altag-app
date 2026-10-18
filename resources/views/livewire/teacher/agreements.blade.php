@@ -6,12 +6,22 @@
 @endphp
 
 <div dir="rtl" class="space-y-5">
-    <div>
-        <flux:heading size="xl" class="font-bold">إقرارات الطلاب</flux:heading>
-        <flux:subheading>ما يُقرّ به طلاب حلقتك وأولياء أمورهم. أرسل لكل واحد رابطه الخاص، وتابع من أقرّ.</flux:subheading>
+    <div class="flex flex-col md:flex-row md:items-end justify-between gap-4">
+        <div>
+            <flux:heading size="xl" class="font-bold">إقرارات الطلاب</flux:heading>
+            <flux:subheading>ما يُقرّ به طلاب حلقتك وأولياء أمورهم. أرسل لكل واحد رابطه الخاص، وتابع من أقرّ.</flux:subheading>
+        </div>
+        <div class="w-full md:w-72">
+            <flux:radio.group wire:model.live="tab" variant="segmented" aria-label="نوع الإقرارات">
+                <flux:radio value="general" label="الإقرارات العامة" />
+                <flux:radio value="templates" label="النماذج" />
+            </flux:radio.group>
+        </div>
     </div>
 
-    @if ($this->agreements->isEmpty())
+    @if ($tab === 'templates')
+        @include('livewire.teacher.partials.agreement-templates')
+    @elseif ($this->agreements->isEmpty())
         <div class="rounded-2xl border border-dashed border-zinc-300 dark:border-zinc-700 p-10 text-center text-zinc-500">
             لا توجد إقرارات منشورة لحلقتك.
         </div>

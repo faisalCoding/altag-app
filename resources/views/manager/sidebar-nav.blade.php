@@ -191,6 +191,12 @@
         wire:navigate>
         أنظمة الحلقات
     </flux:sidebar.item>
+    @if(\App\Support\RolePages::isEnabled('manager', 'manager.agreements'))
+        <flux:sidebar.item class="[&_svg]:bg-[#0d9488] hover:[&_svg]:bg-[#0f766e]" icon="document-check" :href="route('manager.agreements')"
+            :current="request()->routeIs('manager.agreements*')" wire:navigate>
+            الإقرارات
+        </flux:sidebar.item>
+    @endif
 
     @if(\App\Support\RolePages::isEnabled('manager', 'manager.forms'))
         <flux:sidebar.item class="[&_svg]:bg-[#14b8a6] hover:[&_svg]:bg-[#0d9488]" icon="document-text" :href="route('manager.forms')"

@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\Teacher\AttendanceController;
 use App\Http\Controllers\Api\Teacher\AuthController;
+use App\Http\Controllers\Api\V1\Teacher\AgreementRequestController;
 use App\Http\Controllers\Api\V1\Teacher\AttendanceChangeController;
 use App\Http\Controllers\Api\V1\Teacher\AuthController as V1AuthController;
 use App\Http\Controllers\Api\V1\Teacher\ExamChangeController;
@@ -68,6 +69,12 @@ Route::prefix('v1/teacher')->name('api.v1.teacher.')->group(function () {
         // The teacher's own roll-call record, as the supervisor marked it.
         Route::middleware(['teacher.api:teacher.my-attendance', 'throttle:60,1'])
             ->get('/my-attendance', [MyAttendanceController::class, 'show'])->name('my-attendance');
+
+        // Template agreements sent from the student card, and a send called off.
+        Route::middleware(['teacher.api:teacher.agreements', 'throttle:60,1'])->name('agreement-requests.')->group(function () {
+            Route::post('/students/{student}/agreement-requests', [AgreementRequestController::class, 'store'])->whereNumber('student')->name('store');
+            Route::post('/agreement-requests/{agreementRequest}/cancel', [AgreementRequestController::class, 'cancel'])->whereNumber('agreementRequest')->name('cancel');
+        });
 
         Route::middleware(['teacher.api:teacher.students', 'throttle:60,1'])->prefix('/students/{student}')->name('students.')->whereNumber('student')->group(function () {
             Route::post('/phone', [StudentContactController::class, 'phone'])->name('phone');

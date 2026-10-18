@@ -10,7 +10,10 @@
     <div class="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
             <flux:heading size="xl" class="font-bold">الإقرارات</flux:heading>
-            <flux:subheading>ما يُقرّ به طلاب مراحلك وأولياء أمورهم: التعهدات والسياسات والمبادئ والتوجيهات.</flux:subheading>
+            <flux:subheading>
+                {{ $this->writesForAllStages() ? 'ما يُقرّ به الطلاب وأولياء أمورهم في المراحل كلها أو بعضها' : 'ما يُقرّ به طلاب مراحلك وأولياء أمورهم' }}:
+                إقرارات عامة تُطلب من الجميع، ونماذج يرسلها المعلم لمن يختار.
+            </flux:subheading>
         </div>
         @unless ($editing)
             <flux:button variant="primary" icon="plus" wire:click="create">إقرار جديد</flux:button>
@@ -20,6 +23,20 @@
     @if ($editing)
         <div class="rounded-2xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-5 space-y-5" data-agreement-editor>
             <flux:heading size="lg">{{ $editingId ? 'تعديل الإقرار' : 'إقرار جديد' }}</flux:heading>
+
+            {{-- The two kinds: general, asked of everyone the stages hold; a template, sent by the teacher. --}}
+            <div class="grid gap-3 sm:grid-cols-2" role="radiogroup" aria-label="نوع الإقرار من حيث الإرسال" data-agreement-kind>
+                @foreach ([
+                    'general' => ['إقرار عام', 'يُطلب من كل طلاب المراحل المختارة أو أولياء أمورهم، ويكفي فيه إقرار واحد لكل إصدار.'],
+                    'template' => ['نموذج يرسله المعلم', 'لا يُطلب من أحد تلقائياً؛ يرسله المعلم لمن يختار من طلابه، ويمكن إرساله أكثر من مرة.'],
+                ] as $key => [$label, $hint])
+                    <button type="button" role="radio" wire:click="$set('kind', '{{ $key }}')" aria-checked="{{ $kind === $key ? 'true' : 'false' }}"
+                        class="rounded-xl border p-3 text-start transition-colors {{ $kind === $key ? 'border-accent bg-accent/5 ring-1 ring-accent' : 'border-zinc-200 dark:border-zinc-700 hover:border-zinc-300' }}">
+                        <span class="block text-sm font-bold">{{ $label }}</span>
+                        <span class="mt-0.5 block text-xs text-zinc-500">{{ $hint }}</span>
+                    </button>
+                @endforeach
+            </div>
 
             <div class="grid gap-4 md:grid-cols-2">
                 <flux:input wire:model="title" label="عنوان الإقرار" placeholder="مثال: تعهد الالتزام بأنظمة الحلقة" />
@@ -31,17 +48,24 @@
             </div>
 
             <div class="grid gap-4 md:grid-cols-2">
-                <flux:radio.group wire:model="audience" label="يُقرّ به">
+                <flux:radio.group wire:model="audience" label="{{ $kind === 'template' ? 'يُرسل افتراضياً إلى' : 'يُقرّ به' }}">
                     @foreach (AgreementRules::AUDIENCES as $key => $label)
                         <flux:radio value="{{ $key }}" label="{{ $label }}" />
                     @endforeach
                 </flux:radio.group>
 
-                <flux:checkbox.group wire:model="stageIds" label="المراحل">
-                    @foreach ($this->stages as $stage)
-                        <flux:checkbox value="{{ $stage->id }}" label="{{ $stage->name }}" />
-                    @endforeach
-                </flux:checkbox.group>
+                <div class="space-y-3">
+                    @if ($this->writesForAllStages())
+                        <flux:switch wire:model.live="allStages" label="{{ $kind === 'template' ? 'متاح لمعلمي جميع الحلقات' : 'مفروض على جميع الحلقات' }}" />
+                    @endif
+                    @unless ($this->writesForAllStages() && $allStages)
+                        <flux:checkbox.group wire:model="stageIds" label="{{ $kind === 'template' ? 'يرسله معلمو المراحل' : 'المراحل' }}">
+                            @foreach ($this->stages as $stage)
+                                <flux:checkbox value="{{ $stage->id }}" label="{{ $stage->name }}" />
+                            @endforeach
+                        </flux:checkbox.group>
+                    @endunless
+                </div>
             </div>
 
             <div class="space-y-3">
@@ -143,6 +167,7 @@
                     <div class="space-y-1 min-w-0">
                         <div class="flex flex-wrap items-center gap-1.5">
                             <flux:badge size="sm" :color="$statusColor">{{ $statusLabel }}</flux:badge>
+                            <flux:badge size="sm" :color="$agreement->isTemplate() ? 'violet' : 'teal'">{{ $agreement->isTemplate() ? 'نموذج' : 'عام' }}</flux:badge>
                             <flux:badge size="sm">{{ AgreementRules::TYPES[$agreement->type] ?? $agreement->type }}</flux:badge>
                             <flux:badge size="sm" color="sky">{{ AgreementRules::AUDIENCES[$agreement->audience] ?? $agreement->audience }}</flux:badge>
                             @if ($version)
@@ -150,12 +175,20 @@
                             @endif
                         </div>
                         <flux:heading size="lg" class="truncate">{{ $agreement->title }}</flux:heading>
-                        <p class="text-xs text-zinc-500">{{ $agreement->stages->pluck('name')->implode('، ') }} · {{ $ar($topicsCount) }} {{ $topicsCount === 1 ? 'موضوع' : 'موضوعات' }} · {{ $ar($clausesCount) }} بنود</p>
+                        <p class="text-xs text-zinc-500">{{ $agreement->all_stages ? 'جميع المراحل' : $agreement->stages->pluck('name')->implode('، ') }} · {{ $ar($topicsCount) }} {{ $topicsCount === 1 ? 'موضوع' : 'موضوعات' }} · {{ $ar($clausesCount) }} بنود</p>
                         @if ($unpublished)
                             <p class="text-xs font-medium text-amber-600 dark:text-amber-400">فيه تعديلات لم تُنشر بعد.</p>
                         @endif
                     </div>
                 </div>
+
+                @if ($agreement->isTemplate() && $version)
+                    @php $sent = $sends[$agreement->id] ?? null; @endphp
+                    <div class="flex items-center gap-4 rounded-xl bg-zinc-50 dark:bg-zinc-800/60 px-3 py-2 text-xs text-zinc-500" data-template-sends>
+                        <span>أُرسل <span class="font-bold tabular-nums text-zinc-800 dark:text-zinc-200">{{ $ar($sent?->sent ?? 0) }}</span> مرة</span>
+                        <span>أُجيب <span class="font-bold tabular-nums text-emerald-700 dark:text-emerald-400">{{ $ar($sent?->signed ?? 0) }}</span></span>
+                    </div>
+                @endif
 
                 @if (isset($counts[$agreement->id]))
                     <div class="grid gap-2 {{ count($counts[$agreement->id]) > 1 ? 'grid-cols-2' : 'grid-cols-1' }}">
@@ -176,12 +209,16 @@
 
                 <div class="flex flex-wrap gap-2 pt-1">
                     @if ($version && $agreement->status !== 'archived')
-                        <flux:button size="sm" variant="primary" icon="users" :href="route('supervisor.agreements.follow-up', $agreement)" wire:navigate>المتابعة والإرسال</flux:button>
+                        <flux:button size="sm" variant="primary" icon="users" :href="$this->followUpUrl($agreement)" wire:navigate>{{ $agreement->isTemplate() ? 'متابعة الإرسال' : 'المتابعة والإرسال' }}</flux:button>
                     @endif
-                    @if ($agreement->status !== 'archived')
+                    @unless ($this->mayEdit($agreement))
+                        <span class="self-center text-xs text-zinc-500">من إعداد الإدارة</span>
+                    @endunless
+                    @if ($agreement->status !== 'archived' && $this->mayEdit($agreement))
                         <flux:button size="sm" icon="pencil-square" wire:click="edit({{ $agreement->id }})">تعديل</flux:button>
                     @endif
-                    @if ($agreement->status === 'archived')
+                    @if (! $this->mayEdit($agreement))
+                    @elseif ($agreement->status === 'archived')
                         <flux:button size="sm" icon="arrow-uturn-right" wire:click="restore({{ $agreement->id }})">استعادة</flux:button>
                     @elseif ($version)
                         <flux:button size="sm" variant="ghost" icon="archive-box" wire:click="archive({{ $agreement->id }})" wire:confirm="أرشفة الإقرار توقف طلبه من الطلاب وأولياء الأمور، وتبقى الإقرارات المسجّلة. متابعة؟">أرشفة</flux:button>

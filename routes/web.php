@@ -8,6 +8,7 @@ use App\Http\Controllers\Student\StudentPlanPrintController;
 use App\Http\Controllers\Teacher\TasmeehDataController;
 use App\Livewire\Auth\Student\Register;
 use App\Livewire\Manager\PendingApprovals;
+use App\Livewire\Public\AgreementRequestSign;
 use App\Livewire\Public\AgreementSign;
 use App\Livewire\Public\BusBooking;
 use App\Livewire\Public\BusOfficer;
@@ -153,6 +154,8 @@ Route::middleware(['auth:manager', 'approved', 'page.enabled'])->prefix('manager
     Route::view('/messages', 'manager.messages')->name('messages');
     Route::view('/role-permissions', 'manager.role-permissions')->name('role-permissions');
     Route::view('/circle-rules', 'manager.circle-rules')->name('circle-rules');
+    Route::view('/agreements', 'manager.agreements')->name('agreements');
+    Route::get('/agreements/{agreement}', fn (int $agreement) => view('manager.agreement-follow-up', ['agreementId' => $agreement]))->whereNumber('agreement')->name('agreements.follow-up');
     Route::view('/exam-readiness', 'manager.exam-readiness')->name('exam-readiness');
     Route::get('/exam-batches/{batch}/print', [ExamBatchExportController::class, 'print'])->name('exam-batches.print');
     Route::get('/exam-batches/{batch}/csv', [ExamBatchExportController::class, 'csv'])->name('exam-batches.csv');
@@ -499,6 +502,9 @@ Route::get('/rules-acknowledgement', RulesAcknowledgementLink::class)->middlewar
 // A student's own link to the agreements they owe their word on, and their
 // guardian's: signed for the one student and party, signing nobody in.
 Route::get('/agreements/{student}/{party}', AgreementSign::class)->middleware('signed')->whereIn('party', ['student', 'guardian'])->name('agreements.sign');
+
+// One send of a template agreement by a teacher, with its own link and answer.
+Route::get('/agreements/request/{request}', AgreementRequestSign::class)->middleware('signed')->whereNumber('request')->name('agreements.request');
 
 // Where the survey gate sends anyone who owes a blocking survey. Reachable from
 // behind the gate by design — it is the way through it.

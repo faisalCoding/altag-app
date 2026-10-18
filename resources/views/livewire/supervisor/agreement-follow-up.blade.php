@@ -9,11 +9,12 @@
 <div dir="rtl" class="space-y-5">
     <div class="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
         <div class="space-y-1">
-            <flux:button size="sm" variant="ghost" icon="arrow-right" :href="route('supervisor.agreements')" wire:navigate>الإقرارات</flux:button>
+            <flux:button size="sm" variant="ghost" icon="arrow-right" :href="$this->backUrl()" wire:navigate>الإقرارات</flux:button>
             <flux:heading size="xl" class="font-bold">{{ $version->title }}</flux:heading>
             <flux:subheading>
+                {{ $this->agreement->isTemplate() ? 'نموذج يرسله المعلم' : 'إقرار عام' }} ·
                 {{ Agreements::TYPES[$version->type] ?? $version->type }} · {{ Agreements::AUDIENCES[$version->audience] }} · الإصدار {{ $ar($version->number) }}
-                · {{ $this->agreement->stages->pluck('name')->implode('، ') }}
+                · {{ $this->agreement->all_stages ? 'جميع المراحل' : $this->agreement->stages->pluck('name')->implode('، ') }}
             </flux:subheading>
         </div>
         <div class="flex flex-wrap items-end gap-2">
@@ -35,6 +36,22 @@
         </div>
     </div>
 
+    @if ($requests !== null)
+        <div class="grid gap-3 sm:grid-cols-3" data-template-totals>
+            @foreach ([['أُرسل', $totals['sent']], ['أُجيب', $totals['signed']], ['طالباً أُرسل إليهم', $totals['students']]] as [$label, $value])
+                <div class="rounded-2xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-4 py-3">
+                    <div class="text-sm text-zinc-500">{{ $label }}</div>
+                    <div class="text-2xl font-bold tabular-nums">{{ $ar($value) }}</div>
+                </div>
+            @endforeach
+        </div>
+
+        <p class="text-xs text-zinc-500">كل إرسال من المعلم طلبٌ مستقل له رابطه وتاريخه وردّه؛ ولا يُدخل الرابط أحداً إلى حسابه.</p>
+
+        <div wire:loading.class="opacity-50" wire:target="circle, show" class="transition-opacity">
+            <x-agreements.requests :requests="$requests" />
+        </div>
+    @else
     <div class="grid gap-3 {{ count($parties) > 1 ? 'sm:grid-cols-2' : '' }}">
         @foreach ($totals as $party => $count)
             @php $rate = $count['total'] > 0 ? round($count['signed'] / $count['total'] * 100) : 0; @endphp
@@ -55,4 +72,5 @@
     <div wire:loading.class="opacity-50" wire:target="circle, show" class="transition-opacity">
         <x-agreements.students :rows="$rows" :parties="$parties" />
     </div>
+    @endif
 </div>

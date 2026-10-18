@@ -174,6 +174,10 @@ class TeacherSyncSnapshot
             // The agreements each student and guardian owes their word on, with
             // the links the teacher sends them.
             'agreements' => Agreements::forApp($students),
+            // The templates the teacher may send their students, and every
+            // send to them standing, with its answer or its link.
+            'agreement_templates' => Agreements::templatesForApp($stageIds->values()->all()),
+            'agreement_requests' => Agreements::requestsForApp($students->modelKeys()),
             'competitions' => $gradingCompetitions->unique('id')->map(fn (Leaderboard $competition) => new SyncCompetitionResource(
                 $competition,
                 $gradingCompetitions->filter(fn (Leaderboard $graded) => $graded->id === $competition->id)->keys()->all(),

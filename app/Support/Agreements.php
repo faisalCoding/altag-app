@@ -4,6 +4,7 @@ namespace App\Support;
 
 use App\Models\Agreement;
 use App\Models\AgreementCircleType;
+use App\Models\AgreementRequest;
 use App\Models\AgreementSignature;
 use App\Models\AgreementVersion;
 use App\Models\Student;
@@ -61,7 +62,8 @@ final class Agreements
         }
 
         return Agreement::where('status', 'published')
-            ->whereHas('stages', fn ($q) => $q->whereKey($stageId))
+            ->where('kind', 'general')
+            ->reaching([$stageId])
             ->with('currentVersion')
             ->orderBy('id')
             ->get()
@@ -319,7 +321,8 @@ final class Agreements
         }
 
         $agreements = Agreement::where('status', 'published')
-            ->whereHas('stages', fn ($q) => $q->whereIn('stages.id', $stageIds))
+            ->where('kind', 'general')
+            ->reaching($stageIds)
             ->with(['currentVersion', 'stages:id', 'circleTypes'])
             ->orderBy('id')
             ->get()
@@ -328,7 +331,7 @@ final class Agreements
         $entries = [];
 
         foreach ($agreements as $agreement) {
-            $bound = $agreement->stages->modelKeys();
+            $bound = $agreement->stageIds();
             $asked = $students->filter(fn (Student $student) => in_array($student->effective_stage_id, $bound, true));
             $standings = self::standings($agreement, $asked->modelKeys());
 
@@ -350,6 +353,192 @@ final class Agreements
         }
 
         return $entries;
+    }
+
+    /**
+     * The templates a teacher may send to students of the stages: those
+     * written for one of them, and the manager's for every stage.
+     *
+     * @param  array<int, int>  $stageIds
+     * @return Collection<int, Agreement>
+     */
+    public static function templatesFor(array $stageIds): Collection
+    {
+        return Agreement::where('status', 'published')
+            ->where('kind', 'template')
+            ->reaching($stageIds)
+            ->with(['currentVersion', 'stages:id'])
+            ->orderBy('title')
+            ->get()
+            ->filter(fn (Agreement $agreement) => $agreement->currentVersion !== null)
+            ->values();
+    }
+
+    /**
+     * Send a template to students — to them, their guardians or both — under
+     * the kind and note the teacher gives: a request a student and party, on
+     * the text as it reads now. Sent again, it is another request.
+     *
+     * @param  iterable<int, Student>  $students
+     * @return Collection<int, AgreementRequest>
+     */
+    public static function send(Agreement $template, iterable $students, string $audience, string $type, ?string $note, ?User $sender): Collection
+    {
+        $version = $template->currentVersion;
+        $note = trim((string) $note) ?: null;
+
+        return DB::transaction(fn () => collect($students)->flatMap(fn (Student $student) => collect(self::partiesOf($audience))
+            ->map(fn (string $party) => AgreementRequest::create([
+                'agreement_id' => $template->id,
+                'agreement_version_id' => $version->id,
+                'student_id' => $student->id,
+                'party' => $party,
+                'type' => $type,
+                'note' => $note,
+                'sent_by' => $sender?->id,
+                'sent_at' => now(),
+            ]))));
+    }
+
+    /**
+     * The request's own link: it opens that send alone, signing nobody in.
+     */
+    public static function requestLink(AgreementRequest $request): string
+    {
+        return URL::signedRoute('agreements.request', ['request' => $request->id]);
+    }
+
+    /**
+     * The wa.me address that opens the request's message to its party; null
+     * when no phone is on record for them.
+     */
+    public static function requestWhatsappUrl(AgreementRequest $request): ?string
+    {
+        $student = $request->student;
+        $phone = $request->party === 'student' ? $student?->phone : $student?->guardian?->phone;
+
+        if (! $phone) {
+            return null;
+        }
+
+        return 'https://wa.me/'.RollCallReminder::phone($phone).'?text='.urlencode(self::requestMessage($request));
+    }
+
+    public static function requestMessage(AgreementRequest $request): string
+    {
+        $student = $request->student;
+        $title = $request->version?->title ?? $request->agreement?->title;
+        $greeting = $request->party === 'guardian'
+            ? "ولي أمر الطالب {$student->name} الكريم"
+            : 'عزيزي الطالب '.explode(' ', trim($student->name))[0];
+
+        return implode("\n", array_filter([
+            'السلام عليكم ورحمة الله وبركاته',
+            $greeting,
+            "نرجو الاطلاع على «{$title}» والإقرار به عبر الرابط",
+            $request->note,
+            self::requestLink($request),
+        ]));
+    }
+
+    /**
+     * Record the answer to a request, on the text it was sent with. An answer
+     * given, or a request called off, stays as it is.
+     */
+    public static function answer(AgreementRequest $request, string $name, ?int $signerId, string $channel, ?string $ip, ?string $userAgent): AgreementRequest
+    {
+        if (! $request->isOpen()) {
+            return $request;
+        }
+
+        $request->update([
+            'signed_at' => now(),
+            'signer_name' => $name,
+            'signer_id' => $signerId,
+            'channel' => $channel,
+            'content_hash' => self::hashOf(self::textFor($request->version, $request->type)),
+            'ip' => $ip,
+            'user_agent' => $userAgent === null ? null : mb_substr($userAgent, 0, 500),
+        ]);
+
+        return $request;
+    }
+
+    /**
+     * A send as the teacher app keeps it: to whom and why, and its answer —
+     * or, while it waits, the link to send.
+     *
+     * @return array{id: int, student_id: int, agreement_id: int, title: string, party: string, type: string, note: ?string, sent_at: string, sent_by: ?string, signed_at: ?string, signed_by: ?string, channel: ?string, link: ?string}
+     */
+    public static function requestForApp(AgreementRequest $request): array
+    {
+        return [
+            'id' => $request->id,
+            'student_id' => $request->student_id,
+            'agreement_id' => $request->agreement_id,
+            'title' => $request->version?->title ?? '',
+            'party' => $request->party,
+            'type' => $request->type,
+            'note' => $request->note,
+            'sent_at' => $request->sent_at->toISOString(),
+            'sent_by' => $request->sender?->name,
+            'signed_at' => $request->signed_at?->toISOString(),
+            'signed_by' => $request->signer_name,
+            'channel' => $request->channel,
+            'link' => $request->isOpen() ? self::requestLink($request) : null,
+        ];
+    }
+
+    /**
+     * The sends to the students that stand — not called off — newest first.
+     *
+     * @param  array<int, int>  $studentIds
+     * @return list<array<string, mixed>>
+     */
+    public static function requestsForApp(array $studentIds): array
+    {
+        return AgreementRequest::whereIn('student_id', $studentIds)
+            ->whereNull('cancelled_at')
+            ->with(['version:id,title', 'sender:id,name'])
+            ->latest('sent_at')
+            ->latest('id')
+            ->get()
+            ->map(fn (AgreementRequest $request) => self::requestForApp($request))
+            ->all();
+    }
+
+    /**
+     * The templates as the teacher app offers them to send.
+     *
+     * @param  array<int, int>  $stageIds
+     * @return list<array{id: int, title: string, type: string, audience: string, stage_ids: list<int>|null, topics: list<array{title: string, clauses: list<string>}>}>
+     */
+    public static function templatesForApp(array $stageIds): array
+    {
+        return self::templatesFor($stageIds)->map(fn (Agreement $template) => [
+            'id' => $template->id,
+            'title' => $template->currentVersion->title,
+            'type' => $template->currentVersion->type,
+            'audience' => $template->currentVersion->audience,
+            'stage_ids' => $template->all_stages ? null : $template->stages->modelKeys(),
+            'topics' => self::topicsOf($template->currentVersion->topics),
+        ])->values()->all();
+    }
+
+    /**
+     * The requests still waiting for a student's party, newest first.
+     *
+     * @return Collection<int, AgreementRequest>
+     */
+    public static function openRequests(Student $student, string $party): Collection
+    {
+        return AgreementRequest::where('student_id', $student->id)
+            ->where('party', $party)
+            ->whereNull('signed_at')
+            ->whereNull('cancelled_at')
+            ->with('version')
+            ->latest('sent_at')
+            ->get();
     }
 
     /**
