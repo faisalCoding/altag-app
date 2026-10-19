@@ -2,6 +2,7 @@
 
 use App\Models\Leaderboard;
 use App\Services\LeaderboardService;
+use App\Support\CompetitionWeekLeaders;
 use App\Support\CompetitionWeeks;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Locked;
@@ -45,7 +46,8 @@ new class extends Component {
         return [
             'competition' => $competition,
             'standings' => (new LeaderboardService)->getStandings($competition, CompetitionWeeks::find($competition, $this->week)),
-            'weeks' => CompetitionWeeks::of($competition),
+            'weeks' => $weeks = CompetitionWeeks::of($competition),
+            'leaders' => CompetitionWeekLeaders::for($competition, $weeks, $student->id),
             'studentId' => $student->id,
         ];
     }
@@ -76,7 +78,7 @@ new class extends Component {
         </div>
     </div>
 
-    <x-competition-weeks :weeks="$weeks" :selected="$week" model="week">
+    <x-competition-weeks :weeks="$weeks" :leaders="$leaders" :selected="$week" model="week">
     @php
         $top3 = $standings->take(3)->values();
         $rest = $standings->skip(3)->values();

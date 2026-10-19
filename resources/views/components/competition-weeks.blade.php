@@ -4,6 +4,8 @@
     'selected' => '',
     'island' => null,
     'active' => 'bg-accent text-accent-foreground border-accent shadow-sm',
+    // Who led each week that is over, by week number (App\Support\CompetitionWeekLeaders).
+    'leaders' => [],
 ])
 
 @php
@@ -20,6 +22,8 @@
     The standings over the whole competition, or one week of its days, picked
     from a strip of chips that scrolls sideways on a phone. The pick shows at
     once; the standings under it fade until they arrive (App\Support\CompetitionWeeks).
+    A week that is over shows who led it: the first's picture and name, or the
+    pictures of all those tied at the top.
 --}}
 <div
     x-data="{
@@ -52,6 +56,32 @@
                     @endif
                 </span>
                 <span class="block text-[11px] leading-4 opacity-75 whitespace-nowrap">{{ $option['range'] }}</span>
+                @if ($option['value'] !== '' && ! empty($leaders[(int) $option['value']]))
+                    @php
+                        $winners = $leaders[(int) $option['value']];
+                        $shown = array_slice($winners, 0, 4);
+                        $said = (count($winners) > 1 ? __('تصدّره بالتساوي: ') : __('متصدّر الأسبوع: ')).collect($winners)->pluck('name')->implode('، ');
+                    @endphp
+                    <span class="mt-1.5 flex items-center gap-1.5" data-week-leaders="{{ count($winners) }}" title="{{ $said }}">
+                        <flux:icon icon="trophy" variant="micro" class="size-3.5 shrink-0 text-amber-500" />
+                        <span class="flex shrink-0 -space-x-2" aria-hidden="true">
+                            @foreach ($shown as $winner)
+                                @if ($winner['avatar'])
+                                    <img src="{{ $winner['avatar'] }}" alt="" class="size-6 shrink-0 rounded-full object-cover ring-2 ring-white dark:ring-zinc-900">
+                                @else
+                                    <span class="flex size-6 shrink-0 items-center justify-center rounded-full text-[9px] font-bold ring-2 ring-white dark:ring-zinc-900" style="{{ $winner['style'] }}">{{ $winner['initials'] }}</span>
+                                @endif
+                            @endforeach
+                            @if (count($winners) > count($shown))
+                                <span class="flex size-6 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-[9px] font-bold text-zinc-600 ring-2 ring-white dark:bg-zinc-800 dark:text-zinc-300 dark:ring-zinc-900">+{{ \App\Support\HijriDate::arabicDigits(count($winners) - count($shown)) }}</span>
+                            @endif
+                        </span>
+                        @if (count($winners) === 1)
+                            <span class="max-w-28 truncate text-[11px] font-bold leading-4" aria-hidden="true">{{ $winners[0]['name'] }}</span>
+                        @endif
+                        <span class="sr-only">{{ $said }}</span>
+                    </span>
+                @endif
             </button>
         @endforeach
     </div>

@@ -2,6 +2,7 @@
 
 use App\Models\Leaderboard;
 use App\Services\LeaderboardService;
+use App\Support\CompetitionWeekLeaders;
 use App\Support\CompetitionWeeks;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Locked;
@@ -53,7 +54,8 @@ new class extends Component {
         return [
             'standings' => $standings,
             'byTrack' => $service->getStandingsByTrack($competition, $standings),
-            'weeks' => CompetitionWeeks::of($competition),
+            'weeks' => $weeks = CompetitionWeeks::of($competition),
+            'leaders' => CompetitionWeekLeaders::for($competition, $weeks, $student->id),
             'studentId' => $student->id,
         ];
     }
@@ -67,7 +69,7 @@ new class extends Component {
         </svg>
         {{ __('لوحة المتصدرين') }}
     </flux:heading>
-    <x-competition-weeks :weeks="$weeks" :selected="$week" model="week"
+    <x-competition-weeks :weeks="$weeks" :leaders="$leaders" :selected="$week" model="week"
         active="bg-team-primary text-white border-team-primary shadow-sm">
 
     @if(empty($standings))
