@@ -247,7 +247,7 @@
                                     @foreach ($dates as $day)
                                         @php
                                             $cell = $row['cells'][$day['date']];
-                                            $link = e(route('manager.attendance-list', ['circleId' => $circle->id, 'date' => $day['date']]));
+                                            $link = e(route($listRoute, ['circleId' => $circle->id, 'date' => $day['date']]));
                                             $inner = match ($cell['state']) {
                                                 'data' => '<a href="'.$link.'" wire:navigate class="att-cell '.$band($cell['rate']).'" title="'.e('حاضر '.$ar($cell['present'] - $cell['late']).'، متأخر '.$ar($cell['late']).'، غائب '.$ar($cell['absent']).'، مستأذن '.$ar($cell['excused']).($cell['unmarked'] > 0 ? '، لم يُسجَّل '.$ar($cell['unmarked']) : '')).'">'
                                                     // Spaced, so the two read as two: present, then of how many.
@@ -283,7 +283,7 @@
                     </tbody>
                     <tfoot>
                         <tr class="font-bold">
-                            <td class="sticky right-0 z-[1] bg-zinc-100 dark:bg-zinc-800 px-3 py-2 text-zinc-800 dark:text-zinc-100 text-sm">المجمع</td>
+                            <td class="sticky right-0 z-[1] bg-zinc-100 dark:bg-zinc-800 px-3 py-2 text-zinc-800 dark:text-zinc-100 text-sm">{{ $totalLabel }}</td>
                             @foreach ($dates as $day)
                                 @php
                                     $total = $selection['days'][$day['date']];

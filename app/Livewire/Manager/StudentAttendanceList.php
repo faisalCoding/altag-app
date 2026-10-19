@@ -10,8 +10,16 @@ use Flux\Flux;
 use Livewire\Attributes\Locked;
 use Livewire\Component;
 
+/**
+ * One circle's roll on one day, opened from the attendance reports: each
+ * student's status, to read or set. The supervisor's page extends this one,
+ * over the circles of the stages they oversee.
+ */
 class StudentAttendanceList extends Component
 {
+    /** The role whose page this is: where «عودة» may lead. */
+    protected const ROLE = 'manager';
+
     #[Locked]
     public $circleId;
 
@@ -27,7 +35,7 @@ class StudentAttendanceList extends Component
 
     /**
      * Where «عودة» leads: the page this one was opened from — the yearly
-     * sheet or the attendance report — when it is one of the manager's own.
+     * sheet or the attendance report — when it is one of the role's own.
      */
     #[Locked]
     public string $backUrl = '';
@@ -35,14 +43,20 @@ class StudentAttendanceList extends Component
     public function mount($circleId, $date)
     {
         $previous = url()->previous();
-        $this->backUrl = str_starts_with($previous, url('/manager/')) && $previous !== url()->current()
+        $this->backUrl = str_starts_with($previous, url('/'.static::ROLE.'/')) && $previous !== url()->current()
             ? $previous
-            : route('manager.yearly-attendance');
+            : route(static::ROLE.'.yearly-attendance');
 
-        $this->circleId = $circleId;
+        $this->circle = $this->findCircle($circleId);
+        $this->circleId = $this->circle->id;
         $this->date = $date;
-        $this->circle = Circle::with('teachers')->findOrFail($circleId);
         $this->loadStudents();
+    }
+
+    /** A circle the page may open: any of the academy's. */
+    protected function findCircle($circleId): Circle
+    {
+        return Circle::with('teachers')->findOrFail($circleId);
     }
 
     public function loadStudents()
@@ -139,7 +153,7 @@ class StudentAttendanceList extends Component
         return "السلام عليكم ورحمة الله وبركاته\n نود ان نشعركم بأن الطالب {$student->name} غائب اليوم {$hijriDate}\n و انه هذه {$ordinal} حالة غياب تم تسجيلها عليه";
     }
 
-    private function getHijriDate(): string
+    protected function getHijriDate(): string
     {
         return HijriDate::full($this->date);
     }

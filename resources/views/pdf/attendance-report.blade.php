@@ -224,7 +224,7 @@
     @if (count($grid['groups']) > 0)
         <tfoot>
             <tr>
-                <td class="namecol">المجمع</td>
+                <td class="namecol">{{ $totalLabel ?? 'المجمع' }}</td>
                 @foreach ($dates as $date)
                     <td>
                         {{ $percent($grid['days'][$date]['rate']) }}

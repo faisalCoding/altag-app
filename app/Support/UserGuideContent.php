@@ -122,6 +122,7 @@ class UserGuideContent
             [
                 'heading' => 'المتابعة والتقارير',
                 'pages' => [
+                    ['title' => 'تقارير الحضور والغياب', 'route' => 'supervisor.attendance-reports', 'icon' => 'chart-bar-square', 'description' => 'نسبة حضور كل حلقة من حلقات مراحلك في كل يوم، مع أسماء الطلاب خلف كل يوم وطباعة التقرير.'],
                     ['title' => 'متابعة الحلقات السنوي', 'route' => 'supervisor.yearly-attendance', 'icon' => 'calendar', 'description' => 'نظرة سنوية على مدى التزام حلقاتك بتسجيل الحضور.'],
                     ['title' => 'التقويم الأكاديمي', 'route' => 'supervisor.academic-calendar', 'icon' => 'calendar-days', 'description' => 'عرض ومتابعة مناسبات وإجازات التقويم الأكاديمي الخاصة بنطاقك.'],
                     ['title' => 'المهام', 'route' => 'supervisor.tasks', 'icon' => 'clipboard-document-list', 'description' => 'قائمة مهامك الشخصية كمشرف، بتواريخ استحقاق هجرية.'],

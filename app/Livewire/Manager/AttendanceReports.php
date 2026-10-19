@@ -7,6 +7,7 @@ use App\Services\AttendanceReportGrid;
 use App\Support\HijriDate;
 use Carbon\Carbon;
 use Flux\Flux;
+use Illuminate\Database\Eloquent\Collection;
 use Livewire\Component;
 use Mccarlosen\LaravelMpdf\Facades\LaravelMpdf;
 
@@ -15,11 +16,16 @@ use Mccarlosen\LaravelMpdf\Facades\LaravelMpdf;
  * a printed sheet alike: each day coloured by its rate, a working day nobody
  * took the roll on set apart from a day the stage does not meet, and every
  * day open to the names behind it. See AttendanceReportGrid.
+ *
+ * The supervisor's page extends this one, over the stages they oversee.
  */
 class AttendanceReports extends Component
 {
     /** The most days the screen draws; the printed sheet takes any range. */
     public const SCREEN_DAYS = 30;
+
+    /** The role reporting here: its own day pages, and the stages it sees. */
+    protected const ROLE = 'manager';
 
     public $fromDate;
 
@@ -87,15 +93,61 @@ class AttendanceReports extends Component
     }
 
     /**
+     * The stages the page may read: none named means every stage.
+     *
+     * @return array<int, int>
+     */
+    protected function readableStageIds(): array
+    {
+        return [];
+    }
+
+    /**
+     * The stages the page offers to pick from.
+     *
+     * @return Collection<int, Stage>
+     */
+    protected function reportableStages(): Collection
+    {
+        return Stage::get(['id', 'name']);
+    }
+
+    /**
+     * The stages a report reads: those picked among the page's own, or all
+     * of the page's when none is.
+     *
+     * @return array<int, int>
+     */
+    private function reportedStageIds(): array
+    {
+        $picked = array_map('intval', $this->stageIds);
+        $readable = $this->readableStageIds();
+
+        if ($readable === []) {
+            return $picked;
+        }
+
+        return array_values(array_intersect($picked, $readable)) ?: $readable;
+    }
+
+    /**
      * What the printed sheet says it covers — all of it, or the chosen few.
      */
     private function chosenStageNames(): string
     {
-        if ($this->stageIds === []) {
+        $stageIds = $this->reportedStageIds();
+
+        if ($stageIds === []) {
             return 'كل المراحل';
         }
 
-        return Stage::whereIn('id', $this->stageIds)->pluck('name')->implode('، ');
+        return Stage::whereIn('id', $stageIds)->pluck('name')->implode('، ');
+    }
+
+    /** The name of the total row: the whole academy, or the stages overseen. */
+    private function totalLabel(): string
+    {
+        return $this->readableStageIds() === [] ? 'المجمع' : 'الإجمالي';
     }
 
     /** What is wrong with the chosen range, if anything. */
@@ -121,10 +173,11 @@ class AttendanceReports extends Component
         }
 
         $pdf = LaravelMpdf::loadView('pdf.attendance-report', [
-            'grid' => AttendanceReportGrid::build($this->fromDate, $this->toDate, $this->stageIds),
+            'grid' => AttendanceReportGrid::build($this->fromDate, $this->toDate, $this->reportedStageIds()),
             'fromDate' => $this->fromDate,
             'toDate' => $this->toDate,
             'stageNames' => $this->chosenStageNames(),
+            'totalLabel' => $this->totalLabel(),
         ], [], [
             'format' => 'A4-L',
             'default_font' => 'lamasans',
@@ -148,7 +201,7 @@ class AttendanceReports extends Component
         // Every stage is read at once, for the range: picking stages then
         // only shows and hides rows in the browser, with no request at all.
         $grid = ! $problem && $days <= self::SCREEN_DAYS
-            ? AttendanceReportGrid::build($this->fromDate, $this->toDate)
+            ? AttendanceReportGrid::build($this->fromDate, $this->toDate, $this->readableStageIds())
             : null;
 
         return view('livewire.manager.attendance-reports', [
@@ -168,7 +221,9 @@ class AttendanceReports extends Component
                     'unmarked' => $row['totals']['unmarked'],
                     'rate' => $row['totals']['rate'],
                 ])->values()->all() : [],
-            'stages' => Stage::get(['id', 'name']),
+            'stages' => $this->reportableStages(),
+            'listRoute' => static::ROLE.'.attendance-list',
+            'totalLabel' => $this->totalLabel(),
         ]);
     }
 }
