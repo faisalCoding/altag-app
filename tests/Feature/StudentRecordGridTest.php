@@ -17,6 +17,7 @@ use App\Models\StudentPlanDay;
 use App\Models\Supervisor;
 use App\Models\Surah;
 use App\Services\StudentRecordGrid;
+use App\Support\Xlsx;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -208,24 +209,53 @@ it('offers the mutun and the odes only where a stage memorises them', function (
 });
 
 /**
- * The rows of the CSV the page last handed over, the byte order mark checked and dropped.
+ * The workbook the page last handed over, read back: its one sheet's XML.
+ */
+function downloadedSheet(object $page): SimpleXMLElement
+{
+    $path = tempnam(sys_get_temp_dir(), 'record');
+    file_put_contents($path, base64_decode(data_get($page->effects, 'download.content')));
+
+    $zip = new ZipArchive;
+    expect($zip->open($path))->toBeTrue();
+    $sheet = simplexml_load_string($zip->getFromName('xl/worksheets/sheet1.xml'));
+    $zip->close();
+    unlink($path);
+
+    return $sheet;
+}
+
+/**
+ * The rows of the workbook the page last handed over, each cell as its text,
+ * an empty one as ''.
  *
  * @return list<list<string>>
  */
 function downloadedRows(object $page): array
 {
-    $csv = base64_decode(data_get($page->effects, 'download.content'));
-    expect(str_starts_with($csv, "\u{FEFF}"))->toBeTrue();
+    $rows = [];
 
-    return array_map(fn (string $line) => str_getcsv($line, ',', '"', ''), array_values(array_filter(explode("\n", substr($csv, 3)))));
+    foreach (downloadedSheet($page)->sheetData->row as $row) {
+        $cells = [];
+
+        foreach ($row->c as $cell) {
+            preg_match('/^([A-Z]+)/', (string) $cell['r'], $letters);
+            $index = array_reduce(str_split($letters[1]), fn (int $carry, string $letter) => $carry * 26 + ord($letter) - 64, 0) - 1;
+            $cells[$index] = (string) $cell['t'] === 'inlineStr' ? (string) $cell->is->t : (string) $cell->v;
+        }
+
+        $rows[] = $cells === [] ? [] : array_replace(array_fill(0, max(array_keys($cells)) + 1, ''), $cells);
+    }
+
+    return $rows;
 }
 
-it('hands the record over as CSV in each of its shapes, over what the page shows', function () {
+it('hands the record over as an Excel workbook in each of its shapes, over what the page shows', function () {
     $this->actingAs($this->supervisor, 'supervisor');
     $page = Livewire::test(StudentRecord::class)->set('from', '2026-10-11');
 
     $page->call('export', 'summary')
-        ->assertFileDownloaded('سجل الطلاب - ملخص الطلاب - 2026-10-11 إلى 2026-10-15.csv');
+        ->assertFileDownloaded('سجل الطلاب - ملخص الطلاب - 2026-10-11 إلى 2026-10-15.xlsx', contentType: Xlsx::MIME);
     $summary = downloadedRows($page);
     expect($summary[0])->toBe(['الحلقة', 'الطالب', 'حاضر', 'متأخر', 'مستأذن', 'غائب', 'لم يُحضَّر', 'نسبة الحضور %', 'الأوراد'])
         ->and($summary[1])->toBe(['حلقة النور', 'أحمد', '1', '1', '0', '1', '1', '67', '2']);
@@ -242,7 +272,7 @@ it('hands the record over as CSV in each of its shapes, over what the page shows
 
     // Narrowed to the review, the details hold the review alone, «لم يسمع» among it.
     $page->set('filter', 'review')->call('export', 'recitations')
-        ->assertFileDownloaded('سجل الطلاب - تفاصيل التسميع - المراجعة - 2026-10-11 إلى 2026-10-15.csv');
+        ->assertFileDownloaded('سجل الطلاب - تفاصيل التسميع - المراجعة - 2026-10-11 إلى 2026-10-15.xlsx');
     $recitations = collect(downloadedRows($page))->skip(1);
     expect($recitations->pluck(4)->sort()->values()->all())->toBe(['المراجعة', 'المراجعة · تسميع حر'])
         ->and($recitations->pluck(6)->sort()->values()->all())->toBe(['جيد', 'لم يسمع']);
@@ -250,11 +280,25 @@ it('hands the record over as CSV in each of its shapes, over what the page shows
     $page->call('export', 'everything')->assertNotFound();
 });
 
-it('keeps a name a spreadsheet would run as a formula as text', function () {
+it('keeps a name a spreadsheet would run as a formula as plain text', function () {
     $this->ahmad->update(['name' => '=HYPERLINK("x")']);
     $this->actingAs($this->supervisor, 'supervisor');
 
     $page = Livewire::test(StudentRecord::class)->set('from', '2026-10-11')->call('export', 'summary');
 
-    expect(collect(downloadedRows($page))->pluck(1))->toContain("'=HYPERLINK(\"x\")");
+    expect(collect(downloadedRows($page))->pluck(1))->toContain('=HYPERLINK("x")')
+        ->and(downloadedSheet($page)->xpath('//*[local-name()="f"]'))->toBeEmpty();
+});
+
+it('lays the workbook out for an Arabic reader, whatever their list separator', function () {
+    $this->actingAs($this->supervisor, 'supervisor');
+
+    $sheet = downloadedSheet(Livewire::test(StudentRecord::class)->set('from', '2026-10-11')->call('export', 'grid'));
+
+    // Right to left, the header row kept in view and bold, and so the report under the students.
+    expect((string) $sheet->sheetViews->sheetView['rightToLeft'])->toBe('1')
+        ->and((string) $sheet->sheetViews->sheetView->pane['state'])->toBe('frozen')
+        ->and((string) $sheet->sheetData->row[0]->c[0]['s'])->toBe('1')
+        ->and((string) $sheet->sheetData->row[count($sheet->sheetData->row) - 1]->c[0]['s'])->toBe('1')
+        ->and((string) $sheet->sheetData->row[1]->c[0]['s'])->toBe('');
 });

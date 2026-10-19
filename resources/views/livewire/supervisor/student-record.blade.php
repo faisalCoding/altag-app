@@ -98,7 +98,7 @@
             <div class="flex items-end">
                 {{-- Each shape over what the page shows: its days, its circle and the kind picked. --}}
                 <flux:dropdown position="bottom" align="end">
-                    <flux:button icon="arrow-down-tray" icon:trailing="chevron-down" data-record-export>تحميل CSV</flux:button>
+                    <flux:button icon="arrow-down-tray" icon:trailing="chevron-down" data-record-export>تحميل Excel</flux:button>
                     <flux:menu>
                         @foreach (\App\Services\StudentRecordExport::KINDS as $key => $label)
                             <flux:menu.item wire:click="export('{{ $key }}')" wire:key="export-{{ $key }}">{{ $label }}</flux:menu.item>

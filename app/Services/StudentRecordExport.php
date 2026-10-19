@@ -4,10 +4,11 @@ namespace App\Services;
 
 use App\Models\AttendanceRevision;
 use App\Support\HijriDate;
+use App\Support\Xlsx;
 
 /**
- * The supervisor's record of students as CSV, over the same days, circles and
- * kind of recitation the page shows, in four shapes:
+ * The supervisor's record of students as an Excel workbook, over the same
+ * days, circles and kind of recitation the page shows, in four shapes:
  *
  * - grid: the table as it reads, a column a day, with the report beside the
  *   students and under the days;
@@ -15,8 +16,9 @@ use App\Support\HijriDate;
  * - summary: a row a student, their counts alone;
  * - recitations: a row a recitation, what it was and how it was graded.
  *
- * Written for Excel: UTF-8 with a byte order mark, numbers as numbers, and
- * any cell that a spreadsheet would read as a formula kept as text.
+ * A workbook rather than a CSV: Excel splits a CSV by the list separator of
+ * the reader's regional settings, a semicolon in Arabic ones, and laid every
+ * row of a comma CSV in one column (App\Support\Xlsx).
  */
 final class StudentRecordExport
 {
@@ -46,30 +48,14 @@ final class StudentRecordExport
     }
 
     /**
+     * One shape as a workbook's bytes: its header bold, and the grid's
+     * report row under the students too.
+     *
      * @param  list<list<string|int|null>>  $rows
      */
-    public static function csv(array $rows): string
+    public static function xlsx(string $kind, array $rows): string
     {
-        $stream = fopen('php://temp', 'r+');
-        fwrite($stream, "\u{FEFF}");
-
-        foreach ($rows as $row) {
-            fputcsv($stream, array_map(self::cell(...), $row), ',', '"', '');
-        }
-
-        rewind($stream);
-        $csv = stream_get_contents($stream);
-        fclose($stream);
-
-        return $csv;
-    }
-
-    /**
-     * A text cell a spreadsheet would run as a formula starts with a quote.
-     */
-    private static function cell(string|int|null $value): string|int|null
-    {
-        return is_string($value) && preg_match('/^[=+\-@\t\r]/', $value) === 1 ? "'".$value : $value;
+        return Xlsx::make($rows, self::KINDS[$kind], $kind === 'grid' ? [count($rows) - 1] : []);
     }
 
     /**
@@ -172,18 +158,23 @@ final class StudentRecordExport
     private static function recitations(array $grid, string $from, string $to, ?string $filter): array
     {
         $students = [];
+        $order = [];
 
-        foreach (self::students($grid) as [$circle, $student]) {
+        foreach (self::students($grid) as $position => [$circle, $student]) {
             $students[$student['id']] = [$circle['name'], $student['name']];
+            $order[$student['id']] = $position;
         }
 
         $rows = [['التاريخ', 'التاريخ الهجري', 'الحلقة', 'الطالب', 'ما سُمِّع', 'المقطع', 'التقدير', 'سجّله']];
 
-        foreach (RecitationRecord::between(array_keys($students), $from, $to) as $entry) {
-            if (! RecitationRecord::matches($entry, $filter)) {
-                continue;
-            }
+        // Day by day, and in a day student by student in the table's order:
+        // the record comes plan sessions first, then free recitations, then
+        // the mutun and the odes, each day's students woven through each other.
+        $entries = RecitationRecord::between(array_keys($students), $from, $to)
+            ->filter(fn (array $entry) => RecitationRecord::matches($entry, $filter))
+            ->sortBy([['date', 'asc'], fn (array $a, array $b) => $order[$a['student_id']] <=> $order[$b['student_id']]]);
 
+        foreach ($entries as $entry) {
             [$circle, $name] = $students[$entry['student_id']];
 
             $rows[] = [

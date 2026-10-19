@@ -9,6 +9,7 @@ use App\Services\RecitationRecord;
 use App\Services\StudentRecordExport;
 use App\Services\StudentRecordGrid;
 use App\Support\HijriDate;
+use App\Support\Xlsx;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Carbon;
 use Livewire\Attributes\Computed;
@@ -177,8 +178,8 @@ class StudentRecord extends Component
     }
 
     /**
-     * The record as CSV, in one of its shapes, over what the page shows: its
-     * days, its circle and the kind of recitation picked.
+     * The record as an Excel workbook, in one of its shapes, over what the
+     * page shows: its days, its circle and the kind of recitation picked.
      */
     public function export(string $kind): StreamedResponse
     {
@@ -186,12 +187,12 @@ class StudentRecord extends Component
         $this->skipRender();
 
         $grid = StudentRecordGrid::build($this->circleIds(), $this->from, $this->to, $this->filter ?: null);
-        $csv = StudentRecordExport::csv(StudentRecordExport::rows($kind, $grid, $this->from, $this->to, $this->filter ?: null));
+        $workbook = StudentRecordExport::xlsx($kind, StudentRecordExport::rows($kind, $grid, $this->from, $this->to, $this->filter ?: null));
         $name = 'سجل الطلاب - '.StudentRecordExport::KINDS[$kind]
             .($this->filter !== '' ? ' - '.$this->filters[$this->filter] : '')
-            .' - '.$this->from.' إلى '.$this->to.'.csv';
+            .' - '.$this->from.' إلى '.$this->to.'.xlsx';
 
-        return response()->streamDownload(fn () => print ($csv), $name, ['Content-Type' => 'text/csv; charset=UTF-8']);
+        return response()->streamDownload(fn () => print ($workbook), $name, ['Content-Type' => Xlsx::MIME]);
     }
 
     /** @return list<int> */
